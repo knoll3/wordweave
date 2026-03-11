@@ -1,30 +1,32 @@
-import React, { useEffect, useState } from "react";
-import type { Item, RecentRecipe } from "../../types";
+import React, { useEffect, useMemo, useState } from "react";
+import type { Item } from "../../types";
 import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
-import RecentCreations from "../Results/RecentCreations";
-import { fetchItems, fetchRecentRecipes } from "../../lib/api";
+import { fetchItems } from "../../lib/api";
 
 interface Props {
   onAddItemToWorkspace: (itemId: number) => void;
+  refreshToken?: number;
   onItemsLoaded?: (items: Item[]) => void;
-  onRecentLoaded?: (recent: RecentRecipe[]) => void;
 }
 
 const ElementSidebar: React.FC<Props> = ({
   onAddItemToWorkspace,
+  refreshToken = 0,
   onItemsLoaded,
-  onRecentLoaded,
 }) => {
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<Item[]>([]);
-  const [recent, setRecent] = useState<RecentRecipe[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [sortBy, setSortBy] = useState<"time" | "name">("time");
 
   useEffect(() => {
     void loadItems();
-    void loadRecent();
   }, []);
+
+  useEffect(() => {
+    void loadItems(search);
+  }, [refreshToken]);
 
   async function loadItems(query?: string) {
     try {
@@ -41,20 +43,20 @@ const ElementSidebar: React.FC<Props> = ({
     }
   }
 
-  async function loadRecent() {
-    try {
-      const data = await fetchRecentRecipes();
-      setRecent(data);
-      onRecentLoaded?.(data);
-    } catch (err) {
-      console.error("Failed to load recent recipes", err);
-    }
-  }
-
   function handleSearchChange(value: string) {
     setSearch(value);
     void loadItems(value);
   }
+
+  const displayedItems = useMemo(() => {
+    if (sortBy === "time") {
+      // Keep API order (created_at ASC) so newest items stay toward the end.
+      return items;
+    }
+    return [...items].sort((a, b) =>
+      a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+    );
+  }, [items, sortBy]);
 
   return (
     <>
@@ -66,21 +68,34 @@ const ElementSidebar: React.FC<Props> = ({
       </header>
 
       <section className="sidebar-section library-section">
-        <h2 className="section-title">Library</h2>
+        <div className="library-header-row">
+          <h2 className="section-title">Library</h2>
+          <div className="sort-controls" role="group" aria-label="Sort library">
+            <button
+              type="button"
+              className={`sort-button ${sortBy === "time" ? "active" : ""}`}
+              onClick={() => setSortBy("time")}
+            >
+              Time
+            </button>
+            <button
+              type="button"
+              className={`sort-button ${sortBy === "name" ? "active" : ""}`}
+              onClick={() => setSortBy("name")}
+            >
+              Name
+            </button>
+          </div>
+        </div>
         <ElementSearch value={search} onChange={handleSearchChange} />
         {loadingItems ? (
           <div className="sidebar-placeholder">Loading items…</div>
         ) : (
           <ElementList
-            items={items}
+            items={displayedItems}
             onAddToWorkspace={onAddItemToWorkspace}
           />
         )}
-      </section>
-
-      <section className="sidebar-section recent-section">
-        <h2 className="section-title">Recent creations</h2>
-        <RecentCreations recent={recent} />
       </section>
     </>
   );

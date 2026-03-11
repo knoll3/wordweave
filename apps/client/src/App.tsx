@@ -1,18 +1,25 @@
 import React, { useState } from "react";
-import type { Item, RecentRecipe, WorkspaceItem } from "./types";
+import type { Item, WorkspaceItem } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import {
   combineElements,
-  fetchRecentRecipes,
 } from "./lib/api";
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
-  const [recentRecipes, setRecentRecipes] = useState<RecentRecipe[]>([]);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [isCombining, setIsCombining] = useState(false);
+  const [combiningNodeIds, setCombiningNodeIds] = useState<{
+    sourceNodeId: string;
+    targetNodeId: string;
+  } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
+  const [viewportCenter, setViewportCenter] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   function showError(message: string, err: unknown) {
     console.error(message, err);
@@ -33,12 +40,19 @@ const App: React.FC = () => {
   ) {
     const item = findItemById(itemId);
     if (!item) return;
-    const nextPosition =
+    const anchorPosition =
       position ??
+      viewportCenter ??
       ({
-        x: 80 + Math.random() * 360,
-        y: 80 + Math.random() * 260,
+        x: 260,
+        y: 180,
       } as const);
+    const nextPosition = position
+      ? anchorPosition
+      : {
+          x: anchorPosition.x + (Math.random() - 0.5) * 160,
+          y: anchorPosition.y + (Math.random() - 0.5) * 120,
+        };
 
     setWorkspaceItems((prev) => [
       ...prev,
@@ -48,6 +62,23 @@ const App: React.FC = () => {
         position: { x: nextPosition.x, y: nextPosition.y },
       },
     ]);
+  }
+
+  function duplicateWorkspaceItem(
+    nodeId: string,
+    position?: { x: number; y: number }
+  ) {
+    const source = workspaceItems.find((item) => item.nodeId === nodeId);
+    if (!source) return;
+    addItemToWorkspace(source.itemId, position);
+  }
+
+  function removeWorkspaceItem(nodeId: string) {
+    setWorkspaceItems((prev) => prev.filter((item) => item.nodeId !== nodeId));
+  }
+
+  function clearWorkspaceItems() {
+    setWorkspaceItems([]);
   }
 
   async function combineWorkspaceItems(
@@ -74,6 +105,7 @@ const App: React.FC = () => {
 
     try {
       setIsCombining(true);
+      setCombiningNodeIds({ sourceNodeId, targetNodeId });
       const recipe = await combineElements(inputNames);
       console.log("[combine] recipe received", recipe);
 
@@ -88,6 +120,7 @@ const App: React.FC = () => {
         if (exists) return prev;
         return [...prev, recipe.resultElement!];
       });
+      setLibraryRefreshToken((prev) => prev + 1);
       console.log("[combine] item added", recipe.resultElement);
 
       const center = {
@@ -111,21 +144,12 @@ const App: React.FC = () => {
         ];
       });
 
-      try {
-        const updatedRecent = await fetchRecentRecipes();
-        console.log("[combine] recent recipes refreshed", {
-          count: updatedRecent.length,
-        });
-        setRecentRecipes(updatedRecent);
-      } catch (err) {
-        console.error("[combine] failed to refresh recent recipes", err);
-        showError("Failed to refresh recent recipes.", err);
-      }
     } catch (err) {
       console.error("[combine] failed", err);
       showError("Failed to combine items. Please try again.", err);
     } finally {
       setIsCombining(false);
+      setCombiningNodeIds(null);
       console.log("[combine] finished");
     }
   }
@@ -150,8 +174,8 @@ const App: React.FC = () => {
         <aside className="sidebar">
           <ElementSidebar
             onAddItemToWorkspace={addItemToWorkspace}
+            refreshToken={libraryRefreshToken}
             onItemsLoaded={setItems}
-            onRecentLoaded={setRecentRecipes}
           />
         </aside>
 
@@ -168,6 +192,11 @@ const App: React.FC = () => {
                 items={items}
                 workspaceItems={workspaceItems}
                 onWorkspaceItemsChange={setWorkspaceItems}
+                onViewportCenterChange={setViewportCenter}
+                combiningNodeIds={combiningNodeIds}
+                onClearWorkspace={clearWorkspaceItems}
+                onRemoveWorkspaceItem={removeWorkspaceItem}
+                onDuplicateWorkspaceItem={duplicateWorkspaceItem}
                 onAddItemToWorkspace={addItemToWorkspace}
                 onCombineWorkspaceItems={combineWorkspaceItems}
               />
