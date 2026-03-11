@@ -21,10 +21,7 @@ interface Props {
   workspaceItems: WorkspaceItem[];
   onWorkspaceItemsChange: (items: WorkspaceItem[]) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
-  combiningNodeIds?: {
-    sourceNodeId: string;
-    targetNodeId: string;
-  } | null;
+  combiningNodeIds?: string[] | null;
   onClearWorkspace: () => void;
   onRemoveWorkspaceItem: (nodeId: string) => void;
   onDuplicateWorkspaceItem: (
@@ -35,11 +32,25 @@ interface Props {
     itemId: number,
     position?: { x: number; y: number }
   ) => void;
+  onCombineWorkspaceSelection: (nodeIds: string[]) => void;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
     targetNodeId: string
   ) => void;
 }
+
+interface PressState {
+  pointerId: number;
+  nodeId: string | null;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  longPressTriggered: boolean;
+}
+
+const LONG_PRESS_MS = 550;
+const MOVE_THRESHOLD_PX = 10;
+const NODE_DRAG_THRESHOLD_PX = 12;
 
 function FlowCanvas({
   items,
@@ -51,6 +62,7 @@ function FlowCanvas({
   onRemoveWorkspaceItem,
   onDuplicateWorkspaceItem,
   onAddItemToWorkspace,
+  onCombineWorkspaceSelection,
   onCombineWorkspaceItems,
 }: Props) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
@@ -58,6 +70,18 @@ function FlowCanvas({
     useState<ReactFlowInstance | null>(null);
   const [draggingNodeId, setDraggingNodeId] = useState<string | null>(null);
   const [hoverTargetNodeId, setHoverTargetNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [viewportVersion, setViewportVersion] = useState(0);
+
+  const pressStateRef = useRef<PressState | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const suppressNextPaneClickRef = useRef(false);
+
+  const clearLongPressTimer = () => {
+    if (!longPressTimerRef.current) return;
+    clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  };
 
   const publishViewportCenter = useCallback(() => {
     if (!reactFlow || !wrapperRef.current || !onViewportCenterChange) return;
@@ -86,6 +110,83 @@ function FlowCanvas({
     () => new Map(items.map((item) => [item.id, item])),
     [items]
   );
+
+  useEffect(() => {
+    const workspaceNodeIds = new Set(workspaceItems.map((item) => item.nodeId));
+    setSelectedNodeIds((prev) => prev.filter((id) => workspaceNodeIds.has(id)));
+  }, [workspaceItems]);
+
+  const selectionMode = selectedNodeIds.length > 0;
+
+  const selectionCenterVisual = useMemo(() => {
+    if (!reactFlow || !wrapperRef.current || selectedNodeIds.length < 2) {
+      return null;
+    }
+
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const nodeCenters = selectedNodeIds
+      .map((nodeId) => {
+        const nodeEl = wrapperRef.current?.querySelector(
+          `.react-flow__node[data-id=\"${nodeId}\"]`
+        ) as HTMLElement | null;
+        if (nodeEl) {
+          const rect = nodeEl.getBoundingClientRect();
+          return {
+            x: rect.left - bounds.left + rect.width / 2,
+            y: rect.top - bounds.top + rect.height / 2,
+          };
+        }
+
+        // Fallback if DOM node is temporarily unavailable.
+        const node = reactFlow.getNode(nodeId);
+        if (!node) return null;
+        const nodeWidth = node.width ?? 76;
+        const nodeHeight = node.height ?? 32;
+        const nodeCenterFlow = {
+          x: node.position.x + nodeWidth / 2,
+          y: node.position.y + nodeHeight / 2,
+        };
+        const nodeCenterScreen = reactFlow.flowToScreenPosition(nodeCenterFlow);
+        return {
+          x: nodeCenterScreen.x - bounds.left,
+          y: nodeCenterScreen.y - bounds.top,
+        };
+      });
+    const validNodeCenters = nodeCenters.filter(
+      (center): center is { x: number; y: number } => !!center
+    );
+    if (validNodeCenters.length < 2) return null;
+
+    const centerSum = validNodeCenters.reduce(
+      (acc, center) => ({
+        x: acc.x + center.x,
+        y: acc.y + center.y,
+      }),
+      { x: 0, y: 0 }
+    );
+    const localCenter = {
+      x: centerSum.x / validNodeCenters.length,
+      y: centerSum.y / validNodeCenters.length,
+    };
+
+    const clampedCenter = {
+      x: Math.max(44, Math.min(bounds.width - 44, localCenter.x)),
+      y: Math.max(44, Math.min(bounds.height - 44, localCenter.y)),
+    };
+
+    return {
+      center: clampedCenter,
+      lines: validNodeCenters,
+    };
+  }, [reactFlow, selectedNodeIds, viewportVersion, workspaceItems]);
+
+  const toggleNodeSelection = useCallback((nodeId: string) => {
+    setSelectedNodeIds((prev) =>
+      prev.includes(nodeId)
+        ? prev.filter((id) => id !== nodeId)
+        : [...prev, nodeId]
+    );
+  }, []);
 
   const overlapArea = (
     a: { x: number; y: number; width: number; height: number },
@@ -138,32 +239,40 @@ function FlowCanvas({
       .map((workspaceItem) => {
         const item = itemById.get(workspaceItem.itemId);
         if (!item) return null;
+
         const isDragging = workspaceItem.nodeId === draggingNodeId;
         const isDragOverlapPair =
           !!draggingNodeId &&
           !!hoverTargetNodeId &&
           (workspaceItem.nodeId === draggingNodeId ||
             workspaceItem.nodeId === hoverTargetNodeId);
-        const isCombiningPair =
-          !!combiningNodeIds &&
-          (workspaceItem.nodeId === combiningNodeIds.sourceNodeId ||
-            workspaceItem.nodeId === combiningNodeIds.targetNodeId);
+        const isCombiningNode = !!combiningNodeIds?.includes(workspaceItem.nodeId);
+        const isSelected = selectedNodeIds.includes(workspaceItem.nodeId);
+
         const icon = item.icon || item.name.charAt(0).toUpperCase();
+
         return {
           id: workspaceItem.nodeId,
           position: workspaceItem.position,
           data: { label: `${icon} ${item.name}` },
           type: "default",
-          className: isCombiningPair ? "node-combining" : undefined,
-          zIndex: isDragging ? 1000 : 1,
+          className: isCombiningNode ? "node-combining" : undefined,
+          zIndex: isDragging ? 1000 : isSelected ? 20 : 1,
           style: {
             borderRadius: 999,
             padding: "6px 12px",
             fontSize: 11,
-            background: "rgba(15,23,42,0.98)",
-            border: "1px solid rgba(79,70,229,0.6)",
+            background: isSelected
+              ? "rgba(99,102,241,0.38)"
+              : "rgba(15,23,42,0.98)",
+            border: isSelected
+              ? "1px solid rgba(99,102,241,0.95)"
+              : "1px solid rgba(79,70,229,0.6)",
+            boxShadow: isSelected
+              ? "0 0 0 2px rgba(99,102,241,0.25)"
+              : "none",
             color: "#e5e7eb",
-            opacity: isCombiningPair ? 1 : isDragOverlapPair ? 0.5 : 1,
+            opacity: isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
           },
         } satisfies Node;
       })
@@ -173,6 +282,7 @@ function FlowCanvas({
     draggingNodeId,
     hoverTargetNodeId,
     itemById,
+    selectedNodeIds,
     workspaceItems,
   ]);
 
@@ -224,10 +334,82 @@ function FlowCanvas({
     onCombineWorkspaceItems(draggedNode.id, overlaps[0].node.id);
   };
 
+  const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (combiningNodeIds?.length) return;
+
+    const target = event.target as HTMLElement | null;
+    const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
+    const nodeId = nodeEl?.getAttribute("data-id") ?? null;
+
+    pressStateRef.current = {
+      pointerId: event.pointerId,
+      nodeId,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      longPressTriggered: false,
+    };
+
+    clearLongPressTimer();
+
+    if (nodeId) {
+      longPressTimerRef.current = setTimeout(() => {
+        const current = pressStateRef.current;
+        if (!current || current.nodeId !== nodeId || current.moved) return;
+        current.longPressTriggered = true;
+        suppressNextPaneClickRef.current = true;
+        toggleNodeSelection(nodeId);
+      }, LONG_PRESS_MS);
+    }
+  };
+
+  const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = pressStateRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+
+    if (current.moved) return;
+    const dx = event.clientX - current.startX;
+    const dy = event.clientY - current.startY;
+    if (Math.hypot(dx, dy) >= MOVE_THRESHOLD_PX) {
+      current.moved = true;
+      clearLongPressTimer();
+    }
+  };
+
+  const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = pressStateRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+
+    clearLongPressTimer();
+
+    const wasDrag = current.moved || draggingNodeId === current.nodeId;
+
+    if (!wasDrag && !current.longPressTriggered) {
+      if (current.nodeId && selectionMode) {
+        toggleNodeSelection(current.nodeId);
+      } else if (!current.nodeId && selectionMode) {
+        setSelectedNodeIds([]);
+      }
+    }
+
+    pressStateRef.current = null;
+  };
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    const current = pressStateRef.current;
+    if (!current || current.pointerId !== event.pointerId) return;
+    clearLongPressTimer();
+    pressStateRef.current = null;
+  };
+
   return (
     <div
       ref={wrapperRef}
       style={{ width: "100%", height: "100%", position: "relative" }}
+      onPointerDownCapture={handlePointerDown}
+      onPointerMoveCapture={handlePointerMove}
+      onPointerUpCapture={handlePointerUp}
+      onPointerCancelCapture={handlePointerCancel}
       onDragOver={(event) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = "copy";
@@ -258,15 +440,29 @@ function FlowCanvas({
         panOnScroll={false}
         panOnDrag={true}
         autoPanOnNodeDrag={false}
+        nodeDragThreshold={NODE_DRAG_THRESHOLD_PX}
         nodesDraggable={true}
         nodesConnectable={false}
         onInit={setReactFlow}
-        onMove={publishViewportCenter}
+        onMove={() => {
+          publishViewportCenter();
+          setViewportVersion((prev) => prev + 1);
+        }}
         onNodeDragStart={(_event, node) => {
           setDraggingNodeId(node.id);
+          clearLongPressTimer();
         }}
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
+        onPaneClick={() => {
+          if (suppressNextPaneClickRef.current) {
+            suppressNextPaneClickRef.current = false;
+            return;
+          }
+          if (selectionMode) {
+            setSelectedNodeIds([]);
+          }
+        }}
         onNodeDoubleClick={(_event, node) => {
           onDuplicateWorkspaceItem(node.id, {
             x: node.position.x + 28,
@@ -277,6 +473,19 @@ function FlowCanvas({
         <Background gap={16} color="rgba(148,163,184,0.24)" />
         <Controls showInteractive={false} />
       </ReactFlow>
+      {selectionCenterVisual ? (
+        <svg className="selection-center-lines" aria-hidden="true">
+          {selectionCenterVisual.lines.map((line, idx) => (
+            <line
+              key={`selection-line-${idx}`}
+              x1={line.x}
+              y1={line.y}
+              x2={selectionCenterVisual.center.x}
+              y2={selectionCenterVisual.center.y}
+            />
+          ))}
+        </svg>
+      ) : null}
       {workspaceItems.length > 0 ? (
         <button
           type="button"
@@ -284,6 +493,24 @@ function FlowCanvas({
           onClick={onClearWorkspace}
         >
           Clear
+        </button>
+      ) : null}
+      {selectedNodeIds.length >= 2 && selectionCenterVisual ? (
+        <button
+          type="button"
+          className="button primary graph-combine-selected-button"
+          aria-label="Combine selected items"
+          style={{
+            left: `${selectionCenterVisual.center.x}px`,
+            top: `${selectionCenterVisual.center.y}px`,
+          }}
+          onClick={() => {
+            onCombineWorkspaceSelection(selectedNodeIds);
+            setSelectedNodeIds([]);
+          }}
+        >
+          ⚗
+          <span className="graph-combine-count">{selectedNodeIds.length}</span>
         </button>
       ) : null}
       {workspaceItems.length === 0 ? (

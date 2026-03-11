@@ -246,6 +246,58 @@ body {
   z-index: 8;
 }
 
+.graph-combine-selected-button {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 120;
+  width: 48px;
+  height: 48px;
+  border-radius: 999px;
+  padding: 0;
+  font-size: 1.15rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5),
+    0 18px 36px rgba(2, 6, 23, 0.65);
+}
+
+.graph-combine-selected-button.button.primary:hover:not(:disabled) {
+  transform: translate(-50%, -50%);
+}
+
+.graph-combine-count {
+  position: absolute;
+  right: -6px;
+  top: -6px;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.96);
+  border: 1px solid rgba(99, 102, 241, 0.65);
+  color: var(--text-main);
+  font-size: 0.68rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4px;
+}
+
+.selection-center-lines {
+  position: absolute;
+  inset: 0;
+  z-index: 22;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.selection-center-lines line {
+  stroke: rgba(148, 163, 184, 0.28);
+  stroke-width: 1;
+}
+
 .combine-tray {
   border-radius: var(--radius-md);
   background: linear-gradient(

@@ -10,10 +10,7 @@ const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [isCombining, setIsCombining] = useState(false);
-  const [combiningNodeIds, setCombiningNodeIds] = useState<{
-    sourceNodeId: string;
-    targetNodeId: string;
-  } | null>(null);
+  const [combiningNodeIds, setCombiningNodeIds] = useState<string[] | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -85,31 +82,30 @@ const App: React.FC = () => {
     setWorkspaceItems([]);
   }
 
-  async function combineWorkspaceItems(
-    sourceNodeId: string,
-    targetNodeId: string
-  ) {
+  async function combineWorkspaceNodeIds(nodeIds: string[]) {
     if (isCombining) return;
-    if (sourceNodeId === targetNodeId) return;
+    const uniqueNodeIds = Array.from(new Set(nodeIds));
+    if (uniqueNodeIds.length < 2) return;
 
-    const source = workspaceItems.find((n) => n.nodeId === sourceNodeId);
-    const target = workspaceItems.find((n) => n.nodeId === targetNodeId);
-    if (!source || !target) return;
+    const selectedNodes = uniqueNodeIds
+      .map((nodeId) => workspaceItems.find((n) => n.nodeId === nodeId))
+      .filter(Boolean) as WorkspaceItem[];
+    if (selectedNodes.length < 2) return;
 
-    const sourceItem = findItemById(source.itemId);
-    const targetItem = findItemById(target.itemId);
-    if (!sourceItem || !targetItem) return;
+    const selectedItems = selectedNodes
+      .map((node) => findItemById(node.itemId))
+      .filter(Boolean) as Item[];
+    if (selectedItems.length < 2) return;
 
-    const inputNames = [sourceItem.name, targetItem.name];
-    console.log("[combine] node overlap combine", {
-      sourceNodeId,
-      targetNodeId,
+    const inputNames = selectedItems.map((item) => item.name);
+    console.log("[combine] combine selected nodes", {
+      nodeIds: uniqueNodeIds,
       inputs: inputNames,
     });
 
     try {
       setIsCombining(true);
-      setCombiningNodeIds({ sourceNodeId, targetNodeId });
+      setCombiningNodeIds(uniqueNodeIds);
       const recipe = await combineElements(inputNames);
       console.log("[combine] recipe received", recipe);
 
@@ -127,16 +123,21 @@ const App: React.FC = () => {
       setLibraryRefreshToken((prev) => prev + 1);
       console.log("[combine] item added", recipe.resultElement);
 
+      const centerSum = selectedNodes.reduce(
+        (acc, node) => ({
+          x: acc.x + node.position.x,
+          y: acc.y + node.position.y,
+        }),
+        { x: 0, y: 0 }
+      );
       const center = {
-        x: (source.position.x + target.position.x) / 2,
-        y: (source.position.y + target.position.y) / 2,
+        x: centerSum.x / selectedNodes.length,
+        y: centerSum.y / selectedNodes.length,
       };
 
       setWorkspaceItems((prev) => {
         const withoutInputs = prev.filter(
-          (node) =>
-            node.nodeId !== sourceNodeId &&
-            node.nodeId !== targetNodeId
+          (node) => !uniqueNodeIds.includes(node.nodeId)
         );
         return [
           ...withoutInputs,
@@ -156,6 +157,14 @@ const App: React.FC = () => {
       setCombiningNodeIds(null);
       console.log("[combine] finished");
     }
+  }
+
+  async function combineWorkspaceItems(
+    sourceNodeId: string,
+    targetNodeId: string
+  ) {
+    if (sourceNodeId === targetNodeId) return;
+    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId]);
   }
 
   return (
@@ -203,6 +212,7 @@ const App: React.FC = () => {
                 onRemoveWorkspaceItem={removeWorkspaceItem}
                 onDuplicateWorkspaceItem={duplicateWorkspaceItem}
                 onAddItemToWorkspace={addItemToWorkspace}
+                onCombineWorkspaceSelection={combineWorkspaceNodeIds}
                 onCombineWorkspaceItems={combineWorkspaceItems}
               />
             </div>
