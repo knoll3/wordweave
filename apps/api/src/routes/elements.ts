@@ -1,5 +1,9 @@
 import express from "express";
-import { getDb } from "../db";
+import {
+  BASE_ELEMENT_NORMALIZED_NAMES,
+  getDb,
+  persistDatabase,
+} from "../db";
 import { mapElementRow, mapRecentRecipeRow } from "../models";
 
 const router = express.Router();
@@ -71,5 +75,30 @@ router.get("/recent-recipes", async (_req, res) => {
   }
 });
 
-export default router;
+router.post("/reset-library", async (_req, res) => {
+  try {
+    const db = await getDb();
 
+    db.run("BEGIN");
+    try {
+      const placeholders = BASE_ELEMENT_NORMALIZED_NAMES.map(() => "?").join(", ");
+      const deleteStmt = db.prepare(
+        `DELETE FROM elements WHERE normalized_name NOT IN (${placeholders})`
+      );
+      deleteStmt.run(BASE_ELEMENT_NORMALIZED_NAMES);
+      deleteStmt.free();
+      db.run("COMMIT");
+    } catch (err) {
+      db.run("ROLLBACK");
+      throw err;
+    }
+
+    persistDatabase(db);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Error in POST /elements/reset-library", err);
+    return res.status(500).json({ error: "Failed to reset library" });
+  }
+});
+
+export default router;

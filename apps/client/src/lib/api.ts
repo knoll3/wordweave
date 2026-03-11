@@ -33,6 +33,13 @@ export async function fetchRecentRecipes(): Promise<RecentRecipe[]> {
   return handleResponse<RecentRecipe[]>(res);
 }
 
+export async function resetLibrary(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/elements/reset-library`, {
+    method: "POST",
+  });
+  return handleResponse<{ ok: boolean }>(res);
+}
+
 export async function combineElements(
   inputs: string[]
 ): Promise<Recipe> {

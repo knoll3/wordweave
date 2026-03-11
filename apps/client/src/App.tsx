@@ -81,6 +81,10 @@ const App: React.FC = () => {
     setWorkspaceItems([]);
   }
 
+  function handleLibraryReset() {
+    setWorkspaceItems([]);
+  }
+
   async function combineWorkspaceItems(
     sourceNodeId: string,
     targetNodeId: string
@@ -174,6 +178,7 @@ const App: React.FC = () => {
         <aside className="sidebar">
           <ElementSidebar
             onAddItemToWorkspace={addItemToWorkspace}
+            onLibraryReset={handleLibraryReset}
             refreshToken={libraryRefreshToken}
             onItemsLoaded={setItems}
           />

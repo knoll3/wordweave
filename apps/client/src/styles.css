@@ -446,10 +446,74 @@ body {
   background: rgba(15, 23, 42, 1);
 }
 
+.button.danger {
+  background: rgba(127, 29, 29, 0.88);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fee2e2;
+}
+
+.button.danger:hover:not(:disabled) {
+  background: rgba(153, 27, 27, 0.96);
+}
+
 .button:disabled {
   opacity: 0.45;
   cursor: default;
   box-shadow: none;
+}
+
+.clear-library-button {
+  align-self: flex-end;
+}
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  z-index: 45;
+}
+
+.confirm-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.7);
+  backdrop-filter: blur(4px);
+  pointer-events: auto;
+}
+
+.confirm-panel {
+  position: relative;
+  z-index: 1;
+  width: 360px;
+  max-width: calc(100% - 40px);
+  border-radius: var(--radius-lg);
+  background: radial-gradient(circle at top, #020617, #020617 65%);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  box-shadow: 0 24px 50px rgba(0, 0, 0, 0.55);
+  padding: 14px 14px 12px;
+  pointer-events: auto;
+}
+
+.confirm-title {
+  margin: 0 0 6px;
+  font-size: 0.95rem;
+}
+
+.confirm-text {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--text-soft);
+  line-height: 1.45;
+}
+
+.confirm-actions {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 .results-overlay {

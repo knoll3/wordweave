@@ -3,6 +3,15 @@ import path from "path";
 import initSqlJs, { Database } from "sql.js";
 
 const DB_FILE_PATH = path.join(__dirname, "..", "data", "craft.db");
+export const BASE_ELEMENTS: { name: string; icon: string }[] = [
+  { name: "Fire", icon: "🔥" },
+  { name: "Water", icon: "💧" },
+  { name: "Earth", icon: "🌍" },
+  { name: "Air", icon: "💨" },
+];
+export const BASE_ELEMENT_NORMALIZED_NAMES = BASE_ELEMENTS.map((el) =>
+  normalizeName(el.name)
+);
 
 let dbPromise: Promise<Database> | null = null;
 
@@ -76,18 +85,11 @@ function createSchema(db: Database): void {
 }
 
 function seedBaseElements(db: Database): void {
-  const baseElements: { name: string; icon: string }[] = [
-    { name: "Fire", icon: "🔥" },
-    { name: "Water", icon: "💧" },
-    { name: "Earth", icon: "🌍" },
-    { name: "Air", icon: "💨" },
-  ];
-
   const stmt = db.prepare(
     "INSERT OR IGNORE INTO elements (name, normalized_name, icon) VALUES (?, ?, ?);"
   );
 
-  for (const element of baseElements) {
+  for (const element of BASE_ELEMENTS) {
     stmt.run([element.name, normalizeName(element.name), element.icon]);
   }
 
@@ -97,4 +99,3 @@ function seedBaseElements(db: Database): void {
 function normalizeName(name: string): string {
   return name.trim().toLowerCase();
 }
-
