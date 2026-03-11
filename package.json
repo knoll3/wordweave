@@ -1,0 +1,21 @@
+{
+  "name": "wordweave",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev:api\" \"npm run dev:client\"",
+    "dev:api": "cd apps/api && npx ts-node-dev --respawn --transpile-only ./src/index.ts",
+    "dev:client": "npm --workspace apps/client run dev",
+    "build": "npm run build:api && npm run build:client",
+    "build:api": "npm --workspace apps/api run build",
+    "build:client": "npm --workspace apps/client run build"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "typescript": "^5.7.0"
+  }
+}

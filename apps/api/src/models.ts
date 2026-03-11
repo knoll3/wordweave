@@ -1,0 +1,148 @@
+import type { Database } from "sql.js";
+
+export interface ElementDTO {
+  id: number;
+  name: string;
+  normalizedName: string;
+  icon: string | null;
+}
+
+export interface RecipeCandidateDTO {
+  id: number;
+  name: string;
+  icon: string;
+  orderIndex: number;
+}
+
+export interface RecipeDTO {
+  recipeId: number;
+  inputKey: string;
+  inputs: { name: string; normalized: string }[];
+  candidates: RecipeCandidateDTO[];
+  chosenCandidateId: number | null;
+  resultElement?: ElementDTO;
+}
+
+export interface RecentRecipeDTO {
+  id: number;
+  inputKey: string;
+  inputs: { name: string; normalized: string }[];
+  resultElement: ElementDTO;
+  updatedAt: string;
+}
+
+export interface NormalizedInput {
+  name: string;
+  normalized: string;
+}
+
+export function toTitleCaseWords(value: string): string {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+export function normalizeInputs(
+  rawInputs: string[]
+): { normalizedInputs: NormalizedInput[]; inputKey: string } {
+  const seen = new Map<string, string>();
+
+  for (const raw of rawInputs) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const normalized = trimmed.toLowerCase();
+    if (!seen.has(normalized)) {
+      seen.set(normalized, trimmed);
+    }
+  }
+
+  const normalizedInputs: NormalizedInput[] = Array.from(seen.entries()).map(
+    ([normalized, name]) => ({ name, normalized })
+  );
+
+  normalizedInputs.sort((a, b) =>
+    a.normalized.localeCompare(b.normalized, "en")
+  );
+
+  const inputKey = normalizedInputs.map((i) => i.normalized).join("|");
+
+  return { normalizedInputs, inputKey };
+}
+
+export function mapElementRow(row: any): ElementDTO {
+  return {
+    id: row.id,
+    name: row.name,
+    normalizedName: row.normalized_name,
+    icon: row.icon ?? null,
+  };
+}
+
+export function mapCandidateRow(row: any): RecipeCandidateDTO {
+  return {
+    id: row.id,
+    name: row.name,
+    icon: row.icon,
+    orderIndex: row.order_index,
+  };
+}
+
+export function buildCombineResponse(params: {
+  recipeRow: any;
+  candidates: any[];
+  resultElement?: ElementDTO;
+}): RecipeDTO {
+  const { recipeRow, candidates, resultElement } = params;
+
+  const inputs = JSON.parse(recipeRow.input_display_json) as {
+    name: string;
+    normalized: string;
+  }[];
+
+  return {
+    recipeId: recipeRow.id,
+    inputKey: recipeRow.input_key,
+    inputs,
+    candidates: candidates.map(mapCandidateRow),
+    chosenCandidateId: recipeRow.chosen_candidate_id ?? null,
+    resultElement: resultElement ?? undefined,
+  };
+}
+
+export function mapRecentRecipeRow(row: any): RecentRecipeDTO {
+  const inputs = JSON.parse(row.input_display_json) as {
+    name: string;
+    normalized: string;
+  }[];
+
+  return {
+    id: row.id,
+    inputKey: row.input_key,
+    inputs,
+    resultElement: {
+      id: row.element_id,
+      name: row.element_name,
+      normalizedName: row.element_normalized_name,
+      icon: row.element_icon ?? null,
+    },
+    updatedAt: row.updated_at,
+  };
+}
+
+export function getElementById(
+  db: Database,
+  id: number
+): ElementDTO | undefined {
+  const stmt = db.prepare(
+    "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
+  );
+  const row = stmt.getAsObject([id]);
+  stmt.free();
+  if (!row || row.id === undefined) {
+    return undefined;
+  }
+  return mapElementRow(row);
+}
