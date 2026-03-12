@@ -61,6 +61,13 @@ interface CreativeDragState {
   dispose: (() => void) | null;
 }
 
+interface MarqueeSelection {
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+}
+
 const LONG_PRESS_MS = 550;
 const MOVE_THRESHOLD_PX = 10;
 const NODE_DRAG_THRESHOLD_PX = 12;
@@ -90,6 +97,9 @@ function FlowCanvas({
     x: number;
     y: number;
   } | null>(null);
+  const [isMarqueeMode, setIsMarqueeMode] = useState(false);
+  const [marqueeSelection, setMarqueeSelection] =
+    useState<MarqueeSelection | null>(null);
 
   const pressStateRef = useRef<PressState | null>(null);
   const creativeDragRef = useRef<CreativeDragState | null>(null);
@@ -137,6 +147,17 @@ function FlowCanvas({
   }, [workspaceItems]);
 
   const selectionMode = selectedNodeIds.length > 0;
+
+  const marqueeSelectionRect = useMemo(() => {
+    if (!marqueeSelection) return null;
+
+    return {
+      left: Math.min(marqueeSelection.startX, marqueeSelection.currentX),
+      top: Math.min(marqueeSelection.startY, marqueeSelection.currentY),
+      width: Math.abs(marqueeSelection.currentX - marqueeSelection.startX),
+      height: Math.abs(marqueeSelection.currentY - marqueeSelection.startY),
+    };
+  }, [marqueeSelection]);
 
   const getNodeVisualsLocal = useCallback(
     (nodeIds: string[]) => {
@@ -288,6 +309,39 @@ function FlowCanvas({
         : [...prev, nodeId]
     );
   }, []);
+
+  const applyMarqueeSelection = useCallback(() => {
+    if (!wrapperRef.current || !marqueeSelectionRect) {
+      setMarqueeSelection(null);
+      setIsMarqueeMode(false);
+      return;
+    }
+
+    const selectedIds = getNodeVisualsLocal(
+      workspaceItems.map((item) => item.nodeId)
+    )
+      .map((node) => {
+        const localRect = {
+          left: node.x - node.width / 2,
+          top: node.y - node.height / 2,
+          right: node.x + node.width / 2,
+          bottom: node.y + node.height / 2,
+        };
+        const intersects =
+          localRect.right >= marqueeSelectionRect.left &&
+          localRect.left <= marqueeSelectionRect.left + marqueeSelectionRect.width &&
+          localRect.bottom >= marqueeSelectionRect.top &&
+          localRect.top <= marqueeSelectionRect.top + marqueeSelectionRect.height;
+
+        return intersects ? node.nodeId : null;
+      })
+      .filter((nodeId): nodeId is string => !!nodeId);
+
+    suppressNextPaneClickRef.current = true;
+    setSelectedNodeIds(selectedIds);
+    setMarqueeSelection(null);
+    setIsMarqueeMode(false);
+  }, [getNodeVisualsLocal, marqueeSelectionRect, workspaceItems]);
 
   const clearCreativeDrag = useCallback(() => {
     const current = creativeDragRef.current;
@@ -609,6 +663,19 @@ function FlowCanvas({
     const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
     const nodeId = nodeEl?.getAttribute("data-id") ?? null;
 
+    if (isMarqueeMode && !nodeId && wrapperRef.current) {
+      const bounds = wrapperRef.current.getBoundingClientRect();
+      setMarqueeSelection({
+        startX: event.clientX - bounds.left,
+        startY: event.clientY - bounds.top,
+        currentX: event.clientX - bounds.left,
+        currentY: event.clientY - bounds.top,
+      });
+      pressStateRef.current = null;
+      clearLongPressTimer();
+      return;
+    }
+
     pressStateRef.current = {
       pointerId: event.pointerId,
       nodeId,
@@ -632,6 +699,20 @@ function FlowCanvas({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isMarqueeMode && marqueeSelection && wrapperRef.current) {
+      const bounds = wrapperRef.current.getBoundingClientRect();
+      setMarqueeSelection((prev) =>
+        prev
+          ? {
+              ...prev,
+              currentX: event.clientX - bounds.left,
+              currentY: event.clientY - bounds.top,
+            }
+          : prev
+      );
+      return;
+    }
+
     const current = pressStateRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
 
@@ -645,6 +726,11 @@ function FlowCanvas({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isMarqueeMode && marqueeSelection) {
+      applyMarqueeSelection();
+      return;
+    }
+
     const current = pressStateRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
 
@@ -664,6 +750,12 @@ function FlowCanvas({
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (isMarqueeMode && marqueeSelection) {
+      setMarqueeSelection(null);
+      setIsMarqueeMode(false);
+      return;
+    }
+
     const current = pressStateRef.current;
     if (!current || current.pointerId !== event.pointerId) return;
     clearLongPressTimer();
@@ -706,10 +798,10 @@ function FlowCanvas({
         edges={[]}
         zoomOnScroll={true}
         panOnScroll={false}
-        panOnDrag={true}
+        panOnDrag={!isMarqueeMode}
         autoPanOnNodeDrag={false}
         nodeDragThreshold={NODE_DRAG_THRESHOLD_PX}
-        nodesDraggable={true}
+        nodesDraggable={!isMarqueeMode}
         nodesConnectable={false}
         onInit={setReactFlow}
         onMove={() => {
@@ -723,6 +815,11 @@ function FlowCanvas({
         onNodeDrag={onNodeDrag}
         onNodeDragStop={onNodeDragStop}
         onPaneClick={() => {
+          if (isMarqueeMode) {
+            setIsMarqueeMode(false);
+            setMarqueeSelection(null);
+            return;
+          }
           if (suppressNextPaneClickRef.current) {
             suppressNextPaneClickRef.current = false;
             return;
@@ -794,6 +891,30 @@ function FlowCanvas({
           ))}
         </svg>
       ) : null}
+      {marqueeSelectionRect ? (
+        <div
+          className="graph-marquee-selection"
+          aria-hidden="true"
+          style={{
+            left: `${marqueeSelectionRect.left}px`,
+            top: `${marqueeSelectionRect.top}px`,
+            width: `${marqueeSelectionRect.width}px`,
+            height: `${marqueeSelectionRect.height}px`,
+          }}
+        />
+      ) : null}
+      <button
+        type="button"
+        className={`graph-select-button${isMarqueeMode ? " is-active" : ""}`}
+        aria-label="Drag a selection box"
+        title="Drag a selection box"
+        onClick={() => {
+          setIsMarqueeMode((prev) => !prev);
+          setMarqueeSelection(null);
+        }}
+      >
+        ⬚
+      </button>
       <button
         type="button"
         className="graph-creative-button"

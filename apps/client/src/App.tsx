@@ -3,9 +3,7 @@ import { CREATIVE_ITEM, CREATIVE_ITEM_ID } from "./types";
 import type { Item, WorkspaceItem } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
-import {
-  combineElements,
-} from "./lib/api";
+import { combineElements } from "./lib/api";
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
@@ -34,10 +32,7 @@ const App: React.FC = () => {
     return items.find((item) => item.id === itemId);
   }
 
-  function addItemToWorkspace(
-    itemId: number,
-    position?: { x: number; y: number }
-  ) {
+  function addItemToWorkspace(itemId: number, position?: { x: number; y: number }) {
     const item = findItemById(itemId);
     if (!item) return;
     const anchorPosition =
@@ -64,10 +59,14 @@ const App: React.FC = () => {
     ]);
   }
 
-  function duplicateWorkspaceItem(
-    nodeId: string,
-    position?: { x: number; y: number }
-  ) {
+  function addLibraryItemToWorkspace(item: Item) {
+    setItems((prev) =>
+      prev.some((existing) => existing.id === item.id) ? prev : [...prev, item]
+    );
+    addItemToWorkspace(item.id);
+  }
+
+  function duplicateWorkspaceItem(nodeId: string, position?: { x: number; y: number }) {
     const source = workspaceItems.find((item) => item.nodeId === nodeId);
     if (!source) return;
     addItemToWorkspace(source.itemId, position);
@@ -103,12 +102,8 @@ const App: React.FC = () => {
       .filter(Boolean) as Item[];
     if (selectedItems.length < 2) return;
 
-    const hasCreativeCatalyst = selectedItems.some(
-      (item) => item.id === CREATIVE_ITEM_ID
-    );
-    const actualInputItems = selectedItems.filter(
-      (item) => item.id !== CREATIVE_ITEM_ID
-    );
+    const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
+    const actualInputItems = selectedItems.filter((item) => item.id !== CREATIVE_ITEM_ID);
     if (actualInputItems.length === 0) {
       showError("Creative Spark needs at least one regular item to combine.", null);
       return;
@@ -158,9 +153,7 @@ const App: React.FC = () => {
       };
 
       setWorkspaceItems((prev) => {
-        const withoutInputs = prev.filter(
-          (node) => !uniqueNodeIds.includes(node.nodeId)
-        );
+        const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
         return [
           ...withoutInputs,
           {
@@ -170,7 +163,6 @@ const App: React.FC = () => {
           },
         ];
       });
-
     } catch (err) {
       console.error("[combine] failed", err);
       showError("Failed to combine items. Please try again.", err);
@@ -182,10 +174,7 @@ const App: React.FC = () => {
     }
   }
 
-  async function combineWorkspaceItems(
-    sourceNodeId: string,
-    targetNodeId: string
-  ) {
+  async function combineWorkspaceItems(sourceNodeId: string, targetNodeId: string) {
     if (sourceNodeId === targetNodeId) return;
     await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
       converge: false,
@@ -211,7 +200,7 @@ const App: React.FC = () => {
       <div className="app-root">
         <aside className="sidebar">
           <ElementSidebar
-            onAddItemToWorkspace={addItemToWorkspace}
+            onAddItemToWorkspace={addLibraryItemToWorkspace}
             onLibraryReset={handleLibraryReset}
             refreshToken={libraryRefreshToken}
             onItemsLoaded={setItems}
@@ -246,7 +235,6 @@ const App: React.FC = () => {
             </div>
           </section>
         </main>
-
       </div>
     </>
   );

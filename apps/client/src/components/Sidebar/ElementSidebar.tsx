@@ -2,10 +2,15 @@ import React, { useEffect, useMemo, useState } from "react";
 import type { Item } from "../../types";
 import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
-import { fetchItems, resetLibrary } from "../../lib/api";
+import {
+  fetchCacheStats,
+  fetchItems,
+  resetCache,
+  resetLibrary,
+} from "../../lib/api";
 
 interface Props {
-  onAddItemToWorkspace: (itemId: number) => void;
+  onAddItemToWorkspace: (item: Item) => void;
   onLibraryReset?: () => void;
   refreshToken?: number;
   onItemsLoaded?: (items: Item[]) => void;
@@ -21,7 +26,10 @@ const ElementSidebar: React.FC<Props> = ({
   const [items, setItems] = useState<Item[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [isResettingLibrary, setIsResettingLibrary] = useState(false);
+  const [isResettingCache, setIsResettingCache] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showResetCacheConfirm, setShowResetCacheConfirm] = useState(false);
+  const [cacheRecipeCount, setCacheRecipeCount] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
 
   useEffect(() => {
@@ -52,6 +60,17 @@ const ElementSidebar: React.FC<Props> = ({
     void loadItems(value);
   }
 
+  async function openResetCacheConfirm() {
+    setShowResetCacheConfirm(true);
+    try {
+      const stats = await fetchCacheStats();
+      setCacheRecipeCount(stats.recipeCount);
+    } catch (err) {
+      console.error("Failed to load cache stats", err);
+      setCacheRecipeCount(null);
+    }
+  }
+
   async function handleConfirmResetLibrary() {
     if (isResettingLibrary) return;
     try {
@@ -65,6 +84,21 @@ const ElementSidebar: React.FC<Props> = ({
       console.error("Failed to reset library", err);
     } finally {
       setIsResettingLibrary(false);
+    }
+  }
+
+  async function handleConfirmResetCache() {
+    if (isResettingCache) return;
+    try {
+      setIsResettingCache(true);
+      const result = await resetCache();
+      setCacheRecipeCount(0);
+      setShowResetCacheConfirm(false);
+      console.log("[cache] cleared", result);
+    } catch (err) {
+      console.error("Failed to reset cache", err);
+    } finally {
+      setIsResettingCache(false);
     }
   }
 
@@ -116,14 +150,24 @@ const ElementSidebar: React.FC<Props> = ({
             onAddToWorkspace={onAddItemToWorkspace}
           />
         )}
-        <button
-          type="button"
-          className="button secondary clear-library-button"
-          onClick={() => setShowResetConfirm(true)}
-          disabled={isResettingLibrary}
-        >
-          Clear Library
-        </button>
+        <div className="library-danger-actions">
+          <button
+            type="button"
+            className="button secondary clear-library-button"
+            onClick={() => setShowResetConfirm(true)}
+            disabled={isResettingLibrary || isResettingCache}
+          >
+            Clear Library
+          </button>
+          <button
+            type="button"
+            className="button danger"
+            onClick={() => void openResetCacheConfirm()}
+            disabled={isResettingLibrary || isResettingCache}
+          >
+            Clear Cache
+          </button>
+        </div>
       </section>
       {showResetConfirm ? (
         <div className="confirm-overlay" role="presentation">
@@ -153,6 +197,45 @@ const ElementSidebar: React.FC<Props> = ({
                 disabled={isResettingLibrary}
               >
                 {isResettingLibrary ? "Clearing..." : "Clear Library"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      {showResetCacheConfirm ? (
+        <div className="confirm-overlay" role="presentation">
+          <div
+            className="confirm-backdrop"
+            onClick={() =>
+              isResettingCache ? null : setShowResetCacheConfirm(false)
+            }
+          />
+          <div className="confirm-panel" role="dialog" aria-modal="true">
+            <h3 className="confirm-title">Clear Cache?</h3>
+            <p className="confirm-text">
+              This clears the saved combination cache used to reduce API cost.
+              If reset, every combination will be generated again.
+            </p>
+            <p className="confirm-text confirm-metric">
+              Cached combinations to clear:{" "}
+              {cacheRecipeCount == null ? "Loading..." : cacheRecipeCount}
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setShowResetCacheConfirm(false)}
+                disabled={isResettingCache}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => void handleConfirmResetCache()}
+                disabled={isResettingCache}
+              >
+                {isResettingCache ? "Clearing..." : "Clear Cache"}
               </button>
             </div>
           </div>

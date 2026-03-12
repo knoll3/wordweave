@@ -3,7 +3,7 @@ import type { Item } from "../../types";
 
 interface Props {
   items: Item[];
-  onAddToWorkspace: (itemId: number) => void;
+  onAddToWorkspace: (item: Item) => void;
 }
 
 const ElementList: React.FC<Props> = ({
@@ -34,7 +34,7 @@ const ElementList: React.FC<Props> = ({
               );
               event.dataTransfer.effectAllowed = "copy";
             }}
-            onClick={() => onAddToWorkspace(item.id)}
+            onClick={() => onAddToWorkspace(item)}
           >
             <span className="element-icon">
               {item.icon || item.name.charAt(0).toUpperCase()}
