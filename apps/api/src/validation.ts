@@ -26,5 +26,16 @@ export const questInputChoiceSchema = z.object({
   items: z.array(z.string().min(1).max(64)).min(3).max(8),
 });
 
+export const questChainStepSchema = z.object({
+  right: z.string().min(1).max(64),
+  result: z.string().min(1).max(64),
+  icon: z.string().min(1).max(8),
+});
+
+export const questChainSchema = z.object({
+  steps: z.array(questChainStepSchema).length(3),
+});
+
 export type LlmResult = z.infer<typeof llmResultSchema>;
 export type QuestInputChoice = z.infer<typeof questInputChoiceSchema>;
+export type QuestChain = z.infer<typeof questChainSchema>;

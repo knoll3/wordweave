@@ -1,5 +1,5 @@
 import express from "express";
-import { getDb, persistDatabase } from "../db";
+import { discoverElement, ensureElement, getDb, persistDatabase } from "../db";
 import { DEFAULT_MODEL_NAME, generateResult } from "../openaiClient";
 import {
   combineRequestSchema,
@@ -69,46 +69,19 @@ router.post("/combine", async (req, res) => {
       const createdResultName = toTitleCaseWords(llmResult.name);
       const normalizedName = createdResultName.trim().toLowerCase();
 
+      const elementId = ensureElement(db, {
+        name: createdResultName,
+        normalizedName,
+        icon: llmResult.icon,
+      });
+      discoverElement(db, elementId);
+      persistDatabase(db);
+
       let elementStmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements WHERE normalized_name = ?"
+        "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
       );
-      let elementRow = elementStmt.getAsObject([normalizedName]);
+      const elementRow = elementStmt.getAsObject([elementId]);
       elementStmt.free();
-
-      if (!elementRow || elementRow.id === undefined) {
-        const insertElementStmt = db.prepare(
-          "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
-        );
-        insertElementStmt.run([
-          createdResultName,
-          normalizedName,
-          llmResult.icon,
-        ]);
-        insertElementStmt.free();
-
-        const lastElementStmt = db.prepare(
-          "SELECT last_insert_rowid() as id"
-        );
-        let lastElementId: number | null = null;
-        if (lastElementStmt.step()) {
-          const row = lastElementStmt.getAsObject() as any;
-          lastElementId = Number(row.id);
-        }
-        lastElementStmt.free();
-
-        if (!lastElementId || Number.isNaN(lastElementId)) {
-          throw new Error("Failed to obtain creative element id");
-        }
-
-        elementRow = {
-          id: lastElementId,
-          name: createdResultName,
-          normalized_name: normalizedName,
-          icon: llmResult.icon,
-        };
-
-        persistDatabase(db);
-      }
 
       return res.json({
         recipeId: 0,
@@ -155,10 +128,31 @@ router.post("/combine", async (req, res) => {
       }
       candidatesStmt.free();
 
+      if (
+        candidatesRows.length === 0 &&
+        recipeRow.chosen_candidate_id != null
+      ) {
+        const chosenCandidateStmt = db.prepare(
+          "SELECT * FROM recipe_candidates WHERE id = ?"
+        );
+        const chosenCandidateRow = chosenCandidateStmt.getAsObject([
+          Number(recipeRow.chosen_candidate_id),
+        ]);
+        chosenCandidateStmt.free();
+        if (chosenCandidateRow && chosenCandidateRow.id !== undefined) {
+          candidatesRows.push(chosenCandidateRow);
+        }
+      }
+
       let resultElement =
         recipeRow.result_element_id != null
           ? getElementById(db, Number(recipeRow.result_element_id))
           : undefined;
+
+      if (resultElement) {
+        discoverElement(db, Number(resultElement.id));
+        persistDatabase(db);
+      }
 
       // Backfill legacy recipes that were cached without a canonical result.
       if (!resultElement) {
@@ -218,40 +212,12 @@ router.post("/combine", async (req, res) => {
         }
 
         const normalizedName = chosenName.trim().toLowerCase();
-        let elementStmt = db.prepare(
-          "SELECT id FROM elements WHERE normalized_name = ?"
-        );
-        let elementRow = elementStmt.getAsObject([normalizedName]);
-        elementStmt.free();
-
-        let elementId: number;
-        if (!elementRow || elementRow.id === undefined) {
-          const insertElementStmt = db.prepare(
-            "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
-          );
-          insertElementStmt.run([
-            chosenName,
-            normalizedName,
-            chosenIcon,
-          ]);
-          insertElementStmt.free();
-
-          const lastElementStmt = db.prepare(
-            "SELECT last_insert_rowid() as id"
-          );
-          let lastElementId: number | null = null;
-          if (lastElementStmt.step()) {
-            const row = lastElementStmt.getAsObject() as any;
-            lastElementId = Number(row.id);
-          }
-          lastElementStmt.free();
-          if (!lastElementId || Number.isNaN(lastElementId)) {
-            throw new Error("Failed to obtain element id during backfill");
-          }
-          elementId = lastElementId;
-        } else {
-          elementId = Number(elementRow.id);
-        }
+        const elementId = ensureElement(db, {
+          name: chosenName,
+          normalizedName,
+          icon: chosenIcon,
+        });
+        discoverElement(db, elementId);
 
         const updateRecipeStmt = db.prepare(
           "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -350,40 +316,12 @@ router.post("/combine", async (req, res) => {
       }
 
       const normalizedName = createdResultName.trim().toLowerCase();
-      let elementStmt = db.prepare(
-        "SELECT id FROM elements WHERE normalized_name = ?"
-      );
-      let elementRow = elementStmt.getAsObject([normalizedName]);
-      elementStmt.free();
-
-      let elementId: number;
-      if (!elementRow || elementRow.id === undefined) {
-        const insertElementStmt = db.prepare(
-          "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
-        );
-        insertElementStmt.run([
-          createdResultName,
-          normalizedName,
-          llmResult.icon,
-        ]);
-        insertElementStmt.free();
-
-        const lastElementStmt = db.prepare(
-          "SELECT last_insert_rowid() as id"
-        );
-        let lastElementId: number | null = null;
-        if (lastElementStmt.step()) {
-          const lastElementRow = lastElementStmt.getAsObject() as any;
-          lastElementId = Number(lastElementRow.id);
-        }
-        lastElementStmt.free();
-        if (!lastElementId || Number.isNaN(lastElementId)) {
-          throw new Error("Failed to obtain element id");
-        }
-        elementId = lastElementId;
-      } else {
-        elementId = Number(elementRow.id);
-      }
+      const elementId = ensureElement(db, {
+        name: createdResultName,
+        normalizedName,
+        icon: llmResult.icon,
+      });
+      discoverElement(db, elementId);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -477,40 +415,12 @@ router.post("/:id/select", async (req, res) => {
     db.run("BEGIN");
     try {
       // Upsert element
-      let elementStmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements WHERE normalized_name = ?"
-      );
-      let elementRow = elementStmt.getAsObject([normalizedName]);
-      elementStmt.free();
-
-      let elementId: number;
-      if (!elementRow || elementRow.id === undefined) {
-        const insertElementStmt = db.prepare(
-          "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
-        );
-        insertElementStmt.run([
-          candidateName,
-          normalizedName,
-          candidateIcon,
-        ]);
-        insertElementStmt.free();
-
-        const lastIdStmt = db.prepare(
-          "SELECT last_insert_rowid() as id"
-        );
-        let lastElementId: number | null = null;
-        if (lastIdStmt.step()) {
-          const lastIdRow = lastIdStmt.getAsObject() as any;
-          lastElementId = Number(lastIdRow.id);
-        }
-        lastIdStmt.free();
-        if (!lastElementId || Number.isNaN(lastElementId)) {
-          throw new Error("Failed to obtain element id");
-        }
-        elementId = lastElementId;
-      } else {
-        elementId = Number(elementRow.id);
-      }
+      const elementId = ensureElement(db, {
+        name: candidateName,
+        normalizedName,
+        icon: candidateIcon,
+      });
+      discoverElement(db, elementId);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -521,10 +431,10 @@ router.post("/:id/select", async (req, res) => {
       db.run("COMMIT");
 
       // Fetch the resulting element for response
-      elementStmt = db.prepare(
+      const elementStmt = db.prepare(
         "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
       );
-      elementRow = elementStmt.getAsObject([elementId]);
+      const elementRow = elementStmt.getAsObject([elementId]);
       elementStmt.free();
 
       persistDatabase(db);

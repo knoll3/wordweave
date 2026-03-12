@@ -1,5 +1,9 @@
 import OpenAI from "openai";
-import { llmResultSchema, questInputChoiceSchema } from "./validation";
+import {
+  llmResultSchema,
+  questChainSchema,
+  questInputChoiceSchema,
+} from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 
 export type OpenAiModel =
@@ -123,6 +127,45 @@ Return ONLY valid JSON in this format:
 
 Candidate items:
 {{QUEST_INPUT_CANDIDATES}}
+`.trim();
+
+const QUEST_CHAIN_PROMPT = `
+You are planning a 3-step hidden quest chain for a sandbox discovery game.
+
+You are given:
+- one starting item that is unused elsewhere and must be the left input of step 1
+- a pool of candidate partner items
+
+Build a 3-step chain that follows these rules:
+- step 1 uses the starting item plus one partner item
+- step 2 uses the result of step 1 plus one partner item
+- step 3 uses the result of step 2 plus one partner item
+- pick partner items only from the provided candidate pool
+- think carefully about what the combinations should produce
+- produce results that match the style of normal crafting-game outputs: simple, expected, broadly recognizable nouns
+- prefer one-word results whenever possible
+- if a result has two words, it must be a very common phrase that most players would recognize instantly
+- avoid ornate, poetic, fantasy, embellished, or overly specific phrases
+- avoid piling descriptive adjectives onto nouns
+- avoid obscure or niche concepts
+- favor simple real-world or very widely known concepts over cleverness
+- do not explain your reasoning
+
+Return ONLY valid JSON in this format:
+
+{
+  "steps": [
+    { "right": "partner item", "result": "result item", "icon": "emoji" },
+    { "right": "partner item", "result": "result item", "icon": "emoji" },
+    { "right": "partner item", "result": "result item", "icon": "emoji" }
+  ]
+}
+
+Starting item:
+{{QUEST_CHAIN_START}}
+
+Candidate partner items:
+{{QUEST_CHAIN_CANDIDATES}}
 `.trim();
 
 function getOpenAI(): OpenAI {
@@ -280,6 +323,59 @@ export async function chooseQuestInputs(params: {
   }
 
   console.log("[openai][quest-picker] parsed result", result.data);
+
+  return result.data;
+}
+
+export async function generateQuestChain(params: {
+  model?: OpenAiModel;
+  startItem: string;
+  candidateItems: string[];
+}) {
+  const openai = getOpenAI();
+  const model = params.model ?? DEFAULT_MODEL_NAME;
+  const prompt = QUEST_CHAIN_PROMPT.replace(
+    "{{QUEST_CHAIN_START}}",
+    JSON.stringify(params.startItem)
+  ).replace(
+    "{{QUEST_CHAIN_CANDIDATES}}",
+    JSON.stringify(params.candidateItems)
+  );
+
+  console.log("[openai][quest-chain] sending request", {
+    model,
+    startItem: params.startItem,
+    candidateCount: params.candidateItems.length,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 1,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][quest-chain] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  const result = questChainSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI quest chain failed validation");
+  }
+
+  console.log("[openai][quest-chain] parsed result", result.data);
 
   return result.data;
 }

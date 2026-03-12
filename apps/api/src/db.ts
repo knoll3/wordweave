@@ -81,6 +81,12 @@ function createSchema(db: Database): void {
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS discoveries (
+      element_id INTEGER PRIMARY KEY,
+      discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -94,8 +100,64 @@ function seedBaseElements(db: Database): void {
   }
 
   stmt.free();
+
+  const discoverStmt = db.prepare(
+    `
+    INSERT OR IGNORE INTO discoveries (element_id)
+    SELECT id FROM elements WHERE normalized_name = ?
+    `
+  );
+
+  for (const element of BASE_ELEMENTS) {
+    discoverStmt.run([normalizeName(element.name)]);
+  }
+
+  discoverStmt.free();
 }
 
 function normalizeName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+export function ensureElement(
+  db: Database,
+  params: { name: string; normalizedName: string; icon: string | null }
+): number {
+  let stmt = db.prepare(
+    "SELECT id FROM elements WHERE normalized_name = ?"
+  );
+  let row = stmt.getAsObject([params.normalizedName]);
+  stmt.free();
+
+  if (row && row.id !== undefined) {
+    return Number(row.id);
+  }
+
+  const insertStmt = db.prepare(
+    "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
+  );
+  insertStmt.run([params.name, params.normalizedName, params.icon]);
+  insertStmt.free();
+
+  const lastIdStmt = db.prepare("SELECT last_insert_rowid() as id");
+  let elementId: number | null = null;
+  if (lastIdStmt.step()) {
+    const lastIdRow = lastIdStmt.getAsObject() as any;
+    elementId = Number(lastIdRow.id);
+  }
+  lastIdStmt.free();
+
+  if (!elementId || Number.isNaN(elementId)) {
+    throw new Error("Failed to obtain element id");
+  }
+
+  return elementId;
+}
+
+export function discoverElement(db: Database, elementId: number): void {
+  const stmt = db.prepare(
+    "INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)"
+  );
+  stmt.run([elementId]);
+  stmt.free();
 }

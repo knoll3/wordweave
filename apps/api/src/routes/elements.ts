@@ -17,12 +17,23 @@ router.get("/", async (req, res) => {
     let stmt;
     if (q) {
       stmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements WHERE name LIKE ? ORDER BY created_at ASC"
+        `
+        SELECT e.id, e.name, e.normalized_name, e.icon
+        FROM discoveries d
+        JOIN elements e ON e.id = d.element_id
+        WHERE e.name LIKE ?
+        ORDER BY d.discovered_at ASC
+        `
       );
       stmt.bind([`%${q}%`]);
     } else {
       stmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements ORDER BY created_at ASC"
+        `
+        SELECT e.id, e.name, e.normalized_name, e.icon
+        FROM discoveries d
+        JOIN elements e ON e.id = d.element_id
+        ORDER BY d.discovered_at ASC
+        `
       );
     }
 
@@ -107,12 +118,17 @@ router.post("/reset-library", async (_req, res) => {
 
     db.run("BEGIN");
     try {
-      const placeholders = BASE_ELEMENT_NORMALIZED_NAMES.map(() => "?").join(", ");
-      const deleteStmt = db.prepare(
-        `DELETE FROM elements WHERE normalized_name NOT IN (${placeholders})`
+      db.run("DELETE FROM discoveries");
+      const seedStmt = db.prepare(
+        `
+        INSERT OR IGNORE INTO discoveries (element_id)
+        SELECT id FROM elements WHERE normalized_name = ?
+        `
       );
-      deleteStmt.run(BASE_ELEMENT_NORMALIZED_NAMES);
-      deleteStmt.free();
+      for (const normalizedName of BASE_ELEMENT_NORMALIZED_NAMES) {
+        seedStmt.run([normalizedName]);
+      }
+      seedStmt.free();
       db.run("COMMIT");
     } catch (err) {
       db.run("ROLLBACK");
