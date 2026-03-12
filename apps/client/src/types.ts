@@ -14,6 +14,15 @@ export const CREATIVE_ITEM: Item = {
   icon: "✨",
 };
 
+export const SUBTRACTION_ITEM_ID = -2;
+
+export const SUBTRACTION_ITEM: Item = {
+  id: SUBTRACTION_ITEM_ID,
+  name: "Subtraction",
+  normalizedName: "subtraction",
+  icon: "➖",
+};
+
 export interface RecipeCandidate {
   id: number;
   name: string;

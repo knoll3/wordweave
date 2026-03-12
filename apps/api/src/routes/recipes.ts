@@ -22,11 +22,22 @@ router.post("/combine", async (req, res) => {
   }
 
   const creative = parsedBody.data.creative ?? false;
+  const subtractive = parsedBody.data.subtractive ?? false;
+
+  if (creative && subtractive) {
+    return res.status(400).json({
+      error: "Creative and subtraction modes cannot be used together",
+    });
+  }
 
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
   );
-  const recipeInputKey = creative ? `creative|${inputKey}` : inputKey;
+  const recipeInputKey = creative
+    ? `creative|${inputKey}`
+    : subtractive
+      ? `subtract|${inputKey}`
+      : inputKey;
 
   if (normalizedInputs.length === 0) {
     return res.status(400).json({ error: "No valid inputs provided" });
@@ -129,6 +140,7 @@ router.post("/combine", async (req, res) => {
       console.log("[api][combine] cache hit", {
         inputKey: recipeInputKey,
         creative,
+        subtractive,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -168,7 +180,7 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative }
+            { creative, subtractive }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -270,13 +282,14 @@ router.post("/combine", async (req, res) => {
     console.log("[api][combine] cache miss; generating via OpenAI", {
       inputKey: recipeInputKey,
       creative,
+      subtractive,
       inputs: normalizedInputs.map((i) => i.name),
     });
     let llmResult;
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative }
+        { creative, subtractive }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

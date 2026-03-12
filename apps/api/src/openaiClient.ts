@@ -53,6 +53,35 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const SUBTRACTIVE_PROMPT = `
+You are the subtraction engine for a sandbox discovery game.
+
+The player provides several nouns as input. Your job is to infer the single most plausible missing ingredient when one concept is removed from another.
+
+First, think in terms of inverse crafting. Determine whether one input can be understood as a result that includes another input, and return the most plausible ingredient that would remain or be required after removing the other concept.
+
+Prefer reverse-combination logic over abstract semantic subtraction. The result should feel like a plausible ingredient or source concept, not a synonym, residue, or adjacent concept.
+
+If no strong inverse-crafting interpretation exists, fall back to conceptual subtraction and return the most plausible concrete concept that remains.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, sentences.
+- Favor a concrete concept that people would recognize in the real world.
+- The result should be something real, not an invented term.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 function getOpenAI(): OpenAI {
   const key = process.env.OPENAI_API_KEY;
   if (!key || key === "your_openai_api_key_here") {
@@ -63,11 +92,15 @@ function getOpenAI(): OpenAI {
 
 export async function generateResult(
   inputs: string[],
-  options?: { creative?: boolean }
+  options?: { creative?: boolean; subtractive?: boolean }
 ) {
   const openai = getOpenAI();
 
-  const promptTemplate = options?.creative ? CREATIVE_PROMPT : BASE_PROMPT;
+  const promptTemplate = options?.subtractive
+    ? SUBTRACTIVE_PROMPT
+    : options?.creative
+      ? CREATIVE_PROMPT
+      : BASE_PROMPT;
   const prompt = promptTemplate.replace(
     "{{INPUT_ELEMENTS_ARRAY}}",
     JSON.stringify(inputs)
@@ -77,6 +110,7 @@ export async function generateResult(
     model: MODEL_NAME,
     inputs,
     creative: options?.creative ?? false,
+    subtractive: options?.subtractive ?? false,
     temperature: 1,
     prompt,
   });

@@ -17,6 +17,8 @@ import "reactflow/dist/style.css";
 import {
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
+  SUBTRACTION_ITEM,
+  SUBTRACTION_ITEM_ID,
 } from "../../types";
 import type { Item, WorkspaceItem } from "../../types";
 
@@ -138,6 +140,7 @@ function FlowCanvas({
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
+    next.set(SUBTRACTION_ITEM.id, SUBTRACTION_ITEM);
     return next;
   }, [items]);
 
@@ -352,8 +355,11 @@ function FlowCanvas({
 
   useEffect(() => clearCreativeDrag, [clearCreativeDrag]);
 
-  const handleCreativeSpawnPointerDown = useCallback(
-    (event: React.PointerEvent<HTMLButtonElement>) => {
+  const handleCatalystSpawnPointerDown = useCallback(
+    (
+      event: React.PointerEvent<HTMLButtonElement>,
+      catalystItemId: number
+    ) => {
       event.preventDefault();
       event.stopPropagation();
 
@@ -401,7 +407,7 @@ function FlowCanvas({
         if (!droppedInside) return;
 
         if (!reactFlow) {
-          onAddItemToWorkspace(CREATIVE_ITEM_ID);
+          onAddItemToWorkspace(catalystItemId);
           return;
         }
 
@@ -409,7 +415,7 @@ function FlowCanvas({
           x: endEvent.clientX,
           y: endEvent.clientY,
         });
-        onAddItemToWorkspace(CREATIVE_ITEM_ID, position);
+        onAddItemToWorkspace(catalystItemId, position);
       };
 
       const handlePointerUp = (upEvent: PointerEvent) => {
@@ -443,6 +449,27 @@ function FlowCanvas({
     if (creativeDragRef.current?.moved) return;
     onAddItemToWorkspace(CREATIVE_ITEM_ID);
   }, [onAddItemToWorkspace]);
+
+  const handleSubtractionSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    onAddItemToWorkspace(SUBTRACTION_ITEM_ID);
+  }, [onAddItemToWorkspace]);
+
+  const startMarqueeSelectionAtPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      if (!wrapperRef.current) return;
+      const bounds = wrapperRef.current.getBoundingClientRect();
+      setMarqueeSelection({
+        startX: clientX - bounds.left,
+        startY: clientY - bounds.top,
+        currentX: clientX - bounds.left,
+        currentY: clientY - bounds.top,
+      });
+      pressStateRef.current = null;
+      clearLongPressTimer();
+    },
+    []
+  );
 
   const overlapArea = (
     a: { x: number; y: number; width: number; height: number },
@@ -543,6 +570,7 @@ function FlowCanvas({
         const item = itemById.get(workspaceItem.itemId);
         if (!item) return null;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
+        const isSubtractionItem = workspaceItem.itemId === SUBTRACTION_ITEM_ID;
 
         const isDragging = workspaceItem.nodeId === draggingNodeId;
         const isDragOverlapPair =
@@ -571,23 +599,35 @@ function FlowCanvas({
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
+                : isSubtractionItem
+                  ? "rgba(251,146,60,0.34)"
                 : "rgba(99,102,241,0.38)"
               : isCreativeItem
                 ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
+                : isSubtractionItem
+                  ? "rgba(249,115,22,0.96)"
                 : "rgba(15,23,42,0.98)",
             border: isSelected
               ? isCreativeItem
                 ? "1px solid rgba(216,180,254,0.96)"
+                : isSubtractionItem
+                  ? "1px solid rgba(254,215,170,0.94)"
                 : "1px solid rgba(99,102,241,0.95)"
               : isCreativeItem
                 ? "1px solid rgba(196,181,253,0.8)"
+                : isSubtractionItem
+                  ? "1px solid rgba(254,215,170,0.76)"
                 : "1px solid rgba(79,70,229,0.6)",
             boxShadow: isSelected
               ? isCreativeItem
                 ? "0 0 0 2px rgba(168,85,247,0.28), 0 8px 24px rgba(88,28,135,0.3)"
+                : isSubtractionItem
+                  ? "0 0 0 2px rgba(251,146,60,0.2), 0 8px 24px rgba(194,65,12,0.24)"
                 : "0 0 0 2px rgba(99,102,241,0.25)"
               : isCreativeItem
                 ? "0 8px 24px rgba(88,28,135,0.18)"
+                : isSubtractionItem
+                  ? "0 8px 24px rgba(194,65,12,0.18)"
                 : "none",
             color: "#e5e7eb",
             opacity: isConvergingNode ? 0 : isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
@@ -656,6 +696,17 @@ function FlowCanvas({
     onCombineWorkspaceItems(draggedNode.id, overlaps[0].node.id);
   };
 
+  const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (combiningNodeIds?.length) return;
+
+    const target = event.target as HTMLElement | null;
+    const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
+
+    if ((isMarqueeMode || event.detail === 2) && !nodeEl) {
+      startMarqueeSelectionAtPoint(event.clientX, event.clientY);
+    }
+  };
+
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
     if (combiningNodeIds?.length) return;
 
@@ -663,16 +714,8 @@ function FlowCanvas({
     const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
     const nodeId = nodeEl?.getAttribute("data-id") ?? null;
 
-    if (isMarqueeMode && !nodeId && wrapperRef.current) {
-      const bounds = wrapperRef.current.getBoundingClientRect();
-      setMarqueeSelection({
-        startX: event.clientX - bounds.left,
-        startY: event.clientY - bounds.top,
-        currentX: event.clientX - bounds.left,
-        currentY: event.clientY - bounds.top,
-      });
-      pressStateRef.current = null;
-      clearLongPressTimer();
+    if (isMarqueeMode && !nodeId) {
+      startMarqueeSelectionAtPoint(event.clientX, event.clientY);
       return;
     }
 
@@ -699,7 +742,7 @@ function FlowCanvas({
   };
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isMarqueeMode && marqueeSelection && wrapperRef.current) {
+    if (marqueeSelection && wrapperRef.current) {
       const bounds = wrapperRef.current.getBoundingClientRect();
       setMarqueeSelection((prev) =>
         prev
@@ -726,7 +769,7 @@ function FlowCanvas({
   };
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isMarqueeMode && marqueeSelection) {
+    if (marqueeSelection) {
       applyMarqueeSelection();
       return;
     }
@@ -750,7 +793,7 @@ function FlowCanvas({
   };
 
   const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isMarqueeMode && marqueeSelection) {
+    if (marqueeSelection) {
       setMarqueeSelection(null);
       setIsMarqueeMode(false);
       return;
@@ -766,6 +809,7 @@ function FlowCanvas({
     <div
       ref={wrapperRef}
       style={{ width: "100%", height: "100%", position: "relative" }}
+      onMouseDownCapture={handleMouseDown}
       onPointerDownCapture={handlePointerDown}
       onPointerMoveCapture={handlePointerMove}
       onPointerUpCapture={handlePointerUp}
@@ -797,11 +841,12 @@ function FlowCanvas({
         nodes={nodes}
         edges={[]}
         zoomOnScroll={true}
+        zoomOnDoubleClick={false}
         panOnScroll={false}
-        panOnDrag={!isMarqueeMode}
+        panOnDrag={!isMarqueeMode && !marqueeSelection}
         autoPanOnNodeDrag={false}
         nodeDragThreshold={NODE_DRAG_THRESHOLD_PX}
-        nodesDraggable={!isMarqueeMode}
+        nodesDraggable={!isMarqueeMode && !marqueeSelection}
         nodesConnectable={false}
         onInit={setReactFlow}
         onMove={() => {
@@ -917,10 +962,24 @@ function FlowCanvas({
       </button>
       <button
         type="button"
+        className="graph-subtraction-button"
+        aria-label="Drag Subtraction into the workspace"
+        title="Drag Subtraction into the workspace to remove one concept from another"
+        onPointerDown={(event) =>
+          handleCatalystSpawnPointerDown(event, SUBTRACTION_ITEM_ID)
+        }
+        onClick={handleSubtractionSpawnClick}
+      >
+        {SUBTRACTION_ITEM.icon}
+      </button>
+      <button
+        type="button"
         className="graph-creative-button"
         aria-label="Drag Creative Spark into the workspace"
         title="Drag Creative Spark into the workspace to make a combination more creative"
-        onPointerDown={handleCreativeSpawnPointerDown}
+        onPointerDown={(event) =>
+          handleCatalystSpawnPointerDown(event, CREATIVE_ITEM_ID)
+        }
         onClick={handleCreativeSpawnClick}
       >
         {CREATIVE_ITEM.icon}

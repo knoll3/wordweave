@@ -68,11 +68,12 @@ export async function resetCache(): Promise<{
 
 export async function combineElements(
   inputs: string[],
-  options?: { creative?: boolean }
+  options?: { creative?: boolean; subtractive?: boolean }
 ): Promise<Recipe> {
   console.log("[combine] request", {
     inputs,
     creative: options?.creative ?? false,
+    subtractive: options?.subtractive ?? false,
   });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
     method: "POST",
@@ -82,6 +83,7 @@ export async function combineElements(
     body: JSON.stringify({
       inputs,
       creative: options?.creative ?? false,
+      subtractive: options?.subtractive ?? false,
     }),
   });
   const data = await handleResponse<Recipe>(res);

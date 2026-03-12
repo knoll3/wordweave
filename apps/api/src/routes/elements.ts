@@ -75,6 +75,32 @@ router.get("/recent-recipes", async (_req, res) => {
   }
 });
 
+router.get("/cache-stats", async (_req, res) => {
+  try {
+    const db = await getDb();
+    const stmt = db.prepare(
+      `
+      SELECT
+        (SELECT COUNT(*) FROM recipes) AS recipe_count,
+        (SELECT COUNT(*) FROM recipe_candidates) AS candidate_count
+      `
+    );
+    let row: any = null;
+    if (stmt.step()) {
+      row = stmt.getAsObject();
+    }
+    stmt.free();
+
+    return res.json({
+      recipeCount: Number(row?.recipe_count ?? 0),
+      candidateCount: Number(row?.candidate_count ?? 0),
+    });
+  } catch (err) {
+    console.error("Error in GET /elements/cache-stats", err);
+    return res.status(500).json({ error: "Failed to load cache stats" });
+  }
+});
+
 router.post("/reset-library", async (_req, res) => {
   try {
     const db = await getDb();
@@ -98,6 +124,48 @@ router.post("/reset-library", async (_req, res) => {
   } catch (err) {
     console.error("Error in POST /elements/reset-library", err);
     return res.status(500).json({ error: "Failed to reset library" });
+  }
+});
+
+router.post("/reset-cache", async (_req, res) => {
+  try {
+    const db = await getDb();
+
+    const countStmt = db.prepare(
+      `
+      SELECT
+        (SELECT COUNT(*) FROM recipes) AS recipe_count,
+        (SELECT COUNT(*) FROM recipe_candidates) AS candidate_count
+      `
+    );
+    let countRow: any = null;
+    if (countStmt.step()) {
+      countRow = countStmt.getAsObject();
+    }
+    countStmt.free();
+
+    const recipeCount = Number(countRow?.recipe_count ?? 0);
+    const candidateCount = Number(countRow?.candidate_count ?? 0);
+
+    db.run("BEGIN");
+    try {
+      db.run("DELETE FROM recipe_candidates");
+      db.run("DELETE FROM recipes");
+      db.run("COMMIT");
+    } catch (err) {
+      db.run("ROLLBACK");
+      throw err;
+    }
+
+    persistDatabase(db);
+    return res.json({
+      ok: true,
+      clearedRecipeCount: recipeCount,
+      clearedCandidateCount: candidateCount,
+    });
+  } catch (err) {
+    console.error("Error in POST /elements/reset-cache", err);
+    return res.status(500).json({ error: "Failed to reset cache" });
   }
 });
 
