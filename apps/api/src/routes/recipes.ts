@@ -21,9 +21,12 @@ router.post("/combine", async (req, res) => {
     return res.status(400).json({ error: "Invalid request body" });
   }
 
+  const creative = parsedBody.data.creative ?? false;
+
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
   );
+  const recipeInputKey = creative ? `creative|${inputKey}` : inputKey;
 
   if (normalizedInputs.length === 0) {
     return res.status(400).json({ error: "No valid inputs provided" });
@@ -32,14 +35,100 @@ router.post("/combine", async (req, res) => {
   try {
     const db = await getDb();
 
+    if (creative) {
+      console.log("[api][combine] creative mode bypassing cache", {
+        inputs: normalizedInputs.map((i) => i.name),
+      });
+
+      let llmResult;
+      try {
+        llmResult = await generateResult(
+          normalizedInputs.map((i) => i.name),
+          { creative: true }
+        );
+        console.log("[api][combine] creative OpenAI result", llmResult);
+      } catch (err) {
+        console.error("Error generating creative result", err);
+        const message =
+          err instanceof Error ? err.message : "Failed to generate creative result from model";
+        return res.status(502).json({ error: message });
+      }
+
+      const createdResultName = toTitleCaseWords(llmResult.name);
+      const normalizedName = createdResultName.trim().toLowerCase();
+
+      let elementStmt = db.prepare(
+        "SELECT id, name, normalized_name, icon FROM elements WHERE normalized_name = ?"
+      );
+      let elementRow = elementStmt.getAsObject([normalizedName]);
+      elementStmt.free();
+
+      if (!elementRow || elementRow.id === undefined) {
+        const insertElementStmt = db.prepare(
+          "INSERT INTO elements (name, normalized_name, icon) VALUES (?, ?, ?)"
+        );
+        insertElementStmt.run([
+          createdResultName,
+          normalizedName,
+          llmResult.icon,
+        ]);
+        insertElementStmt.free();
+
+        const lastElementStmt = db.prepare(
+          "SELECT last_insert_rowid() as id"
+        );
+        let lastElementId: number | null = null;
+        if (lastElementStmt.step()) {
+          const row = lastElementStmt.getAsObject() as any;
+          lastElementId = Number(row.id);
+        }
+        lastElementStmt.free();
+
+        if (!lastElementId || Number.isNaN(lastElementId)) {
+          throw new Error("Failed to obtain creative element id");
+        }
+
+        elementRow = {
+          id: lastElementId,
+          name: createdResultName,
+          normalized_name: normalizedName,
+          icon: llmResult.icon,
+        };
+
+        persistDatabase(db);
+      }
+
+      return res.json({
+        recipeId: 0,
+        inputKey: recipeInputKey,
+        inputs: normalizedInputs,
+        candidates: [
+          {
+            id: 0,
+            name: createdResultName,
+            icon: llmResult.icon,
+            orderIndex: 0,
+          },
+        ],
+        chosenCandidateId: null,
+        resultElement: {
+          id: Number(elementRow.id),
+          name: String(elementRow.name),
+          normalizedName: String(elementRow.normalized_name),
+          icon: elementRow.icon ? String(elementRow.icon) : null,
+        },
+      });
+    }
+
     // Look up existing recipe
     let stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
-    let recipeRow = stmt.getAsObject([inputKey]);
+    let recipeRow = stmt.getAsObject([recipeInputKey]);
     stmt.free();
 
     if (recipeRow && recipeRow.id !== undefined) {
       console.log("[api][combine] cache hit", {
-        inputKey,
+        inputKey: recipeInputKey,
+        creative,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -78,7 +167,8 @@ router.post("/combine", async (req, res) => {
         } else {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
-            normalizedInputs.map((i) => i.name)
+            normalizedInputs.map((i) => i.name),
+            { creative }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -178,13 +268,15 @@ router.post("/combine", async (req, res) => {
 
     // Not found: generate a single result via OpenAI
     console.log("[api][combine] cache miss; generating via OpenAI", {
-      inputKey,
+      inputKey: recipeInputKey,
+      creative,
       inputs: normalizedInputs.map((i) => i.name),
     });
     let llmResult;
     try {
       llmResult = await generateResult(
-        normalizedInputs.map((i) => i.name)
+        normalizedInputs.map((i) => i.name),
+        { creative }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {
@@ -203,7 +295,7 @@ router.post("/combine", async (req, res) => {
       const insertRecipeStmt = db.prepare(
         "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
       );
-      insertRecipeStmt.run([inputKey, inputDisplayJson]);
+      insertRecipeStmt.run([recipeInputKey, inputDisplayJson]);
       insertRecipeStmt.free();
 
       const lastIdStmt = db.prepare(
@@ -298,7 +390,7 @@ router.post("/combine", async (req, res) => {
 
     // Load back inserted data
     stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
-    recipeRow = stmt.getAsObject([inputKey]);
+    recipeRow = stmt.getAsObject([recipeInputKey]);
     stmt.free();
 
     const candidatesStmt = db.prepare(

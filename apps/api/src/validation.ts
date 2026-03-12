@@ -2,6 +2,7 @@ import { z } from "zod";
 
 export const combineRequestSchema = z.object({
   inputs: z.array(z.string()).nonempty(),
+  creative: z.boolean().optional().default(false),
 });
 
 export const selectRequestSchema = z.object({

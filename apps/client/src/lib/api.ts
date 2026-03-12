@@ -40,16 +40,49 @@ export async function resetLibrary(): Promise<{ ok: boolean }> {
   return handleResponse<{ ok: boolean }>(res);
 }
 
+export async function fetchCacheStats(): Promise<{
+  recipeCount: number;
+  candidateCount: number;
+}> {
+  const res = await fetch(`${API_BASE}/elements/cache-stats`);
+  return handleResponse<{
+    recipeCount: number;
+    candidateCount: number;
+  }>(res);
+}
+
+export async function resetCache(): Promise<{
+  ok: boolean;
+  clearedRecipeCount: number;
+  clearedCandidateCount: number;
+}> {
+  const res = await fetch(`${API_BASE}/elements/reset-cache`, {
+    method: "POST",
+  });
+  return handleResponse<{
+    ok: boolean;
+    clearedRecipeCount: number;
+    clearedCandidateCount: number;
+  }>(res);
+}
+
 export async function combineElements(
-  inputs: string[]
+  inputs: string[],
+  options?: { creative?: boolean }
 ): Promise<Recipe> {
-  console.log("[combine] request", { inputs });
+  console.log("[combine] request", {
+    inputs,
+    creative: options?.creative ?? false,
+  });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({ inputs }),
+    body: JSON.stringify({
+      inputs,
+      creative: options?.creative ?? false,
+    }),
   });
   const data = await handleResponse<Recipe>(res);
   console.log("[combine] response", data);

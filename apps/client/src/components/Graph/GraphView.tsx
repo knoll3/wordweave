@@ -14,6 +14,10 @@ import ReactFlow, {
   ReactFlowProvider,
 } from "reactflow";
 import "reactflow/dist/style.css";
+import {
+  CREATIVE_ITEM,
+  CREATIVE_ITEM_ID,
+} from "../../types";
 import type { Item, WorkspaceItem } from "../../types";
 
 interface Props {
@@ -49,6 +53,14 @@ interface PressState {
   longPressTriggered: boolean;
 }
 
+interface CreativeDragState {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  moved: boolean;
+  dispose: (() => void) | null;
+}
+
 const LONG_PRESS_MS = 550;
 const MOVE_THRESHOLD_PX = 10;
 const NODE_DRAG_THRESHOLD_PX = 12;
@@ -74,8 +86,13 @@ function FlowCanvas({
   const [hoverTargetNodeId, setHoverTargetNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [viewportVersion, setViewportVersion] = useState(0);
+  const [creativeDragPreview, setCreativeDragPreview] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
 
   const pressStateRef = useRef<PressState | null>(null);
+  const creativeDragRef = useRef<CreativeDragState | null>(null);
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const suppressNextPaneClickRef = useRef(false);
 
@@ -108,10 +125,11 @@ function FlowCanvas({
     return () => observer.disconnect();
   }, [publishViewportCenter]);
 
-  const itemById = useMemo(
-    () => new Map(items.map((item) => [item.id, item])),
-    [items]
-  );
+  const itemById = useMemo(() => {
+    const next = new Map(items.map((item) => [item.id, item]));
+    next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
+    return next;
+  }, [items]);
 
   useEffect(() => {
     const workspaceNodeIds = new Set(workspaceItems.map((item) => item.nodeId));
@@ -271,6 +289,107 @@ function FlowCanvas({
     );
   }, []);
 
+  const clearCreativeDrag = useCallback(() => {
+    const current = creativeDragRef.current;
+    current?.dispose?.();
+    creativeDragRef.current = null;
+    setCreativeDragPreview(null);
+  }, []);
+
+  useEffect(() => clearCreativeDrag, [clearCreativeDrag]);
+
+  const handleCreativeSpawnPointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      event.stopPropagation();
+
+      clearCreativeDrag();
+
+      const updatePreview = (clientX: number, clientY: number) => {
+        if (!wrapperRef.current) return;
+        const bounds = wrapperRef.current.getBoundingClientRect();
+        setCreativeDragPreview({
+          x: clientX - bounds.left,
+          y: clientY - bounds.top,
+        });
+      };
+
+      updatePreview(event.clientX, event.clientY);
+
+      const pointerId = event.pointerId;
+      const handlePointerMove = (moveEvent: PointerEvent) => {
+        const current = creativeDragRef.current;
+        if (!current || current.pointerId !== moveEvent.pointerId) return;
+
+        const dx = moveEvent.clientX - current.startX;
+        const dy = moveEvent.clientY - current.startY;
+        if (Math.hypot(dx, dy) >= MOVE_THRESHOLD_PX) {
+          current.moved = true;
+        }
+        updatePreview(moveEvent.clientX, moveEvent.clientY);
+      };
+
+      const finishPointerDrag = (endEvent: PointerEvent) => {
+        const current = creativeDragRef.current;
+        if (!current || current.pointerId !== endEvent.pointerId) return;
+
+        const didMove = current.moved;
+        clearCreativeDrag();
+
+        if (!didMove || !wrapperRef.current) return;
+
+        const bounds = wrapperRef.current.getBoundingClientRect();
+        const droppedInside =
+          endEvent.clientX >= bounds.left &&
+          endEvent.clientX <= bounds.right &&
+          endEvent.clientY >= bounds.top &&
+          endEvent.clientY <= bounds.bottom;
+        if (!droppedInside) return;
+
+        if (!reactFlow) {
+          onAddItemToWorkspace(CREATIVE_ITEM_ID);
+          return;
+        }
+
+        const position = reactFlow.screenToFlowPosition({
+          x: endEvent.clientX,
+          y: endEvent.clientY,
+        });
+        onAddItemToWorkspace(CREATIVE_ITEM_ID, position);
+      };
+
+      const handlePointerUp = (upEvent: PointerEvent) => {
+        finishPointerDrag(upEvent);
+      };
+
+      const handlePointerCancel = (cancelEvent: PointerEvent) => {
+        finishPointerDrag(cancelEvent);
+      };
+
+      window.addEventListener("pointermove", handlePointerMove);
+      window.addEventListener("pointerup", handlePointerUp);
+      window.addEventListener("pointercancel", handlePointerCancel);
+
+      creativeDragRef.current = {
+        pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+        moved: false,
+        dispose: () => {
+          window.removeEventListener("pointermove", handlePointerMove);
+          window.removeEventListener("pointerup", handlePointerUp);
+          window.removeEventListener("pointercancel", handlePointerCancel);
+        },
+      };
+    },
+    [clearCreativeDrag, onAddItemToWorkspace, reactFlow]
+  );
+
+  const handleCreativeSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    onAddItemToWorkspace(CREATIVE_ITEM_ID);
+  }, [onAddItemToWorkspace]);
+
   const overlapArea = (
     a: { x: number; y: number; width: number; height: number },
     b: { x: number; y: number; width: number; height: number }
@@ -369,6 +488,7 @@ function FlowCanvas({
       .map((workspaceItem) => {
         const item = itemById.get(workspaceItem.itemId);
         if (!item) return null;
+        const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
 
         const isDragging = workspaceItem.nodeId === draggingNodeId;
         const isDragOverlapPair =
@@ -395,14 +515,26 @@ function FlowCanvas({
             padding: "6px 12px",
             fontSize: 11,
             background: isSelected
-              ? "rgba(99,102,241,0.38)"
-              : "rgba(15,23,42,0.98)",
+              ? isCreativeItem
+                ? "rgba(168,85,247,0.42)"
+                : "rgba(99,102,241,0.38)"
+              : isCreativeItem
+                ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
+                : "rgba(15,23,42,0.98)",
             border: isSelected
-              ? "1px solid rgba(99,102,241,0.95)"
-              : "1px solid rgba(79,70,229,0.6)",
+              ? isCreativeItem
+                ? "1px solid rgba(216,180,254,0.96)"
+                : "1px solid rgba(99,102,241,0.95)"
+              : isCreativeItem
+                ? "1px solid rgba(196,181,253,0.8)"
+                : "1px solid rgba(79,70,229,0.6)",
             boxShadow: isSelected
-              ? "0 0 0 2px rgba(99,102,241,0.25)"
-              : "none",
+              ? isCreativeItem
+                ? "0 0 0 2px rgba(168,85,247,0.28), 0 8px 24px rgba(88,28,135,0.3)"
+                : "0 0 0 2px rgba(99,102,241,0.25)"
+              : isCreativeItem
+                ? "0 8px 24px rgba(88,28,135,0.18)"
+                : "none",
             color: "#e5e7eb",
             opacity: isConvergingNode ? 0 : isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
           },
@@ -632,6 +764,23 @@ function FlowCanvas({
           ))}
         </div>
       ) : null}
+      {creativeDragPreview ? (
+        <div
+          className="creative-drag-preview"
+          aria-hidden="true"
+          style={{
+            left: `${creativeDragPreview.x}px`,
+            top: `${creativeDragPreview.y}px`,
+          }}
+        >
+          <span className="creative-drag-preview-icon">
+            {CREATIVE_ITEM.icon}
+          </span>
+          <span className="creative-drag-preview-name">
+            {CREATIVE_ITEM.name}
+          </span>
+        </div>
+      ) : null}
       {selectionCenterVisual ? (
         <svg className="selection-center-lines" aria-hidden="true">
           {selectionCenterVisual.lines.map((line, idx) => (
@@ -645,6 +794,16 @@ function FlowCanvas({
           ))}
         </svg>
       ) : null}
+      <button
+        type="button"
+        className="graph-creative-button"
+        aria-label="Drag Creative Spark into the workspace"
+        title="Drag Creative Spark into the workspace to make a combination more creative"
+        onPointerDown={handleCreativeSpawnPointerDown}
+        onClick={handleCreativeSpawnClick}
+      >
+        {CREATIVE_ITEM.icon}
+      </button>
       {workspaceItems.length > 0 ? (
         <button
           type="button"

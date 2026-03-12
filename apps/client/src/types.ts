@@ -5,6 +5,15 @@ export interface Item {
   icon: string | null;
 }
 
+export const CREATIVE_ITEM_ID = -1;
+
+export const CREATIVE_ITEM: Item = {
+  id: CREATIVE_ITEM_ID,
+  name: "Creative Spark",
+  normalizedName: "creative spark",
+  icon: "✨",
+};
+
 export interface RecipeCandidate {
   id: number;
   name: string;

@@ -246,6 +246,39 @@ body {
   z-index: 8;
 }
 
+.graph-creative-button {
+  position: absolute;
+  right: 12px;
+  bottom: 60px;
+  z-index: 130;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(216, 180, 254, 0.72);
+  border-radius: 999px;
+  background: rgba(126, 34, 206, 0.96);
+  color: #fff;
+  font-size: 1.45rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(216, 180, 254, 0.22),
+    0 18px 36px rgba(76, 29, 149, 0.42);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.graph-creative-button:hover {
+  background: rgba(147, 51, 234, 0.98);
+  box-shadow: 0 0 0 1px rgba(216, 180, 254, 0.35),
+    0 22px 42px rgba(76, 29, 149, 0.5);
+}
+
+.graph-creative-button:active {
+  cursor: grabbing;
+}
+
 .graph-combine-selected-button {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -303,6 +336,37 @@ body {
   inset: 0;
   z-index: 24;
   pointer-events: none;
+}
+
+.creative-drag-preview {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  z-index: 125;
+  pointer-events: none;
+  border-radius: 999px;
+  padding: 6px 12px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1;
+  color: #f5f3ff;
+  background: rgba(88, 28, 135, 0.96);
+  border: 1px solid rgba(216, 180, 254, 0.88);
+  box-shadow: 0 0 0 2px rgba(168, 85, 247, 0.24),
+    0 14px 28px rgba(76, 29, 149, 0.34);
+}
+
+.creative-drag-preview-icon {
+  flex: 0 0 auto;
+  font-size: 0.95rem;
+}
+
+.creative-drag-preview-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .combine-converge-node {
@@ -387,6 +451,11 @@ body {
 
 .pill-icon {
   margin-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .input {
@@ -448,14 +517,18 @@ body {
 }
 
 .element-icon {
-  width: 22px;
+  min-width: 22px;
   height: 22px;
+  padding: 0 4px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.9rem;
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .element-name {
@@ -487,14 +560,18 @@ body {
 }
 
 .recent-icon {
-  width: 22px;
+  min-width: 22px;
   height: 22px;
+  padding: 0 4px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.96);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 0.9rem;
+  white-space: nowrap;
+  line-height: 1;
+  flex-shrink: 0;
 }
 
 .recent-text {
@@ -565,6 +642,12 @@ body {
   align-self: flex-end;
 }
 
+.library-danger-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;
@@ -606,6 +689,11 @@ body {
   font-size: 0.8rem;
   color: var(--text-soft);
   line-height: 1.45;
+}
+
+.confirm-metric {
+  margin-top: 8px;
+  color: var(--text-main);
 }
 
 .confirm-actions {
@@ -700,6 +788,8 @@ body {
 
 .result-icon {
   font-size: 1.6rem;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .result-name {

@@ -3,19 +3,44 @@ import { llmResultSchema } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 
 const MODEL_NAME = process.env.OPENAI_MODEL ?? "gpt-4.1";
-
 const BASE_PROMPT = `
 You are the crafting engine for a sandbox discovery game.
 
 The player provides several nouns as input. Your job is to return the single most fundamental, widely recognized concept that those inputs point to together.
 
-Choose the best simple result a human would most naturally expect in a word-association discovery game. Prefer the strongest shared association over a literal combination of the inputs.
+Think carefully about the most expected result of combing nouns together through association or literal combination.
+Do not shy away from pop culture references or cultural nuances where it makes sense.
 
 Rules:
 - Return exactly one result.
 - Keep the result short and noun-like.
 - Do not return explanations, descriptions, sentences.
 - Favor the most common, obvious, culturally or logically dominant concept linked to the inputs.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
+const CREATIVE_PROMPT = `
+You are the imaginative crafting engine for a sandbox discovery game.
+
+The player provides several nouns as input. Your job is to return the single most vivid, surprising, and inspired concept that those inputs could unlock together.
+
+Think beyond the most literal answer. A bold and memorable answer is better than a plain one.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, sentences.
+- The result should still feel plausibly craftable from the inputs, just notably more imaginative than the default path.
+- The result should be something that is real and would show up in a google search or on wikipedia, not a term that you just make up.
 
 Return ONLY valid JSON in this format:
 
@@ -36,10 +61,14 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey: key });
 }
 
-export async function generateResult(inputs: string[]) {
+export async function generateResult(
+  inputs: string[],
+  options?: { creative?: boolean }
+) {
   const openai = getOpenAI();
 
-  const prompt = BASE_PROMPT.replace(
+  const promptTemplate = options?.creative ? CREATIVE_PROMPT : BASE_PROMPT;
+  const prompt = promptTemplate.replace(
     "{{INPUT_ELEMENTS_ARRAY}}",
     JSON.stringify(inputs)
   );
@@ -47,11 +76,14 @@ export async function generateResult(inputs: string[]) {
   console.log("[openai] sending request", {
     model: MODEL_NAME,
     inputs,
+    creative: options?.creative ?? false,
+    temperature: 1,
     prompt,
   });
 
   const response = await openai.chat.completions.create({
     model: MODEL_NAME,
+    temperature: 1,
     response_format: { type: "json_object" },
     messages: [
       {

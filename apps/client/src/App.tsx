@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { CREATIVE_ITEM, CREATIVE_ITEM_ID } from "./types";
 import type { Item, WorkspaceItem } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   }
 
   function findItemById(itemId: number) {
+    if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
     return items.find((item) => item.id === itemId);
   }
 
@@ -101,17 +103,32 @@ const App: React.FC = () => {
       .filter(Boolean) as Item[];
     if (selectedItems.length < 2) return;
 
-    const inputNames = selectedItems.map((item) => item.name);
+    const hasCreativeCatalyst = selectedItems.some(
+      (item) => item.id === CREATIVE_ITEM_ID
+    );
+    const actualInputItems = selectedItems.filter(
+      (item) => item.id !== CREATIVE_ITEM_ID
+    );
+    if (actualInputItems.length === 0) {
+      showError("Creative Spark needs at least one regular item to combine.", null);
+      return;
+    }
+    if (!hasCreativeCatalyst && actualInputItems.length < 2) return;
+
+    const inputNames = actualInputItems.map((item) => item.name);
     console.log("[combine] combine selected nodes", {
       nodeIds: uniqueNodeIds,
       inputs: inputNames,
+      creative: hasCreativeCatalyst,
     });
 
     try {
       setIsCombining(true);
       setCombiningNodeIds(uniqueNodeIds);
       setConvergingNodeIds(options?.converge ? uniqueNodeIds : null);
-      const recipe = await combineElements(inputNames);
+      const recipe = await combineElements(inputNames, {
+        creative: hasCreativeCatalyst,
+      });
       console.log("[combine] recipe received", recipe);
 
       if (!recipe.resultElement) {
