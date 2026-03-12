@@ -16,6 +16,8 @@ interface Props {
   onItemsLoaded?: (items: Item[]) => void;
 }
 
+const RANDOM_SPAWN_COUNT = 4;
+
 const ElementSidebar: React.FC<Props> = ({
   onAddItemToWorkspace,
   onLibraryReset,
@@ -112,6 +114,20 @@ const ElementSidebar: React.FC<Props> = ({
     );
   }, [items, sortBy]);
 
+  function handleAddRandomItems() {
+    if (!items.length) return;
+
+    const pool = [...items];
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+
+    pool.slice(0, Math.min(RANDOM_SPAWN_COUNT, pool.length)).forEach((item) => {
+      onAddItemToWorkspace(item);
+    });
+  }
+
   return (
     <>
       <header className="sidebar-header">
@@ -120,6 +136,22 @@ const ElementSidebar: React.FC<Props> = ({
           Combine items to discover new concepts.
         </p>
       </header>
+
+      <div className="sidebar-quick-actions">
+        <button
+          type="button"
+          className="button secondary random-items-button"
+          onClick={handleAddRandomItems}
+          disabled={loadingItems || items.length === 0}
+          title="Add random library items to the workspace"
+          aria-label="Add random library items to the workspace"
+        >
+          <span className="random-items-icon" aria-hidden="true">
+            🎲
+          </span>
+          Random
+        </button>
+      </div>
 
       <section className="sidebar-section library-section">
         <div className="library-header-row">
