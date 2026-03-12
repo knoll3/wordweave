@@ -22,6 +22,7 @@ interface Props {
   onWorkspaceItemsChange: (items: WorkspaceItem[]) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
+  convergingNodeIds?: string[] | null;
   onClearWorkspace: () => void;
   onRemoveWorkspaceItem: (nodeId: string) => void;
   onDuplicateWorkspaceItem: (
@@ -58,6 +59,7 @@ function FlowCanvas({
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
+  convergingNodeIds,
   onClearWorkspace,
   onRemoveWorkspaceItem,
   onDuplicateWorkspaceItem,
@@ -118,55 +120,101 @@ function FlowCanvas({
 
   const selectionMode = selectedNodeIds.length > 0;
 
+  const getNodeVisualsLocal = useCallback(
+    (nodeIds: string[]) => {
+      if (!reactFlow || !wrapperRef.current) {
+        return [] as Array<{
+          nodeId: string;
+          x: number;
+          y: number;
+          width: number;
+          height: number;
+          icon: string;
+          name: string;
+        }>;
+      }
+
+      const bounds = wrapperRef.current.getBoundingClientRect();
+
+      return nodeIds
+        .map((nodeId) => {
+          const workspaceNode = workspaceItems.find((item) => item.nodeId === nodeId);
+          const item = workspaceNode ? itemById.get(workspaceNode.itemId) : null;
+          const icon = item?.icon || item?.name.charAt(0).toUpperCase() || "•";
+          const name = item?.name ?? "";
+
+          const nodeEl = wrapperRef.current?.querySelector(
+            `.react-flow__node[data-id=\"${nodeId}\"]`
+          ) as HTMLElement | null;
+
+          if (nodeEl) {
+            const rect = nodeEl.getBoundingClientRect();
+            return {
+              nodeId,
+              x: rect.left - bounds.left + rect.width / 2,
+              y: rect.top - bounds.top + rect.height / 2,
+              width: rect.width,
+              height: rect.height,
+              icon,
+              name,
+            };
+          }
+
+          const node = reactFlow.getNode(nodeId);
+          if (!node) return null;
+          const width = node.width ?? 96;
+          const height = node.height ?? 34;
+          const centerFlow = {
+            x: node.position.x + width / 2,
+            y: node.position.y + height / 2,
+          };
+          const centerScreen = reactFlow.flowToScreenPosition(centerFlow);
+          return {
+            nodeId,
+            x: centerScreen.x - bounds.left,
+            y: centerScreen.y - bounds.top,
+            width,
+            height,
+            icon,
+            name,
+          };
+        })
+        .filter(
+          (
+            node
+          ): node is {
+            nodeId: string;
+            x: number;
+            y: number;
+            width: number;
+            height: number;
+            icon: string;
+            name: string;
+          } => !!node
+        );
+    },
+    [itemById, reactFlow, workspaceItems]
+  );
+
   const selectionCenterVisual = useMemo(() => {
-    if (!reactFlow || !wrapperRef.current || selectedNodeIds.length < 2) {
+    if (!wrapperRef.current || selectedNodeIds.length < 2) {
       return null;
     }
 
     const bounds = wrapperRef.current.getBoundingClientRect();
-    const nodeCenters = selectedNodeIds
-      .map((nodeId) => {
-        const nodeEl = wrapperRef.current?.querySelector(
-          `.react-flow__node[data-id=\"${nodeId}\"]`
-        ) as HTMLElement | null;
-        if (nodeEl) {
-          const rect = nodeEl.getBoundingClientRect();
-          return {
-            x: rect.left - bounds.left + rect.width / 2,
-            y: rect.top - bounds.top + rect.height / 2,
-          };
-        }
+    const nodeVisuals = getNodeVisualsLocal(selectedNodeIds);
+    if (nodeVisuals.length < 2) return null;
 
-        // Fallback if DOM node is temporarily unavailable.
-        const node = reactFlow.getNode(nodeId);
-        if (!node) return null;
-        const nodeWidth = node.width ?? 76;
-        const nodeHeight = node.height ?? 32;
-        const nodeCenterFlow = {
-          x: node.position.x + nodeWidth / 2,
-          y: node.position.y + nodeHeight / 2,
-        };
-        const nodeCenterScreen = reactFlow.flowToScreenPosition(nodeCenterFlow);
-        return {
-          x: nodeCenterScreen.x - bounds.left,
-          y: nodeCenterScreen.y - bounds.top,
-        };
-      });
-    const validNodeCenters = nodeCenters.filter(
-      (center): center is { x: number; y: number } => !!center
-    );
-    if (validNodeCenters.length < 2) return null;
-
-    const centerSum = validNodeCenters.reduce(
-      (acc, center) => ({
-        x: acc.x + center.x,
-        y: acc.y + center.y,
+    const centerSum = nodeVisuals.reduce(
+      (acc, node) => ({
+        x: acc.x + node.x,
+        y: acc.y + node.y,
       }),
       { x: 0, y: 0 }
     );
     const localCenter = {
-      x: centerSum.x / validNodeCenters.length,
-      y: centerSum.y / validNodeCenters.length,
+      x: centerSum.x / nodeVisuals.length,
+      y: centerSum.y / nodeVisuals.length,
     };
 
     const clampedCenter = {
@@ -176,9 +224,44 @@ function FlowCanvas({
 
     return {
       center: clampedCenter,
-      lines: validNodeCenters,
+      lines: nodeVisuals.map((node) => ({ x: node.x, y: node.y })),
     };
-  }, [reactFlow, selectedNodeIds, viewportVersion, workspaceItems]);
+  }, [getNodeVisualsLocal, selectedNodeIds, viewportVersion, workspaceItems]);
+
+  const combineConvergeVisual = useMemo(() => {
+    if (!wrapperRef.current || !convergingNodeIds || convergingNodeIds.length < 2) {
+      return null;
+    }
+
+    const bounds = wrapperRef.current.getBoundingClientRect();
+    const nodeVisuals = getNodeVisualsLocal(convergingNodeIds);
+    if (nodeVisuals.length < 2) return null;
+
+    const centerSum = nodeVisuals.reduce(
+      (acc, node) => ({
+        x: acc.x + node.x,
+        y: acc.y + node.y,
+      }),
+      { x: 0, y: 0 }
+    );
+    const localCenter = {
+      x: centerSum.x / nodeVisuals.length,
+      y: centerSum.y / nodeVisuals.length,
+    };
+    const clampedCenter = {
+      x: Math.max(44, Math.min(bounds.width - 44, localCenter.x)),
+      y: Math.max(44, Math.min(bounds.height - 44, localCenter.y)),
+    };
+
+    return {
+      center: clampedCenter,
+      nodes: nodeVisuals.map((node) => ({
+        ...node,
+        dx: clampedCenter.x - node.x,
+        dy: clampedCenter.y - node.y,
+      })),
+    };
+  }, [convergingNodeIds, getNodeVisualsLocal, viewportVersion, workspaceItems]);
 
   const toggleNodeSelection = useCallback((nodeId: string) => {
     setSelectedNodeIds((prev) =>
@@ -247,6 +330,8 @@ function FlowCanvas({
           (workspaceItem.nodeId === draggingNodeId ||
             workspaceItem.nodeId === hoverTargetNodeId);
         const isCombiningNode = !!combiningNodeIds?.includes(workspaceItem.nodeId);
+        const isConvergingNode = !!convergingNodeIds?.includes(workspaceItem.nodeId);
+        const shouldPulseCombineNode = isCombiningNode && !isConvergingNode;
         const isSelected = selectedNodeIds.includes(workspaceItem.nodeId);
 
         const icon = item.icon || item.name.charAt(0).toUpperCase();
@@ -256,7 +341,7 @@ function FlowCanvas({
           position: workspaceItem.position,
           data: { label: `${icon} ${item.name}` },
           type: "default",
-          className: isCombiningNode ? "node-combining" : undefined,
+          className: shouldPulseCombineNode ? "node-combining" : undefined,
           zIndex: isDragging ? 1000 : isSelected ? 20 : 1,
           style: {
             borderRadius: 999,
@@ -272,13 +357,14 @@ function FlowCanvas({
               ? "0 0 0 2px rgba(99,102,241,0.25)"
               : "none",
             color: "#e5e7eb",
-            opacity: isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
+            opacity: isConvergingNode ? 0 : isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
           },
         } satisfies Node;
       })
       .filter(Boolean) as Node[];
   }, [
     combiningNodeIds,
+    convergingNodeIds,
     draggingNodeId,
     hoverTargetNodeId,
     itemById,
@@ -473,6 +559,29 @@ function FlowCanvas({
         <Background gap={16} color="rgba(148,163,184,0.24)" />
         <Controls showInteractive={false} />
       </ReactFlow>
+      {combineConvergeVisual ? (
+        <div className="combine-converge-layer" aria-hidden="true">
+          {combineConvergeVisual.nodes.map((node) => (
+            <div
+              key={`combine-converge-${node.nodeId}`}
+              className="combine-converge-node"
+              style={
+                {
+                  left: `${node.x}px`,
+                  top: `${node.y}px`,
+                  width: `${node.width}px`,
+                  height: `${node.height}px`,
+                  "--converge-x": `${node.dx}px`,
+                  "--converge-y": `${node.dy}px`,
+                } as React.CSSProperties
+              }
+            >
+              <span className="combine-converge-icon">{node.icon}</span>
+              <span className="combine-converge-name">{node.name}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
       {selectionCenterVisual ? (
         <svg className="selection-center-lines" aria-hidden="true">
           {selectionCenterVisual.lines.map((line, idx) => (

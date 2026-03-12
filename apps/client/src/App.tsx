@@ -11,6 +11,7 @@ const App: React.FC = () => {
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [isCombining, setIsCombining] = useState(false);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[] | null>(null);
+  const [convergingNodeIds, setConvergingNodeIds] = useState<string[] | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -82,7 +83,10 @@ const App: React.FC = () => {
     setWorkspaceItems([]);
   }
 
-  async function combineWorkspaceNodeIds(nodeIds: string[]) {
+  async function combineWorkspaceNodeIds(
+    nodeIds: string[],
+    options?: { converge?: boolean }
+  ) {
     if (isCombining) return;
     const uniqueNodeIds = Array.from(new Set(nodeIds));
     if (uniqueNodeIds.length < 2) return;
@@ -106,6 +110,7 @@ const App: React.FC = () => {
     try {
       setIsCombining(true);
       setCombiningNodeIds(uniqueNodeIds);
+      setConvergingNodeIds(options?.converge ? uniqueNodeIds : null);
       const recipe = await combineElements(inputNames);
       console.log("[combine] recipe received", recipe);
 
@@ -155,6 +160,7 @@ const App: React.FC = () => {
     } finally {
       setIsCombining(false);
       setCombiningNodeIds(null);
+      setConvergingNodeIds(null);
       console.log("[combine] finished");
     }
   }
@@ -164,7 +170,9 @@ const App: React.FC = () => {
     targetNodeId: string
   ) {
     if (sourceNodeId === targetNodeId) return;
-    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId]);
+    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
+      converge: false,
+    });
   }
 
   return (
@@ -208,11 +216,14 @@ const App: React.FC = () => {
                 onWorkspaceItemsChange={setWorkspaceItems}
                 onViewportCenterChange={setViewportCenter}
                 combiningNodeIds={combiningNodeIds}
+                convergingNodeIds={convergingNodeIds}
                 onClearWorkspace={clearWorkspaceItems}
                 onRemoveWorkspaceItem={removeWorkspaceItem}
                 onDuplicateWorkspaceItem={duplicateWorkspaceItem}
                 onAddItemToWorkspace={addItemToWorkspace}
-                onCombineWorkspaceSelection={combineWorkspaceNodeIds}
+                onCombineWorkspaceSelection={(nodeIds) =>
+                  combineWorkspaceNodeIds(nodeIds, { converge: true })
+                }
                 onCombineWorkspaceItems={combineWorkspaceItems}
               />
             </div>
