@@ -283,6 +283,53 @@ function FlowCanvas({
     return overlapWidth * overlapHeight;
   };
 
+  const getHoverTargetNodeId = useCallback(
+    (draggedNodeId: string) => {
+      if (!wrapperRef.current) return null;
+
+      const draggedEl = wrapperRef.current.querySelector(
+        `.react-flow__node[data-id=\"${draggedNodeId}\"]`
+      ) as HTMLElement | null;
+      if (!draggedEl) return null;
+
+      const draggedRect = draggedEl.getBoundingClientRect();
+      const candidateEls = Array.from(
+        wrapperRef.current.querySelectorAll(".react-flow__node[data-id]")
+      ) as HTMLElement[];
+
+      const overlaps = candidateEls
+        .map((nodeEl) => {
+          const nodeId = nodeEl.getAttribute("data-id");
+          if (!nodeId || nodeId === draggedNodeId) return null;
+
+          const rect = nodeEl.getBoundingClientRect();
+          const area = overlapArea(
+            {
+              x: draggedRect.left,
+              y: draggedRect.top,
+              width: draggedRect.width,
+              height: draggedRect.height,
+            },
+            {
+              x: rect.left,
+              y: rect.top,
+              width: rect.width,
+              height: rect.height,
+            }
+          );
+
+          return area > 0 ? { nodeId, area } : null;
+        })
+        .filter(
+          (entry): entry is { nodeId: string; area: number } => !!entry
+        )
+        .sort((a, b) => b.area - a.area);
+
+      return overlaps[0]?.nodeId ?? null;
+    },
+    []
+  );
+
   const getOverlapsForDraggedNode = useCallback(
     (draggedNode: Node) => {
       if (!reactFlow) return [];
@@ -382,8 +429,11 @@ function FlowCanvas({
       )
     );
 
-    const overlaps = getOverlapsForDraggedNode(draggedNode);
-    setHoverTargetNodeId(overlaps[0]?.node.id ?? null);
+    // Use live DOM overlap for hover state. It is more reliable mid-drag than
+    // React Flow's internal node geometry, which can lag during movement.
+    requestAnimationFrame(() => {
+      setHoverTargetNodeId(getHoverTargetNodeId(draggedNode.id));
+    });
   };
 
   const onNodeDragStop: NodeDragHandler = (event, draggedNode) => {
