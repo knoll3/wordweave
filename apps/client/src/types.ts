@@ -54,3 +54,17 @@ export interface WorkspaceItem {
   itemId: number;
   position: { x: number; y: number };
 }
+
+export interface QuestStep {
+  target: string;
+  normalizedTarget: string;
+  inputs: string[];
+  normalizedInputs: string[];
+  recipeId: number;
+}
+
+export interface QuestLine {
+  name: string;
+  normalizedName: string;
+  steps: QuestStep[];
+}

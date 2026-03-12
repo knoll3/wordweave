@@ -5,10 +5,10 @@ import {
   SUBTRACTION_ITEM,
   SUBTRACTION_ITEM_ID,
 } from "./types";
-import type { AiModel, Item, WorkspaceItem } from "./types";
+import type { AiModel, Item, QuestLine, WorkspaceItem } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
-import { combineElements } from "./lib/api";
+import { combineElements, generateQuest } from "./lib/api";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
@@ -26,6 +26,10 @@ const App: React.FC = () => {
     y: number;
   } | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
+  const [activeQuest, setActiveQuest] = useState<QuestLine | null>(null);
+  const [isGeneratingQuest, setIsGeneratingQuest] = useState(false);
+  const [completedQuest, setCompletedQuest] = useState<QuestLine | null>(null);
+  const [showQuestCompleteModal, setShowQuestCompleteModal] = useState(false);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -37,6 +41,16 @@ const App: React.FC = () => {
   useEffect(() => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
+
+  useEffect(() => {
+    if (!activeQuest || showQuestCompleteModal) return;
+    const hasUnlockedTarget = items.some(
+      (item) => item.normalizedName === activeQuest.normalizedName
+    );
+    if (!hasUnlockedTarget) return;
+    setCompletedQuest(activeQuest);
+    setShowQuestCompleteModal(true);
+  }, [activeQuest, items, showQuestCompleteModal]);
 
   function showError(message: string, err: unknown) {
     console.error(message, err);
@@ -103,6 +117,28 @@ const App: React.FC = () => {
 
   function handleLibraryReset() {
     setWorkspaceItems([]);
+  }
+
+  async function handleGenerateQuest() {
+    if (isGeneratingQuest) return;
+    try {
+      setIsGeneratingQuest(true);
+      const quest = await generateQuest();
+      setActiveQuest(quest);
+      setCompletedQuest(null);
+      setShowQuestCompleteModal(false);
+    } catch (err) {
+      console.error("[quest] failed", err);
+      showError("Failed to generate quest. Please try again.", err);
+    } finally {
+      setIsGeneratingQuest(false);
+    }
+  }
+
+  function handleResetQuest() {
+    setActiveQuest(null);
+    setCompletedQuest(null);
+    setShowQuestCompleteModal(false);
   }
 
   async function combineWorkspaceNodeIds(
@@ -236,6 +272,33 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
+      {showQuestCompleteModal && completedQuest ? (
+        <div className="results-overlay" role="presentation">
+          <div
+            className="results-backdrop"
+            onClick={() => setShowQuestCompleteModal(false)}
+          />
+          <div className="results-panel quest-complete-panel" role="dialog" aria-modal="true">
+            <div className="results-header">
+              <div>
+                <h3 className="results-title">Quest Complete</h3>
+                <p className="results-subtitle">
+                  You discovered <strong>{completedQuest.name}</strong>.
+                </p>
+              </div>
+            </div>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => setShowQuestCompleteModal(false)}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="app-root">
         <aside className="sidebar">
@@ -272,6 +335,52 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="graph-canvas">
+              <div className="quest-panel">
+                <div className="quest-panel-header">
+                  <div>
+                    <div className="quest-panel-label">Quest</div>
+                    <div className="quest-panel-target">
+                      {activeQuest ? activeQuest.name : "No target set"}
+                    </div>
+                  </div>
+                  {activeQuest ? (
+                    <button
+                      type="button"
+                      className="quest-reset-button"
+                      onClick={handleResetQuest}
+                    >
+                      Reset
+                    </button>
+                  ) : null}
+                </div>
+                <button
+                  type="button"
+                  className="button primary quest-generate-button"
+                  disabled={isGeneratingQuest}
+                  onClick={() => void handleGenerateQuest()}
+                >
+                  {isGeneratingQuest ? "Generating..." : "Generate Quest"}
+                </button>
+                {activeQuest?.steps.length ? (
+                  <ol className="quest-step-list">
+                    {activeQuest.steps.map((step, index) => (
+                      <li key={`${step.recipeId}-${step.normalizedTarget}`} className="quest-step-item">
+                        <span className="quest-step-target">{step.target}</span>
+                        <span className="quest-step-formula">
+                          {step.inputs.join(" + ")}
+                        </span>
+                      </li>
+                    ))}
+                  </ol>
+                ) : null}
+                <div className="quest-panel-help">
+                  {isGeneratingQuest
+                    ? "Generating quest..."
+                    : activeQuest
+                      ? `${activeQuest.steps.length} steps from base elements to ${activeQuest.name}.`
+                      : "Generate a cached quest path for testing."}
+                </div>
+              </div>
               <GraphView
                 items={items}
                 workspaceItems={workspaceItems}

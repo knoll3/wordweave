@@ -1,4 +1,10 @@
-import type { AiModel, Item, Recipe, RecentRecipe } from "../types";
+import type {
+  AiModel,
+  Item,
+  QuestLine,
+  Recipe,
+  RecentRecipe,
+} from "../types";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -109,4 +115,11 @@ export async function selectCandidate(
     body: JSON.stringify({ candidateId }),
   });
   return handleResponse(res);
+}
+
+export async function generateQuest(): Promise<QuestLine> {
+  const res = await fetch(`${API_BASE}/quests/generate`, {
+    method: "POST",
+  });
+  return handleResponse<QuestLine>(res);
 }

@@ -317,6 +317,30 @@ function FlowCanvas({
     );
   }, []);
 
+  const duplicateSelection = useCallback(() => {
+    if (!selectionBoundsVisual) return;
+
+    const offset = {
+      x: Math.max(72, selectionBoundsVisual.width + 28),
+      y: 24,
+    };
+
+    selectedNodeIds.forEach((nodeId) => {
+      const workspaceNode = workspaceItems.find((item) => item.nodeId === nodeId);
+      if (!workspaceNode) return;
+
+      onDuplicateWorkspaceItem(nodeId, {
+        x: workspaceNode.position.x + offset.x,
+        y: workspaceNode.position.y + offset.y,
+      });
+    });
+  }, [
+    onDuplicateWorkspaceItem,
+    selectedNodeIds,
+    selectionBoundsVisual,
+    workspaceItems,
+  ]);
+
   const applyMarqueeSelection = useCallback(() => {
     if (!wrapperRef.current || !marqueeSelectionRect) {
       setMarqueeSelection(null);
@@ -997,21 +1021,34 @@ function FlowCanvas({
         </button>
       ) : null}
       {hasMultiSelection && selectionBoundsVisual ? (
-        <button
-          type="button"
-          className="button primary graph-combine-selected-button"
-          aria-label="Combine selected items"
+        <div
+          className="graph-selection-actions"
           style={{
             left: `${selectionBoundsVisual.left + selectionBoundsVisual.width}px`,
             top: `${selectionBoundsVisual.top + selectionBoundsVisual.height}px`,
           }}
-          onClick={() => {
-            onCombineWorkspaceSelection(selectedNodeIds);
-            setSelectedNodeIds([]);
-          }}
         >
-          Combine
-        </button>
+          <button
+            type="button"
+            className="button secondary graph-copy-selected-button"
+            aria-label="Copy selected items"
+            title="Copy selected items"
+            onClick={duplicateSelection}
+          >
+            ⧉
+          </button>
+          <button
+            type="button"
+            className="button primary graph-combine-selected-button"
+            aria-label="Combine selected items"
+            onClick={() => {
+              onCombineWorkspaceSelection(selectedNodeIds);
+              setSelectedNodeIds([]);
+            }}
+          >
+            Combine
+          </button>
+        </div>
       ) : null}
       {workspaceItems.length === 0 ? (
         <div className="graph-placeholder">
