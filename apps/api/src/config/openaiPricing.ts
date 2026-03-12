@@ -9,6 +9,7 @@ export const OPENAI_TEXT_TOKEN_PRICING_USD_PER_1M: Record<
   TextTokenPricingUsdPer1M
 > = {
   // Source: https://platform.openai.com/docs/pricing
+  "gpt-5-nano": { input: 0.05, cachedInput: 0.005, output: 0.4 },
   "gpt-4.1": { input: 2.0, cachedInput: 0.5, output: 8.0 },
   "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, output: 1.6 },
   "gpt-4.1-nano": { input: 0.1, cachedInput: 0.025, output: 0.4 },
@@ -17,6 +18,10 @@ export const OPENAI_TEXT_TOKEN_PRICING_USD_PER_1M: Record<
 function resolvePricingModel(model: string): string | null {
   if (OPENAI_TEXT_TOKEN_PRICING_USD_PER_1M[model]) {
     return model;
+  }
+
+  if (model.startsWith("gpt-5-nano-")) {
+    return "gpt-5-nano";
   }
 
   if (model.startsWith("gpt-4.1-mini-")) {

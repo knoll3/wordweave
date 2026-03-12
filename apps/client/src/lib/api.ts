@@ -117,9 +117,17 @@ export async function selectCandidate(
   return handleResponse(res);
 }
 
-export async function generateQuest(): Promise<QuestLine> {
+export async function generateQuest(options?: {
+  discoveredItems?: string[];
+}): Promise<QuestLine> {
   const res = await fetch(`${API_BASE}/quests/generate`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      discoveredItems: options?.discoveredItems ?? [],
+    }),
   });
   return handleResponse<QuestLine>(res);
 }

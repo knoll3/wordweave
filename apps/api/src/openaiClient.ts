@@ -1,10 +1,19 @@
 import OpenAI from "openai";
-import { llmResultSchema } from "./validation";
+import { llmResultSchema, questInputChoiceSchema } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 
-export type OpenAiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
+export type OpenAiModel =
+  | "gpt-5-nano"
+  | "gpt-4.1"
+  | "gpt-4.1-mini"
+  | "gpt-4.1-nano";
 
-const MODEL_NAMES: OpenAiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
+const MODEL_NAMES: OpenAiModel[] = [
+  "gpt-5-nano",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano",
+];
 
 function resolveDefaultModelName(): OpenAiModel {
   const configuredModel = process.env.OPENAI_MODEL;
@@ -92,6 +101,28 @@ Return ONLY valid JSON in this format:
 
 Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
+const QUEST_INPUT_SELECTION_PROMPT = `
+You are planning an interesting quest chain for a sandbox discovery game.
+
+Pick a small collection of candidate items that do not seem especially uninteresting when combined with each other.
+
+Rules:
+- Return only items from the provided candidate list.
+- Return at least 3 items.
+- Prefer items that are not obviously dull, redundant, flat, or repetitive when combined.
+- Do not try to optimize for the single best combinations in advance.
+- Do not explain your answer.
+
+Return ONLY valid JSON in this format:
+
+{
+  "items": ["item one", "item two", "item three"]
+}
+
+Candidate items:
+{{QUEST_INPUT_CANDIDATES}}
 `.trim();
 
 function getOpenAI(): OpenAI {
@@ -200,6 +231,55 @@ export async function generateResult(
   }
 
   console.log("[openai] parsed result", result.data);
+
+  return result.data;
+}
+
+export async function chooseQuestInputs(params: {
+  model?: OpenAiModel;
+  candidateItems: string[];
+}) {
+  const openai = getOpenAI();
+  const model = params.model ?? DEFAULT_MODEL_NAME;
+
+  const prompt = QUEST_INPUT_SELECTION_PROMPT.replace(
+    "{{QUEST_INPUT_CANDIDATES}}",
+    JSON.stringify(params.candidateItems)
+  );
+
+  console.log("[openai][quest-picker] sending request", {
+    model,
+    candidateCount: params.candidateItems.length,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 1,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][quest-picker] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  const result = questInputChoiceSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI quest input choice failed validation");
+  }
+
+  console.log("[openai][quest-picker] parsed result", result.data);
 
   return result.data;
 }

@@ -123,7 +123,9 @@ const App: React.FC = () => {
     if (isGeneratingQuest) return;
     try {
       setIsGeneratingQuest(true);
-      const quest = await generateQuest();
+      const quest = await generateQuest({
+        discoveredItems: items.map((item) => item.name),
+      });
       setActiveQuest(quest);
       setCompletedQuest(null);
       setShowQuestCompleteModal(false);

@@ -9,6 +9,10 @@ export const combineRequestSchema = z.object({
     .optional(),
 });
 
+export const generateQuestRequestSchema = z.object({
+  discoveredItems: z.array(z.string()).optional().default([]),
+});
+
 export const selectRequestSchema = z.object({
   candidateId: z.number().int().positive(),
 });
@@ -18,4 +22,9 @@ export const llmResultSchema = z.object({
   icon: z.string().min(1).max(8),
 });
 
+export const questInputChoiceSchema = z.object({
+  items: z.array(z.string().min(1).max(64)).min(3).max(8),
+});
+
 export type LlmResult = z.infer<typeof llmResultSchema>;
+export type QuestInputChoice = z.infer<typeof questInputChoiceSchema>;

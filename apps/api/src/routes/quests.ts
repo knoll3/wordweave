@@ -1,19 +1,17 @@
 import express from "express";
-import { BASE_ELEMENT_NORMALIZED_NAMES, getDb } from "../db";
-import { toTitleCaseWords } from "../models";
+import { Database } from "sql.js";
+import { getDb, persistDatabase } from "../db";
+import {
+  chooseQuestInputs,
+  generateResult,
+  OpenAiModel,
+} from "../openaiClient";
+import { normalizeInputs, toTitleCaseWords } from "../models";
+import { generateQuestRequestSchema } from "../validation";
 
-type RecipeRecord = {
-  recipeId: number;
-  resultName: string;
-  normalizedResultName: string;
-  inputs: { name: string; normalized: string }[];
-};
-
-type QuestTreeNode = {
-  itemName: string;
-  normalizedItemName: string;
-  recipeId: number | null;
-  inputs: QuestTreeNode[];
+type CacheItem = {
+  name: string;
+  normalizedName: string;
 };
 
 type QuestStep = {
@@ -24,199 +22,346 @@ type QuestStep = {
   recipeId: number;
 };
 
-const MAX_DEPTH = 12;
-const MAX_EXPANSIONS = 1500;
-const MIN_STEP_COUNT = 2;
-const MAX_TARGET_ATTEMPTS = 40;
-
 const router = express.Router();
 
-function shuffleInPlace<T>(values: T[]) {
-  for (let i = values.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [values[i], values[j]] = [values[j], values[i]];
-  }
-  return values;
+const QUEST_STEP_COUNT = 3;
+const STEP_RETRY_LIMIT = 40;
+const QUEST_MODEL: OpenAiModel = "gpt-5-nano";
+const QUEST_INPUT_SAMPLE_SIZE = 50;
+
+function randomFrom<T>(items: T[]) {
+  return items[Math.floor(Math.random() * items.length)];
 }
 
-function linearizeQuestTree(root: QuestTreeNode) {
-  const steps: QuestStep[] = [];
-  const emitted = new Set<string>();
+function sampleItems<T>(items: T[], sampleSize: number) {
+  const copy = [...items];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy.slice(0, Math.min(sampleSize, copy.length));
+}
 
-  function visit(node: QuestTreeNode) {
-    if (node.recipeId == null) return;
-    node.inputs.forEach(visit);
-    if (emitted.has(node.normalizedItemName)) return;
-    emitted.add(node.normalizedItemName);
-    steps.push({
-      target: node.itemName,
-      normalizedTarget: node.normalizedItemName,
-      inputs: node.inputs.map((input) => input.itemName),
-      normalizedInputs: node.inputs.map((input) => input.normalizedItemName),
-      recipeId: node.recipeId,
+function loadCacheItems(db: Database) {
+  const stmt = db.prepare(`
+    SELECT DISTINCT
+      e.name,
+      e.normalized_name
+    FROM recipes r
+    JOIN elements e ON e.id = r.result_element_id
+    WHERE r.result_element_id IS NOT NULL
+  `);
+
+  const items: CacheItem[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    items.push({
+      name: String(row.name),
+      normalizedName: String(row.normalized_name),
     });
   }
+  stmt.free();
 
-  visit(root);
-  return steps;
+  return items;
 }
 
-function buildQuestTree(params: {
-  target: string;
-  recipesByResult: Map<string, RecipeRecord[]>;
+function loadCachedResultNames(db: Database) {
+  return new Set(loadCacheItems(db).map((item) => item.normalizedName));
+}
+
+function findItemByName(items: CacheItem[], rawName: string) {
+  const normalized = rawName.trim().toLowerCase();
+  return items.find((item) => item.normalizedName === normalized) ?? null;
+}
+
+function loadUsedInputNames(db: Database) {
+  const stmt = db.prepare("SELECT input_display_json FROM recipes");
+  const used = new Set<string>();
+
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    const inputs = JSON.parse(String(row.input_display_json)) as Array<{
+      normalized: string;
+    }>;
+    inputs.forEach((input) => used.add(input.normalized));
+  }
+  stmt.free();
+
+  return used;
+}
+
+function recipeExists(db: Database, inputKey: string) {
+  const stmt = db.prepare("SELECT id FROM recipes WHERE input_key = ?");
+  const row = stmt.getAsObject([inputKey]);
+  stmt.free();
+  return row?.id !== undefined;
+}
+
+function insertHiddenRecipe(params: {
+  db: Database;
+  inputKey: string;
+  inputDisplayJson: string;
+  resultName: string;
+  resultIcon: string;
+}) {
+  const insertRecipeStmt = params.db.prepare(
+    "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
+  );
+  insertRecipeStmt.run([params.inputKey, params.inputDisplayJson]);
+  insertRecipeStmt.free();
+
+  const recipeIdStmt = params.db.prepare("SELECT last_insert_rowid() AS id");
+  let recipeId: number | null = null;
+  if (recipeIdStmt.step()) {
+    const row = recipeIdStmt.getAsObject() as Record<string, unknown>;
+    recipeId = Number(row.id);
+  }
+  recipeIdStmt.free();
+
+  if (!recipeId || Number.isNaN(recipeId)) {
+    throw new Error("Failed to create hidden quest recipe");
+  }
+
+  const insertCandidateStmt = params.db.prepare(
+    "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
+  );
+  insertCandidateStmt.run([
+    recipeId,
+    params.resultName,
+    params.resultIcon,
+    0,
+  ]);
+  insertCandidateStmt.free();
+
+  return recipeId;
+}
+
+async function generateHiddenQuestStep(params: {
+  left: CacheItem;
+  right: CacheItem;
+  model: OpenAiModel;
+}) {
+  const { normalizedInputs, inputKey } = normalizeInputs([
+    params.left.name,
+    params.right.name,
+  ]);
+
+  const llmResult = await generateResult(
+    normalizedInputs.map((input) => input.name),
+    { model: params.model }
+  );
+  const resultName = toTitleCaseWords(llmResult.name);
+  const normalizedResultName = resultName.trim().toLowerCase();
+
+  return {
+    inputKey,
+    inputDisplayJson: JSON.stringify(normalizedInputs),
+    resultIcon: llmResult.icon,
+    nextItem: {
+      name: resultName,
+      normalizedName: normalizedResultName,
+    },
+    step: {
+      target: resultName,
+      normalizedTarget: normalizedResultName,
+      inputs: normalizedInputs.map((input) => input.name),
+      normalizedInputs: normalizedInputs.map((input) => input.normalized),
+      recipeId: 0,
+    } satisfies QuestStep,
+  };
+}
+
+function isRejectedIntermediateResult(params: {
+  step: QuestStep;
+  generatedOutputs: Set<string>;
+}) {
+  return (
+    params.step.normalizedInputs.includes(params.step.normalizedTarget) ||
+    params.generatedOutputs.has(params.step.normalizedTarget)
+  );
+}
+
+function isRejectedFinalResult(params: {
+  step: QuestStep;
+  generatedOutputs: Set<string>;
+  discoveredItems: Set<string>;
+  cachedResultNames: Set<string>;
   baseItems: Set<string>;
 }) {
-  let expansions = 0;
-
-  function expand(
-    normalizedTarget: string,
-    path: Set<string>,
-    depth: number
-  ): QuestTreeNode | null {
-    if (params.baseItems.has(normalizedTarget)) {
-      return {
-        itemName: toTitleCaseWords(normalizedTarget),
-        normalizedItemName: normalizedTarget,
-        recipeId: null,
-        inputs: [],
-      };
-    }
-
-    if (path.has(normalizedTarget)) {
-      return null;
-    }
-
-    if (depth > MAX_DEPTH || expansions >= MAX_EXPANSIONS) {
-      return null;
-    }
-
-    const recipes = params.recipesByResult.get(normalizedTarget);
-    if (!recipes?.length) {
-      return null;
-    }
-
-    expansions += 1;
-
-    const sortedRecipes = [...recipes].sort((a, b) => {
-      if (a.inputs.length !== b.inputs.length) {
-        return a.inputs.length - b.inputs.length;
-      }
-      const aKey = a.inputs.map((input) => input.normalized).join("|");
-      const bKey = b.inputs.map((input) => input.normalized).join("|");
-      if (aKey !== bKey) {
-        return aKey.localeCompare(bKey, "en");
-      }
-      return a.recipeId - b.recipeId;
-    });
-
-    for (const recipe of sortedRecipes) {
-      const nextPath = new Set(path);
-      nextPath.add(normalizedTarget);
-      const inputNodes: QuestTreeNode[] = [];
-      let valid = true;
-
-      for (const input of recipe.inputs) {
-        const child = expand(input.normalized, nextPath, depth + 1);
-        if (!child) {
-          valid = false;
-          break;
-        }
-        inputNodes.push(child);
-      }
-
-      if (!valid) continue;
-
-      return {
-        itemName: recipe.resultName,
-        normalizedItemName: recipe.normalizedResultName,
-        recipeId: recipe.recipeId,
-        inputs: inputNodes,
-      };
-    }
-
-    return null;
-  }
-
-  return expand(params.target, new Set(), 0);
+  return (
+    isRejectedIntermediateResult({
+      step: params.step,
+      generatedOutputs: params.generatedOutputs,
+    }) ||
+    params.baseItems.has(params.step.normalizedTarget) ||
+    params.discoveredItems.has(params.step.normalizedTarget) ||
+    params.cachedResultNames.has(params.step.normalizedTarget)
+  );
 }
 
-router.post("/generate", async (_req, res) => {
+async function pickQuestInputs(params: {
+  leafItems: CacheItem[];
+  currentItem: CacheItem | null;
+  curatedItems: CacheItem[];
+}) {
+  if (params.currentItem) {
+    const candidatePool = params.curatedItems.length
+      ? params.curatedItems
+      : params.leafItems;
+    const right = randomFrom(candidatePool);
+
+    return {
+      left: params.currentItem,
+      right,
+    };
+  }
+
+  return {
+    left: randomFrom(params.leafItems),
+    right: randomFrom(
+      params.curatedItems.length ? params.curatedItems : params.leafItems
+    ),
+  };
+}
+
+router.post("/generate", async (req, res) => {
+  const parsedBody = generateQuestRequestSchema.safeParse(req.body ?? {});
+  if (!parsedBody.success) {
+    return res.status(400).json({ error: "Invalid request body" });
+  }
+
   try {
     const db = await getDb();
-    const stmt = db.prepare(`
-      SELECT
-        r.id AS recipe_id,
-        r.input_display_json,
-        e.name AS result_name,
-        e.normalized_name AS result_normalized_name
-      FROM recipes r
-      JOIN elements e ON e.id = r.result_element_id
-      WHERE r.result_element_id IS NOT NULL
-    `);
+    const cacheItems = loadCacheItems(db);
+    const cachedResultNames = loadCachedResultNames(db);
+    const usedInputNames = loadUsedInputNames(db);
+    const leafItems = cacheItems.filter(
+      (item) => !usedInputNames.has(item.normalizedName)
+    );
+    const discoveredItems = new Set(
+      parsedBody.data.discoveredItems.map((item) => item.trim().toLowerCase())
+    );
+    const baseItems = new Set(["fire", "water", "earth", "air"]);
 
-    const recipeRows: RecipeRecord[] = [];
-    while (stmt.step()) {
-      const row = stmt.getAsObject() as Record<string, unknown>;
-      const inputs = JSON.parse(String(row.input_display_json)) as {
-        name: string;
-        normalized: string;
-      }[];
-      recipeRows.push({
-        recipeId: Number(row.recipe_id),
-        resultName: String(row.result_name),
-        normalizedResultName: String(row.result_normalized_name),
-        inputs,
+    if (cacheItems.length < 2 || leafItems.length === 0) {
+      return res.status(400).json({
+        error: "Not enough cached items to generate a quest",
       });
     }
-    stmt.free();
 
-    const recipesByResult = new Map<string, RecipeRecord[]>();
-    for (const recipe of recipeRows) {
-      const existing = recipesByResult.get(recipe.normalizedResultName) ?? [];
-      existing.push(recipe);
-      recipesByResult.set(recipe.normalizedResultName, existing);
-    }
+    const sampledQuestItems = sampleItems(cacheItems, QUEST_INPUT_SAMPLE_SIZE);
+    const curatedItemChoice = await chooseQuestInputs({
+      model: QUEST_MODEL,
+      candidateItems: sampledQuestItems.map((item) => item.name),
+    });
+    const curatedItems = curatedItemChoice.items
+      .map((name) => findItemByName(sampledQuestItems, name))
+      .filter((item): item is CacheItem => !!item);
 
-    const candidateTargets = shuffleInPlace(
-      Array.from(recipesByResult.keys()).filter(
-        (name) => !BASE_ELEMENT_NORMALIZED_NAMES.includes(name)
-      )
+    console.log(
+      `[api][quest] curated quest items="${curatedItems
+        .map((item) => item.name)
+        .join(", ")}"`
     );
 
-    const baseItems = new Set(BASE_ELEMENT_NORMALIZED_NAMES);
-    let chosenTree: QuestTreeNode | null = null;
+    const questSteps: QuestStep[] = [];
+    let currentItem: CacheItem | null = null;
+    const generatedOutputs = new Set<string>();
 
-    for (const target of candidateTargets.slice(0, MAX_TARGET_ATTEMPTS)) {
-      const tree = buildQuestTree({
-        target,
-        recipesByResult,
-        baseItems,
-      });
-      if (!tree) continue;
-      const steps = linearizeQuestTree(tree);
-      if (steps.length < MIN_STEP_COUNT) continue;
-      chosenTree = tree;
-      break;
+    for (let index = 0; index < QUEST_STEP_COUNT; index += 1) {
+      let generated = null;
+
+      for (let attempt = 0; attempt < STEP_RETRY_LIMIT; attempt += 1) {
+        const { left, right } = await pickQuestInputs({
+          leafItems,
+          currentItem,
+          curatedItems,
+        });
+
+        console.log(
+          `[api][quest] step=${index + 1} attempt=${attempt + 1} inputs="${left.name}" + "${right.name}"`
+        );
+
+        const { inputKey } = normalizeInputs([left.name, right.name]);
+        if (recipeExists(db, inputKey)) {
+          console.log(
+            `[api][quest] step=${index + 1} skipped existing recipe key="${inputKey}"`
+          );
+          continue;
+        }
+
+        generated = await generateHiddenQuestStep({
+          left,
+          right,
+          model: QUEST_MODEL,
+        });
+
+        const rejected =
+          index === QUEST_STEP_COUNT - 1
+            ? isRejectedFinalResult({
+                step: generated.step,
+                generatedOutputs,
+                discoveredItems,
+                cachedResultNames,
+                baseItems,
+              })
+            : isRejectedIntermediateResult({
+                step: generated.step,
+                generatedOutputs,
+              });
+
+        if (rejected) {
+          console.log(
+            `[api][quest] step=${index + 1} rejected result="${generated.step.target}" final=${
+              index === QUEST_STEP_COUNT - 1
+            }`
+          );
+          generated = null;
+          continue;
+        }
+
+        const recipeId = insertHiddenRecipe({
+          db,
+          inputKey: generated.inputKey,
+          inputDisplayJson: generated.inputDisplayJson,
+          resultName: generated.step.target,
+          resultIcon: generated.resultIcon,
+        });
+        generated.step.recipeId = recipeId;
+
+        console.log(
+          `[api][quest] step=${index + 1} result="${generated.step.target}" formula="${generated.step.inputs.join(
+            " + "
+          )} -> ${generated.step.target}"`
+        );
+        break;
+      }
+
+      if (!generated) {
+        return res.status(500).json({
+          error: "Failed to generate a unique quest step from cache items",
+        });
+      }
+
+      questSteps.push(generated.step);
+      currentItem = generated.nextItem;
+      generatedOutputs.add(generated.step.normalizedTarget);
     }
 
-    if (!chosenTree) {
-      return res.status(404).json({ error: "No valid quest line could be generated" });
-    }
+    persistDatabase(db);
 
-    const steps = linearizeQuestTree(chosenTree);
-
-    const compactPath = steps
+    const compactPath = questSteps
       .map((step) => `${step.inputs.join(" + ")} -> ${step.target}`)
       .join(" | ");
 
     console.log(
-      `[api][quest] generated quest target="${chosenTree.itemName}" steps=${steps.length} path="${compactPath}"`
+      `[api][quest] generated hidden quest target="${currentItem?.name ?? ""}" steps=${questSteps.length} path="${compactPath}"`
     );
 
     return res.json({
-      name: chosenTree.itemName,
-      normalizedName: chosenTree.normalizedItemName,
-      steps,
+      name: currentItem?.name ?? "",
+      normalizedName: currentItem?.normalizedName ?? "",
+      steps: questSteps,
     });
   } catch (err) {
     console.error("[api][quest] failed to generate quest", err);
