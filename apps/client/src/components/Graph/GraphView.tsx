@@ -150,6 +150,7 @@ function FlowCanvas({
   }, [workspaceItems]);
 
   const selectionMode = selectedNodeIds.length > 0;
+  const hasMultiSelection = selectedNodeIds.length >= 2;
 
   const marqueeSelectionRect = useMemo(() => {
     if (!marqueeSelection) return null;
@@ -238,37 +239,41 @@ function FlowCanvas({
     [itemById, reactFlow, workspaceItems]
   );
 
-  const selectionCenterVisual = useMemo(() => {
-    if (!wrapperRef.current || selectedNodeIds.length < 2) {
+  const selectionBoundsVisual = useMemo(() => {
+    if (!wrapperRef.current || selectedNodeIds.length === 0) {
       return null;
     }
 
-    const bounds = wrapperRef.current.getBoundingClientRect();
     const nodeVisuals = getNodeVisualsLocal(selectedNodeIds);
-    if (nodeVisuals.length < 2) return null;
+    if (!nodeVisuals.length) return null;
 
-    const centerSum = nodeVisuals.reduce(
+    const nodeBounds = nodeVisuals.reduce(
       (acc, node) => ({
-        x: acc.x + node.x,
-        y: acc.y + node.y,
+        left: Math.min(acc.left, node.x - node.width / 2),
+        top: Math.min(acc.top, node.y - node.height / 2),
+        right: Math.max(acc.right, node.x + node.width / 2),
+        bottom: Math.max(acc.bottom, node.y + node.height / 2),
       }),
-      { x: 0, y: 0 }
+      {
+        left: Number.POSITIVE_INFINITY,
+        top: Number.POSITIVE_INFINITY,
+        right: Number.NEGATIVE_INFINITY,
+        bottom: Number.NEGATIVE_INFINITY,
+      }
     );
-    const localCenter = {
-      x: centerSum.x / nodeVisuals.length,
-      y: centerSum.y / nodeVisuals.length,
-    };
 
-    const clampedCenter = {
-      x: Math.max(44, Math.min(bounds.width - 44, localCenter.x)),
-      y: Math.max(44, Math.min(bounds.height - 44, localCenter.y)),
-    };
+    const paddingX = 28;
+    const paddingTop = 24;
+    const paddingBottom = hasMultiSelection ? 32 : 24;
 
     return {
-      center: clampedCenter,
-      lines: nodeVisuals.map((node) => ({ x: node.x, y: node.y })),
+      left: nodeBounds.left - paddingX,
+      top: nodeBounds.top - paddingTop,
+      width: nodeBounds.right - nodeBounds.left + paddingX * 2,
+      height:
+        nodeBounds.bottom - nodeBounds.top + paddingTop + paddingBottom,
     };
-  }, [getNodeVisualsLocal, selectedNodeIds, viewportVersion, workspaceItems]);
+  }, [getNodeVisualsLocal, hasMultiSelection, selectedNodeIds, viewportVersion]);
 
   const combineConvergeVisual = useMemo(() => {
     if (!wrapperRef.current || !convergingNodeIds || convergingNodeIds.length < 2) {
@@ -923,18 +928,17 @@ function FlowCanvas({
           </span>
         </div>
       ) : null}
-      {selectionCenterVisual ? (
-        <svg className="selection-center-lines" aria-hidden="true">
-          {selectionCenterVisual.lines.map((line, idx) => (
-            <line
-              key={`selection-line-${idx}`}
-              x1={line.x}
-              y1={line.y}
-              x2={selectionCenterVisual.center.x}
-              y2={selectionCenterVisual.center.y}
-            />
-          ))}
-        </svg>
+      {selectionBoundsVisual ? (
+        <div
+          className="graph-selection-bounds"
+          aria-hidden="true"
+          style={{
+            left: `${selectionBoundsVisual.left}px`,
+            top: `${selectionBoundsVisual.top}px`,
+            width: `${selectionBoundsVisual.width}px`,
+            height: `${selectionBoundsVisual.height}px`,
+          }}
+        />
       ) : null}
       {marqueeSelectionRect ? (
         <div
@@ -993,22 +997,21 @@ function FlowCanvas({
           Clear
         </button>
       ) : null}
-      {selectedNodeIds.length >= 2 && selectionCenterVisual ? (
+      {hasMultiSelection && selectionBoundsVisual ? (
         <button
           type="button"
           className="button primary graph-combine-selected-button"
           aria-label="Combine selected items"
           style={{
-            left: `${selectionCenterVisual.center.x}px`,
-            top: `${selectionCenterVisual.center.y}px`,
+            left: `${selectionBoundsVisual.left + selectionBoundsVisual.width}px`,
+            top: `${selectionBoundsVisual.top + selectionBoundsVisual.height}px`,
           }}
           onClick={() => {
             onCombineWorkspaceSelection(selectedNodeIds);
             setSelectedNodeIds([]);
           }}
         >
-          ⚗
-          <span className="graph-combine-count">{selectedNodeIds.length}</span>
+          Combine
         </button>
       ) : null}
       {workspaceItems.length === 0 ? (
