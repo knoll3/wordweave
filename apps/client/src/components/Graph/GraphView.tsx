@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import ReactFlow, {
   Background,
-  Controls,
   Node,
   NodeDragHandler,
   ReactFlowInstance,
@@ -845,6 +844,7 @@ function FlowCanvas({
       <ReactFlow
         nodes={nodes}
         edges={[]}
+        proOptions={{ hideAttribution: true }}
         zoomOnScroll={true}
         zoomOnDoubleClick={false}
         panOnScroll={false}
@@ -886,7 +886,6 @@ function FlowCanvas({
         }}
       >
         <Background gap={16} color="rgba(148,163,184,0.24)" />
-        <Controls showInteractive={false} />
       </ReactFlow>
       {combineConvergeVisual ? (
         <div className="combine-converge-layer" aria-hidden="true">

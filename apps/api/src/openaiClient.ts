@@ -2,7 +2,19 @@ import OpenAI from "openai";
 import { llmResultSchema } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 
-const MODEL_NAME = process.env.OPENAI_MODEL ?? "gpt-4.1";
+export type OpenAiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
+
+const MODEL_NAMES: OpenAiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
+
+function resolveDefaultModelName(): OpenAiModel {
+  const configuredModel = process.env.OPENAI_MODEL;
+  if (configuredModel && MODEL_NAMES.includes(configuredModel as OpenAiModel)) {
+    return configuredModel as OpenAiModel;
+  }
+  return "gpt-4.1-nano";
+}
+
+export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
 const BASE_PROMPT = `
 You are the crafting engine for a sandbox discovery game.
 
@@ -92,9 +104,14 @@ function getOpenAI(): OpenAI {
 
 export async function generateResult(
   inputs: string[],
-  options?: { creative?: boolean; subtractive?: boolean }
+  options?: {
+    creative?: boolean;
+    subtractive?: boolean;
+    model?: OpenAiModel;
+  }
 ) {
   const openai = getOpenAI();
+  const model = options?.model ?? DEFAULT_MODEL_NAME;
 
   const promptTemplate = options?.subtractive
     ? SUBTRACTIVE_PROMPT
@@ -107,7 +124,7 @@ export async function generateResult(
   );
 
   console.log("[openai] sending request", {
-    model: MODEL_NAME,
+    model,
     inputs,
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
@@ -116,7 +133,7 @@ export async function generateResult(
   });
 
   const response = await openai.chat.completions.create({
-    model: MODEL_NAME,
+    model,
     temperature: 1,
     response_format: { type: "json_object" },
     messages: [
@@ -131,7 +148,7 @@ export async function generateResult(
   const completionTokens = response.usage?.completion_tokens ?? 0;
   const cachedPromptTokens =
     response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const responseModel = response.model ?? MODEL_NAME;
+  const responseModel = response.model ?? model;
   const cost = estimateTextTokenCostUsd({
     model: responseModel,
     promptTokens,

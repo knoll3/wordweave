@@ -1,14 +1,17 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
   SUBTRACTION_ITEM,
   SUBTRACTION_ITEM_ID,
 } from "./types";
-import type { Item, WorkspaceItem } from "./types";
+import type { AiModel, Item, WorkspaceItem } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import { combineElements } from "./lib/api";
+
+const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
+const MODEL_STORAGE_KEY = "wordweave.ai-model";
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
@@ -22,6 +25,18 @@ const App: React.FC = () => {
     x: number;
     y: number;
   } | null>(null);
+  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
+
+  useEffect(() => {
+    const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
+    if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
+      setSelectedModel(storedModel as AiModel);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
+  }, [selectedModel]);
 
   function showError(message: string, err: unknown) {
     console.error(message, err);
@@ -147,6 +162,7 @@ const App: React.FC = () => {
       const recipe = await combineElements(inputNames, {
         creative: hasCreativeCatalyst,
         subtractive: hasSubtractiveCatalyst,
+        model: selectedModel,
       });
       console.log("[combine] recipe received", recipe);
 
@@ -235,9 +251,25 @@ const App: React.FC = () => {
           <section className="graph-wrapper">
             <div className="graph-header">
               <h2 className="section-title">Crafting workspace</h2>
-              <p className="section-help">
-                Drag items onto each other in the workspace to combine.
-              </p>
+              <div className="graph-header-actions">
+                <p className="section-help">
+                  Drag items onto each other in the workspace to combine.
+                </p>
+                <div className="model-selector" role="group" aria-label="AI model">
+                  {AI_MODELS.map((model) => (
+                    <button
+                      key={model}
+                      type="button"
+                      className={`model-button ${
+                        selectedModel === model ? "active" : ""
+                      }`}
+                      onClick={() => setSelectedModel(model)}
+                    >
+                      {model}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
             <div className="graph-canvas">
               <GraphView

@@ -1,4 +1,4 @@
-import type { Item, Recipe, RecentRecipe } from "../types";
+import type { AiModel, Item, Recipe, RecentRecipe } from "../types";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
@@ -68,12 +68,13 @@ export async function resetCache(): Promise<{
 
 export async function combineElements(
   inputs: string[],
-  options?: { creative?: boolean; subtractive?: boolean }
+  options?: { creative?: boolean; subtractive?: boolean; model?: AiModel }
 ): Promise<Recipe> {
   console.log("[combine] request", {
     inputs,
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
+    model: options?.model ?? null,
   });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
     method: "POST",
@@ -84,6 +85,7 @@ export async function combineElements(
       inputs,
       creative: options?.creative ?? false,
       subtractive: options?.subtractive ?? false,
+      model: options?.model,
     }),
   });
   const data = await handleResponse<Recipe>(res);

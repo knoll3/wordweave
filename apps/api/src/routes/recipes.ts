@@ -1,6 +1,6 @@
 import express from "express";
 import { getDb, persistDatabase } from "../db";
-import { generateResult } from "../openaiClient";
+import { DEFAULT_MODEL_NAME, generateResult } from "../openaiClient";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -23,6 +23,7 @@ router.post("/combine", async (req, res) => {
 
   const creative = parsedBody.data.creative ?? false;
   const subtractive = parsedBody.data.subtractive ?? false;
+  const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
 
   if (creative && subtractive) {
     return res.status(400).json({
@@ -55,7 +56,7 @@ router.post("/combine", async (req, res) => {
       try {
         llmResult = await generateResult(
           normalizedInputs.map((i) => i.name),
-          { creative: true }
+          { creative: true, model }
         );
         console.log("[api][combine] creative OpenAI result", llmResult);
       } catch (err) {
@@ -180,7 +181,7 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative, subtractive }
+            { creative, subtractive, model }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -289,7 +290,7 @@ router.post("/combine", async (req, res) => {
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative, subtractive }
+        { creative, subtractive, model }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

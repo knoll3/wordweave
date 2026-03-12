@@ -10,11 +10,21 @@ export const OPENAI_TEXT_TOKEN_PRICING_USD_PER_1M: Record<
 > = {
   // Source: https://platform.openai.com/docs/pricing
   "gpt-4.1": { input: 2.0, cachedInput: 0.5, output: 8.0 },
+  "gpt-4.1-mini": { input: 0.4, cachedInput: 0.1, output: 1.6 },
+  "gpt-4.1-nano": { input: 0.1, cachedInput: 0.025, output: 0.4 },
 };
 
 function resolvePricingModel(model: string): string | null {
   if (OPENAI_TEXT_TOKEN_PRICING_USD_PER_1M[model]) {
     return model;
+  }
+
+  if (model.startsWith("gpt-4.1-mini-")) {
+    return "gpt-4.1-mini";
+  }
+
+  if (model.startsWith("gpt-4.1-nano-")) {
+    return "gpt-4.1-nano";
   }
 
   if (model.startsWith("gpt-4.1-")) {

@@ -5,6 +5,8 @@ export interface Item {
   icon: string | null;
 }
 
+export type AiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
+
 export const CREATIVE_ITEM_ID = -1;
 
 export const CREATIVE_ITEM: Item = {
