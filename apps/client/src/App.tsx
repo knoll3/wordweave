@@ -4,6 +4,8 @@ import {
   CRAFT_ITEM_ID,
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
+  EVOLVE_ITEM,
+  EVOLVE_ITEM_ID,
   OPPOSITE_ITEM,
   OPPOSITE_ITEM_ID,
   RANDOMIZE_ITEM,
@@ -77,6 +79,14 @@ const FEATURE_QUESTS: Array<{
       "Gain the Craft catalyst so combinations can resolve as a physical built or manufactured result.",
     criteria:
       "Discover something close to craft, build, forge, tool, maker, workshop, or construction.",
+  },
+  {
+    key: "evolve",
+    title: "Unlock Evolve",
+    description:
+      "Gain the Evolve catalyst so a concept can advance into its next stronger, more developed form.",
+    criteria:
+      "Discover something close to evolution, progress, growth, upgrade, development, or transformation.",
   },
 ];
 
@@ -192,6 +202,7 @@ const App: React.FC = () => {
   function findItemById(itemId: number) {
     if (itemId === CRAFT_ITEM_ID) return CRAFT_ITEM;
     if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
+    if (itemId === EVOLVE_ITEM_ID) return EVOLVE_ITEM;
     if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
     if (itemId === OPPOSITE_ITEM_ID) return OPPOSITE_ITEM;
     if (itemId === RANDOMIZE_ITEM_ID) return RANDOMIZE_ITEM;
@@ -269,6 +280,7 @@ const App: React.FC = () => {
     if (selectedItems.length < 2) return;
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
+    const hasEvolveCatalyst = selectedItems.some((item) => item.id === EVOLVE_ITEM_ID);
     const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
     const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
     const hasRandomizeCatalyst = selectedItems.some((item) => item.id === RANDOMIZE_ITEM_ID);
@@ -276,6 +288,7 @@ const App: React.FC = () => {
     const activeCatalystCount = [
       hasCraftCatalyst,
       hasCreativeCatalyst,
+      hasEvolveCatalyst,
       hasSplitCatalyst,
       hasOppositeCatalyst,
       hasRandomizeCatalyst,
@@ -288,6 +301,7 @@ const App: React.FC = () => {
       (item) =>
         item.id !== CRAFT_ITEM_ID &&
         item.id !== CREATIVE_ITEM_ID &&
+        item.id !== EVOLVE_ITEM_ID &&
         item.id !== SPLIT_ITEM_ID &&
         item.id !== OPPOSITE_ITEM_ID &&
         item.id !== RANDOMIZE_ITEM_ID
@@ -295,14 +309,16 @@ const App: React.FC = () => {
     const catalystLabel = hasCraftCatalyst
       ? "Craft"
       : hasCreativeCatalyst
-      ? "Creative Spark"
-      : hasSplitCatalyst
-        ? "Split"
-        : hasOppositeCatalyst
-          ? "Opposite"
-          : hasRandomizeCatalyst
-            ? "Randomize"
-            : null;
+        ? "Creative Spark"
+        : hasEvolveCatalyst
+          ? "Evolve"
+          : hasSplitCatalyst
+            ? "Split"
+            : hasOppositeCatalyst
+              ? "Opposite"
+              : hasRandomizeCatalyst
+                ? "Randomize"
+                : null;
     if (actualInputItems.length === 0) {
       showError(
         catalystLabel
@@ -332,6 +348,7 @@ const App: React.FC = () => {
       inputs: inputNames,
       crafting: hasCraftCatalyst,
       creative: hasCreativeCatalyst,
+      evolve: hasEvolveCatalyst,
       subtractive: hasSplitCatalyst,
       opposite: hasOppositeCatalyst,
       randomize: hasRandomizeCatalyst,
@@ -344,6 +361,7 @@ const App: React.FC = () => {
       const recipe = await combineElements(inputNames, {
         crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
+        evolve: hasEvolveCatalyst,
         subtractive: hasSplitCatalyst,
         opposite: hasOppositeCatalyst,
         randomize: hasRandomizeCatalyst,
@@ -557,6 +575,7 @@ const App: React.FC = () => {
                 onAddItemToWorkspace={addItemToWorkspace}
                 craftUnlocked={isFeatureUnlocked("craft")}
                 creativeUnlocked={isFeatureUnlocked("creative")}
+                evolveUnlocked={isFeatureUnlocked("evolve")}
                 splitUnlocked={isFeatureUnlocked("split")}
                 oppositeUnlocked={isFeatureUnlocked("opposite")}
                 randomizeUnlocked={isFeatureUnlocked("random_tools")}

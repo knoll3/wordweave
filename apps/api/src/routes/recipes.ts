@@ -314,6 +314,7 @@ router.post("/combine", async (req, res) => {
   const creative = parsedBody.data.creative ?? false;
   const subtractive = parsedBody.data.subtractive ?? false;
   const opposite = parsedBody.data.opposite ?? false;
+  const evolve = parsedBody.data.evolve ?? false;
   const randomize = parsedBody.data.randomize ?? false;
   const crafting = parsedBody.data.crafting ?? false;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
@@ -322,6 +323,7 @@ router.post("/combine", async (req, res) => {
     creative,
     subtractive,
     opposite,
+    evolve,
     randomize,
     crafting,
   ].filter(Boolean).length;
@@ -340,6 +342,8 @@ router.post("/combine", async (req, res) => {
       ? `subtract|${inputKey}`
       : opposite
         ? `opposite|${inputKey}`
+        : evolve
+          ? `evolve|${inputKey}`
         : randomize
           ? `randomize|${inputKey}`
           : crafting
@@ -429,6 +433,7 @@ router.post("/combine", async (req, res) => {
         creative,
         subtractive,
         opposite,
+        evolve,
         randomize,
         crafting,
         recipeId: recipeRow.id,
@@ -492,7 +497,7 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative, subtractive, opposite, randomize, crafting, model }
+            { creative, subtractive, opposite, evolve, randomize, crafting, model }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -569,6 +574,7 @@ router.post("/combine", async (req, res) => {
       creative,
       subtractive,
       opposite,
+      evolve,
       randomize,
       crafting,
       inputs: normalizedInputs.map((i) => i.name),
@@ -577,7 +583,7 @@ router.post("/combine", async (req, res) => {
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative, subtractive, opposite, randomize, crafting, model }
+        { creative, subtractive, opposite, evolve, randomize, crafting, model }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

@@ -18,6 +18,8 @@ import {
   CRAFT_ITEM_ID,
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
+  EVOLVE_ITEM,
+  EVOLVE_ITEM_ID,
   OPPOSITE_ITEM,
   OPPOSITE_ITEM_ID,
   RANDOMIZE_ITEM,
@@ -46,6 +48,7 @@ interface Props {
   ) => void;
   craftUnlocked: boolean;
   creativeUnlocked: boolean;
+  evolveUnlocked: boolean;
   splitUnlocked: boolean;
   oppositeUnlocked: boolean;
   randomizeUnlocked: boolean;
@@ -97,6 +100,7 @@ function FlowCanvas({
   onAddItemToWorkspace,
   craftUnlocked,
   creativeUnlocked,
+  evolveUnlocked,
   splitUnlocked,
   oppositeUnlocked,
   randomizeUnlocked,
@@ -157,6 +161,7 @@ function FlowCanvas({
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CRAFT_ITEM.id, CRAFT_ITEM);
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
+    next.set(EVOLVE_ITEM.id, EVOLVE_ITEM);
     next.set(SPLIT_ITEM.id, SPLIT_ITEM);
     next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
     next.set(RANDOMIZE_ITEM.id, RANDOMIZE_ITEM);
@@ -506,6 +511,12 @@ function FlowCanvas({
     onAddItemToWorkspace(CREATIVE_ITEM_ID);
   }, [creativeUnlocked, onAddItemToWorkspace]);
 
+  const handleEvolveSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!evolveUnlocked) return;
+    onAddItemToWorkspace(EVOLVE_ITEM_ID);
+  }, [evolveUnlocked, onAddItemToWorkspace]);
+
   const handleSplitSpawnClick = useCallback(() => {
     if (creativeDragRef.current?.moved) return;
     if (!splitUnlocked) return;
@@ -640,6 +651,7 @@ function FlowCanvas({
         if (!item) return null;
         const isCraftItem = workspaceItem.itemId === CRAFT_ITEM_ID;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
+        const isEvolveItem = workspaceItem.itemId === EVOLVE_ITEM_ID;
         const isSplitItem = workspaceItem.itemId === SPLIT_ITEM_ID;
         const isOppositeItem = workspaceItem.itemId === OPPOSITE_ITEM_ID;
         const isRandomizeItem = workspaceItem.itemId === RANDOMIZE_ITEM_ID;
@@ -671,6 +683,8 @@ function FlowCanvas({
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
+                : isEvolveItem
+                  ? "rgba(244,114,182,0.28)"
                 : isCraftItem
                   ? "rgba(245, 158, 11, 0.28)"
                 : isSplitItem
@@ -682,6 +696,8 @@ function FlowCanvas({
                 : "rgba(99,102,241,0.38)"
               : isCreativeItem
                 ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
+                : isEvolveItem
+                  ? "rgba(190,24,93,0.96)"
                 : isCraftItem
                   ? "rgba(180, 83, 9, 0.96)"
                 : isSplitItem
@@ -694,6 +710,8 @@ function FlowCanvas({
             border: isSelected
               ? isCreativeItem
                 ? "1px solid rgba(216,180,254,0.96)"
+                : isEvolveItem
+                  ? "1px solid rgba(251,207,232,0.92)"
                 : isCraftItem
                   ? "1px solid rgba(253, 230, 138, 0.92)"
                 : isSplitItem
@@ -705,6 +723,8 @@ function FlowCanvas({
                 : "1px solid rgba(99,102,241,0.95)"
               : isCreativeItem
                 ? "1px solid rgba(196,181,253,0.8)"
+                : isEvolveItem
+                  ? "1px solid rgba(251,207,232,0.76)"
                 : isCraftItem
                   ? "1px solid rgba(253, 230, 138, 0.76)"
                 : isSplitItem
@@ -717,6 +737,8 @@ function FlowCanvas({
             boxShadow: isSelected
               ? isCreativeItem
                 ? "0 0 0 2px rgba(168,85,247,0.28), 0 8px 24px rgba(88,28,135,0.3)"
+                : isEvolveItem
+                  ? "0 0 0 2px rgba(244,114,182,0.18), 0 8px 24px rgba(157,23,77,0.22)"
                 : isCraftItem
                   ? "0 0 0 2px rgba(245, 158, 11, 0.18), 0 8px 24px rgba(146, 64, 14, 0.22)"
                 : isSplitItem
@@ -728,6 +750,8 @@ function FlowCanvas({
                 : "0 0 0 2px rgba(99,102,241,0.25)"
               : isCreativeItem
                 ? "0 8px 24px rgba(88,28,135,0.18)"
+                : isEvolveItem
+                  ? "0 8px 24px rgba(157,23,77,0.18)"
                 : isCraftItem
                   ? "0 8px 24px rgba(146, 64, 14, 0.18)"
                 : isSplitItem
@@ -1067,6 +1091,20 @@ function FlowCanvas({
       >
         ⬚
       </button>
+      {evolveUnlocked ? (
+        <button
+          type="button"
+          className="graph-evolve-button"
+          aria-label="Drag Evolve into the workspace"
+          title="Drag Evolve into the workspace to advance a concept into its next stronger form"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, EVOLVE_ITEM_ID)
+          }
+          onClick={handleEvolveSpawnClick}
+        >
+          {EVOLVE_ITEM.icon}
+        </button>
+      ) : null}
       {craftUnlocked ? (
         <button
           type="button"

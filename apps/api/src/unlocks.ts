@@ -7,7 +7,8 @@ export type UnlockKey =
   | "split"
   | "opposite"
   | "random_tools"
-  | "craft";
+  | "craft"
+  | "evolve";
 
 type UnlockDefinition = {
   key: UnlockKey;
@@ -150,6 +151,35 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "hardware",
       "engineering",
       "assembly",
+    ],
+    similarityThreshold: 0.82,
+  },
+  {
+    key: "evolve",
+    title: "Evolve Unlocked",
+    summary:
+      "Evolve adds a catalyst item that pushes an input toward its next stronger, more advanced, or more developed form.",
+    acceptedWords: [
+      "evolve",
+      "evolution",
+      "evolutionary",
+      "progress",
+      "progression",
+      "advance",
+      "advancement",
+      "develop",
+      "development",
+      "growth",
+      "improve",
+      "improvement",
+      "upgrade",
+      "mutation",
+      "adapt",
+      "adaptation",
+      "transform",
+      "transformation",
+      "mature",
+      "ascend",
     ],
     similarityThreshold: 0.82,
   },

@@ -7,6 +7,7 @@ export const combineRequestSchema = z.object({
   opposite: z.boolean().optional().default(false),
   randomize: z.boolean().optional().default(false),
   crafting: z.boolean().optional().default(false),
+  evolve: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),

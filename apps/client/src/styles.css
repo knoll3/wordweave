@@ -641,6 +641,7 @@ body {
 }
 
 .graph-creative-button:disabled,
+.graph-evolve-button:disabled,
 .graph-craft-button:disabled,
 .graph-subtraction-button:disabled,
 .graph-opposite-button:disabled,
@@ -648,6 +649,39 @@ body {
   cursor: not-allowed;
   opacity: 0.45;
   box-shadow: none;
+}
+
+.graph-evolve-button {
+  position: absolute;
+  right: 12px;
+  bottom: 400px;
+  z-index: 130;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(251, 207, 232, 0.72);
+  border-radius: 999px;
+  background: rgba(190, 24, 93, 0.96);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(251, 207, 232, 0.18),
+    0 18px 36px rgba(157, 23, 77, 0.28);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.graph-evolve-button:hover {
+  background: rgba(219, 39, 119, 0.98);
+  box-shadow: 0 0 0 1px rgba(251, 207, 232, 0.28),
+    0 22px 42px rgba(157, 23, 77, 0.32);
+}
+
+.graph-evolve-button:active {
+  cursor: grabbing;
 }
 
 .graph-craft-button {

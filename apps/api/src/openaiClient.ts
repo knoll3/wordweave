@@ -204,6 +204,32 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const EVOLVE_PROMPT = `
+You are the evolution engine for a sandbox discovery game.
+
+The player provides one or more nouns as input. Your job is to return the single most plausible next improved, more advanced, more developed, or more mature form suggested by those inputs together.
+
+Think in terms of progression, development, refinement, or moving to a stronger next stage.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, or sentences.
+- Favor a recognizable next-stage concept over a sideways variation.
+- The result should feel like a clear advancement, upgrade, growth, or evolution of the input concept.
+- The result should be real and recognizable, not invented.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 const QUEST_INPUT_SELECTION_PROMPT = `
 You are planning an interesting quest chain for a sandbox discovery game.
 
@@ -351,6 +377,7 @@ export async function generateResult(
     opposite?: boolean;
     randomize?: boolean;
     crafting?: boolean;
+    evolve?: boolean;
     model?: OpenAiModel;
   }
 ): Promise<{ name: string; icon: string }> {
@@ -358,9 +385,11 @@ export async function generateResult(
   const model = options?.model ?? DEFAULT_MODEL_NAME;
 
   const promptTemplate = options?.subtractive
-      ? SUBTRACTIVE_PROMPT
+    ? SUBTRACTIVE_PROMPT
     : options?.opposite
       ? OPPOSITE_PROMPT
+      : options?.evolve
+        ? EVOLVE_PROMPT
     : options?.randomize
       ? RANDOMIZE_PROMPT
     : options?.crafting
@@ -379,6 +408,7 @@ export async function generateResult(
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
+    evolve: options?.evolve ?? false,
     randomize: options?.randomize ?? false,
     crafting: options?.crafting ?? false,
     temperature: 1,

@@ -107,6 +107,7 @@ export async function combineElements(
     creative?: boolean;
     subtractive?: boolean;
     opposite?: boolean;
+    evolve?: boolean;
     randomize?: boolean;
     crafting?: boolean;
     model?: AiModel;
@@ -117,6 +118,7 @@ export async function combineElements(
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
+    evolve: options?.evolve ?? false,
     randomize: options?.randomize ?? false,
     crafting: options?.crafting ?? false,
     model: options?.model ?? null,
@@ -131,6 +133,7 @@ export async function combineElements(
       creative: options?.creative ?? false,
       subtractive: options?.subtractive ?? false,
       opposite: options?.opposite ?? false,
+      evolve: options?.evolve ?? false,
       randomize: options?.randomize ?? false,
       crafting: options?.crafting ?? false,
       model: options?.model,

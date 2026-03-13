@@ -11,7 +11,8 @@ export type UnlockKey =
   | "split"
   | "opposite"
   | "random_tools"
-  | "craft";
+  | "craft"
+  | "evolve";
 
 export const CREATIVE_ITEM_ID = -1;
 
@@ -56,6 +57,15 @@ export const CRAFT_ITEM: Item = {
   name: "Craft",
   normalizedName: "craft",
   icon: "🔨",
+};
+
+export const EVOLVE_ITEM_ID = -6;
+
+export const EVOLVE_ITEM: Item = {
+  id: EVOLVE_ITEM_ID,
+  name: "Evolve",
+  normalizedName: "evolve",
+  icon: "🧬",
 };
 
 export interface RecipeCandidate {
