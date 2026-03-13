@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
@@ -13,7 +13,6 @@ import type {
   AiModel,
   FeatureUnlockStatus,
   Item,
-  QuestLine,
   UnlockKey,
   WorkspaceItem,
 } from "./types";
@@ -22,13 +21,53 @@ import GraphView from "./components/Graph/GraphView";
 import {
   combineElements,
   fetchUnlockStatuses,
-  generateQuest,
   markUnlockIntroSeen,
 } from "./lib/api";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
+const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
+
+const FEATURE_QUESTS: Array<{
+  key: UnlockKey;
+  title: string;
+  description: string;
+  criteria: string;
+}> = [
+  {
+    key: "creative",
+    title: "Unlock Creative Spark",
+    description:
+      "Gain the Creative Spark catalyst so you can push a combination toward a more imaginative result.",
+    criteria:
+      "Discover something close to ideas, inspiration, imagination, design, art, or creativity.",
+  },
+  {
+    key: "split",
+    title: "Unlock Split",
+    description:
+      "Gain the Split catalyst so you can remove one concept from another instead of combining them normally.",
+    criteria:
+      "Discover something close to split, divide, remove, subtract, difference, or separation.",
+  },
+  {
+    key: "opposite",
+    title: "Unlock Opposite",
+    description:
+      "Gain the Opposite catalyst so you can ask for the direct opposite of an input concept.",
+    criteria:
+      "Discover something close to opposite, reverse, inverse, contrast, or counterpart.",
+  },
+  {
+    key: "random_tools",
+    title: "Unlock Random Tools",
+    description:
+      "Gain the Random library action and the Randomize catalyst for chance-driven experimentation.",
+    criteria:
+      "Discover something close to random, chance, chaos, luck, surprise, shuffle, or entropy.",
+  },
+];
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
@@ -43,14 +82,10 @@ const App: React.FC = () => {
     y: number;
   } | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
-  const [activeQuest, setActiveQuest] = useState<QuestLine | null>(null);
-  const [isGeneratingQuest, setIsGeneratingQuest] = useState(false);
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
-  const [dismissedCompletedQuestKey, setDismissedCompletedQuestKey] = useState<
-    string | null
-  >(null);
-  const [isQuestExpanded, setIsQuestExpanded] = useState(false);
+  const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
+  const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -58,6 +93,15 @@ const App: React.FC = () => {
       setSelectedModel(storedModel as AiModel);
     }
     setForceUnlocks(window.localStorage.getItem(FORCE_UNLOCKS_STORAGE_KEY) === "true");
+    const storedTrackedQuest = window.localStorage.getItem(
+      TRACKED_QUEST_STORAGE_KEY
+    ) as UnlockKey | null;
+    if (
+      storedTrackedQuest &&
+      FEATURE_QUESTS.some((quest) => quest.key === storedTrackedQuest)
+    ) {
+      setTrackedQuestKey(storedTrackedQuest);
+    }
   }, []);
 
   useEffect(() => {
@@ -72,16 +116,14 @@ const App: React.FC = () => {
   }, [forceUnlocks]);
 
   useEffect(() => {
+    if (!trackedQuestKey) return;
+    window.localStorage.setItem(TRACKED_QUEST_STORAGE_KEY, trackedQuestKey);
+  }, [trackedQuestKey]);
+
+  useEffect(() => {
     void loadFeatureUnlocks();
   }, [items]);
 
-  const hasCompletedActiveQuest =
-    activeQuest != null &&
-    items.some((item) => item.normalizedName === activeQuest.normalizedName);
-  const showQuestCompleteModal =
-    activeQuest != null &&
-    hasCompletedActiveQuest &&
-    dismissedCompletedQuestKey !== activeQuest.normalizedName;
   const pendingUnlockIntro =
     featureUnlocks.find((unlock) => unlock.introPending) ?? null;
 
@@ -103,6 +145,26 @@ const App: React.FC = () => {
     if (forceUnlocks) return true;
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
+
+  const quests = useMemo(
+    () =>
+      FEATURE_QUESTS.map((quest) => ({
+        ...quest,
+        completed: isFeatureUnlocked(quest.key),
+      })),
+    [featureUnlocks, forceUnlocks]
+  );
+
+  useEffect(() => {
+    if (trackedQuestKey && quests.some((quest) => quest.key === trackedQuestKey)) {
+      return;
+    }
+    const firstIncomplete = quests.find((quest) => !quest.completed) ?? quests[0] ?? null;
+    setTrackedQuestKey(firstIncomplete?.key ?? null);
+  }, [quests, trackedQuestKey]);
+
+  const trackedQuest =
+    quests.find((quest) => quest.key === trackedQuestKey) ?? quests[0] ?? null;
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -166,30 +228,6 @@ const App: React.FC = () => {
 
   function handleLibraryReset() {
     setWorkspaceItems([]);
-  }
-
-  async function handleGenerateQuest() {
-    if (isGeneratingQuest) return;
-    try {
-      setIsGeneratingQuest(true);
-      const quest = await generateQuest({
-        discoveredItems: items.map((item) => item.name),
-      });
-      setActiveQuest(quest);
-      setDismissedCompletedQuestKey(null);
-      setIsQuestExpanded(false);
-    } catch (err) {
-      console.error("[quest] failed", err);
-      showError("Failed to generate quest. Please try again.", err);
-    } finally {
-      setIsGeneratingQuest(false);
-    }
-  }
-
-  function handleResetQuest() {
-    setActiveQuest(null);
-    setDismissedCompletedQuestKey(null);
-    setIsQuestExpanded(false);
   }
 
   async function combineWorkspaceNodeIds(
@@ -356,33 +394,6 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      {showQuestCompleteModal && activeQuest ? (
-        <div className="results-overlay" role="presentation">
-          <div
-            className="results-backdrop"
-            onClick={() => setDismissedCompletedQuestKey(activeQuest.normalizedName)}
-          />
-          <div className="results-panel quest-complete-panel" role="dialog" aria-modal="true">
-            <div className="results-header">
-              <div>
-                <h3 className="results-title">Quest Complete</h3>
-                <p className="results-subtitle">
-                  You discovered <strong>{activeQuest.name}</strong>.
-                </p>
-              </div>
-            </div>
-            <div className="confirm-actions">
-              <button
-                type="button"
-                className="button primary"
-                onClick={() => setDismissedCompletedQuestKey(activeQuest.normalizedName)}
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
       {pendingUnlockIntro ? (
         <div className="results-overlay" role="presentation">
           <div className="results-backdrop" />
@@ -466,67 +477,30 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="graph-canvas">
-              <div className="quest-panel">
-                <div className="quest-panel-header">
-                  <div>
-                    <div className="quest-panel-label">Quest</div>
-                    <div className="quest-panel-target">
-                      {activeQuest ? activeQuest.name : "No target set"}
-                    </div>
-                  </div>
-                  {activeQuest ? (
-                    <button
-                      type="button"
-                      className="quest-reset-button"
-                      onClick={handleResetQuest}
-                    >
-                      Reset
-                    </button>
-                  ) : null}
-                </div>
+            {trackedQuest ? (
+              <div className="quest-hub quest-hub-inline">
                 <button
                   type="button"
-                  className="button primary quest-generate-button"
-                  disabled={isGeneratingQuest}
-                  onClick={() => void handleGenerateQuest()}
+                  className="quest-hub-trigger"
+                  onClick={() => setIsQuestDrawerOpen((prev) => !prev)}
+                  aria-expanded={isQuestDrawerOpen}
+                  aria-label="Open quests"
                 >
-                  {isGeneratingQuest ? "Generating..." : "Generate Quest"}
+                  <span
+                    className={`quest-status-dot ${
+                      trackedQuest.completed ? "is-complete" : "is-active"
+                    }`}
+                    aria-hidden="true"
+                  />
+                  <span className="quest-hub-label">Quest</span>
+                  <span className="quest-hub-current">{trackedQuest.title}</span>
+                  <span className="quest-hub-chevron" aria-hidden="true">
+                    {isQuestDrawerOpen ? "▴" : "▾"}
+                  </span>
                 </button>
-                {activeQuest?.steps.length ? (
-                  <>
-                    <button
-                      type="button"
-                      className="button secondary quest-expand-button"
-                      onClick={() => setIsQuestExpanded((prev) => !prev)}
-                    >
-                      {isQuestExpanded ? "Hide Steps" : "Show Steps"}
-                    </button>
-                    {isQuestExpanded ? (
-                      <ol className="quest-step-list">
-                        {activeQuest.steps.map((step) => (
-                          <li
-                            key={`${step.recipeId}-${step.normalizedTarget}`}
-                            className="quest-step-item"
-                          >
-                            <span className="quest-step-target">{step.target}</span>
-                            <span className="quest-step-formula">
-                              {step.inputs.join(" + ")}
-                            </span>
-                          </li>
-                        ))}
-                      </ol>
-                    ) : null}
-                  </>
-                ) : null}
-                <div className="quest-panel-help">
-                  {isGeneratingQuest
-                    ? "Generating quest..."
-                    : activeQuest
-                      ? `${activeQuest.steps.length} steps from base elements to ${activeQuest.name}.`
-                      : "Generate a cached quest path for testing."}
-                </div>
               </div>
+            ) : null}
+            <div className="graph-canvas">
               <GraphView
                 items={items}
                 workspaceItems={workspaceItems}
@@ -551,6 +525,72 @@ const App: React.FC = () => {
           </section>
         </main>
       </div>
+      {isQuestDrawerOpen && trackedQuest ? (
+        <div className="quest-popover-layer" role="presentation">
+          <button
+            type="button"
+            className="quest-popover-backdrop"
+            aria-label="Close quests"
+            onClick={() => setIsQuestDrawerOpen(false)}
+          />
+          <div className="quest-popover" role="dialog" aria-label="Quests">
+            <div className="quest-drawer-header">
+              <div className="quest-drawer-title">Milestones</div>
+              <div className="quest-drawer-subtitle">
+                Track one quest here. All milestones still complete automatically in the background.
+              </div>
+            </div>
+            <div className="quest-card-list">
+              {quests.map((quest) => {
+                const isTracked = trackedQuestKey === quest.key;
+                return (
+                  <article
+                    key={quest.key}
+                    className={`quest-card${quest.completed ? " is-complete" : ""}${
+                      isTracked ? " is-tracked" : ""
+                    }`}
+                  >
+                    <div className="quest-card-top">
+                      <div>
+                        <div className="quest-card-title">{quest.title}</div>
+                        <div className="quest-card-description">{quest.description}</div>
+                      </div>
+                      <span
+                        className={`quest-card-badge ${
+                          quest.completed
+                            ? "is-complete"
+                            : isTracked
+                              ? "is-tracked"
+                              : "is-available"
+                        }`}
+                      >
+                        {quest.completed
+                          ? "Complete"
+                          : isTracked
+                            ? "Tracked"
+                            : "Available"}
+                      </span>
+                    </div>
+                    <div className="quest-card-criteria">{quest.criteria}</div>
+                    <div className="quest-card-actions">
+                      <button
+                        type="button"
+                        className={`button ${isTracked ? "secondary" : "primary"}`}
+                        onClick={() => {
+                          setTrackedQuestKey(quest.key);
+                          setIsQuestDrawerOpen(false);
+                        }}
+                      >
+                        {isTracked ? "Tracking" : "Track"}
+                      </button>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </>
   );
 };
