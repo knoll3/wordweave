@@ -103,6 +103,12 @@ function createSchema(db: Database): void {
       embedding_json TEXT NOT NULL,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
+
+    CREATE TABLE IF NOT EXISTS player_unlocks (
+      feature_key TEXT PRIMARY KEY,
+      unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      intro_shown_at DATETIME NULL
+    );
   `);
 }
 

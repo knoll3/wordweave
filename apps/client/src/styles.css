@@ -281,6 +281,29 @@ body {
   flex-shrink: 0;
 }
 
+.admin-toggle-button {
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.54);
+  color: var(--text-muted);
+  border-radius: 999px;
+  font-size: 0.68rem;
+  line-height: 1;
+  padding: 6px 9px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.admin-toggle-button:hover {
+  color: var(--text-soft);
+  background: rgba(15, 23, 42, 0.82);
+}
+
+.admin-toggle-button.active {
+  color: var(--text-main);
+  border-color: rgba(250, 204, 21, 0.45);
+  background: rgba(113, 63, 18, 0.56);
+}
+
 .model-button {
   border: 1px solid transparent;
   background: transparent;
@@ -543,6 +566,15 @@ body {
   cursor: grabbing;
 }
 
+.graph-creative-button:disabled,
+.graph-subtraction-button:disabled,
+.graph-opposite-button:disabled,
+.graph-randomize-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+  box-shadow: none;
+}
+
 .graph-subtraction-button {
   position: absolute;
   right: 12px;
@@ -573,6 +605,72 @@ body {
 }
 
 .graph-subtraction-button:active {
+  cursor: grabbing;
+}
+
+.graph-opposite-button {
+  position: absolute;
+  right: 12px;
+  bottom: 196px;
+  z-index: 130;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(147, 197, 253, 0.7);
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.96);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.2),
+    0 18px 36px rgba(29, 78, 216, 0.28);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.graph-opposite-button:hover {
+  background: rgba(59, 130, 246, 0.98);
+  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.28),
+    0 22px 42px rgba(29, 78, 216, 0.32);
+}
+
+.graph-opposite-button:active {
+  cursor: grabbing;
+}
+
+.graph-randomize-button {
+  position: absolute;
+  right: 12px;
+  bottom: 264px;
+  z-index: 130;
+  width: 60px;
+  height: 60px;
+  border: 1px solid rgba(167, 243, 208, 0.7);
+  border-radius: 999px;
+  background: rgba(5, 150, 105, 0.96);
+  color: #fff;
+  font-size: 1.35rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 0 1px rgba(167, 243, 208, 0.18),
+    0 18px 36px rgba(4, 120, 87, 0.28);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+}
+
+.graph-randomize-button:hover {
+  background: rgba(16, 185, 129, 0.98);
+  box-shadow: 0 0 0 1px rgba(167, 243, 208, 0.26),
+    0 22px 42px rgba(4, 120, 87, 0.32);
+}
+
+.graph-randomize-button:active {
   cursor: grabbing;
 }
 

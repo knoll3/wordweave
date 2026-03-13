@@ -4,6 +4,8 @@ export const combineRequestSchema = z.object({
   inputs: z.array(z.string()).nonempty(),
   creative: z.boolean().optional().default(false),
   subtractive: z.boolean().optional().default(false),
+  opposite: z.boolean().optional().default(false),
+  randomize: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),

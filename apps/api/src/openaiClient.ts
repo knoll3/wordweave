@@ -111,6 +111,56 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const OPPOSITE_PROMPT = `
+You are the opposite engine for a sandbox discovery game.
+
+The player provides one or more nouns as input. Your job is to return the single most direct and widely recognized opposite concept suggested by those inputs together.
+
+Think carefully about the dominant meaning of the input, then return the clearest opposite concept people would expect.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, sentences.
+- Favor a direct opposite over a clever or poetic answer.
+- The result should be something real and recognizable.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
+const RANDOMIZE_PROMPT = `
+You are the randomize engine for a sandbox discovery game.
+
+The player provides one or more nouns as input. Your job is to return a different but closely related real-world item of the same general type.
+
+Think of this as changing the input into another nearby variation, category member, or sibling concept, while keeping it recognizable and grounded in reality.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, sentences.
+- Stay close to the input concept instead of drifting to something unrelated.
+- The result should be a real and recognizable thing, not an invented term.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 const QUEST_INPUT_SELECTION_PROMPT = `
 You are planning an interesting quest chain for a sandbox discovery game.
 
@@ -255,6 +305,8 @@ export async function generateResult(
   options?: {
     creative?: boolean;
     subtractive?: boolean;
+    opposite?: boolean;
+    randomize?: boolean;
     model?: OpenAiModel;
   }
 ) {
@@ -263,9 +315,13 @@ export async function generateResult(
 
   const promptTemplate = options?.subtractive
     ? SUBTRACTIVE_PROMPT
-    : options?.creative
-      ? CREATIVE_PROMPT
-      : BASE_PROMPT;
+    : options?.opposite
+      ? OPPOSITE_PROMPT
+      : options?.randomize
+        ? RANDOMIZE_PROMPT
+        : options?.creative
+          ? CREATIVE_PROMPT
+          : BASE_PROMPT;
   const prompt = promptTemplate.replace(
     "{{INPUT_ELEMENTS_ARRAY}}",
     JSON.stringify(inputs)
@@ -276,6 +332,8 @@ export async function generateResult(
     inputs,
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
+    opposite: options?.opposite ?? false,
+    randomize: options?.randomize ?? false,
     temperature: 1,
     prompt,
   });

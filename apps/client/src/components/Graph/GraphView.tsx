@@ -16,8 +16,12 @@ import "reactflow/dist/style.css";
 import {
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
-  SUBTRACTION_ITEM,
-  SUBTRACTION_ITEM_ID,
+  OPPOSITE_ITEM,
+  OPPOSITE_ITEM_ID,
+  RANDOMIZE_ITEM,
+  RANDOMIZE_ITEM_ID,
+  SPLIT_ITEM,
+  SPLIT_ITEM_ID,
 } from "../../types";
 import type { Item, WorkspaceItem } from "../../types";
 
@@ -38,6 +42,10 @@ interface Props {
     itemId: number,
     position?: { x: number; y: number }
   ) => void;
+  creativeUnlocked: boolean;
+  splitUnlocked: boolean;
+  oppositeUnlocked: boolean;
+  randomizeUnlocked: boolean;
   onCombineWorkspaceSelection: (nodeIds: string[]) => void;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
@@ -84,6 +92,10 @@ function FlowCanvas({
   onRemoveWorkspaceItem,
   onDuplicateWorkspaceItem,
   onAddItemToWorkspace,
+  creativeUnlocked,
+  splitUnlocked,
+  oppositeUnlocked,
+  randomizeUnlocked,
   onCombineWorkspaceSelection,
   onCombineWorkspaceItems,
 }: Props) {
@@ -97,6 +109,7 @@ function FlowCanvas({
   const [creativeDragPreview, setCreativeDragPreview] = useState<{
     x: number;
     y: number;
+    itemId: number;
   } | null>(null);
   const [isMarqueeMode, setIsMarqueeMode] = useState(false);
   const [marqueeSelection, setMarqueeSelection] =
@@ -139,7 +152,9 @@ function FlowCanvas({
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
-    next.set(SUBTRACTION_ITEM.id, SUBTRACTION_ITEM);
+    next.set(SPLIT_ITEM.id, SPLIT_ITEM);
+    next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
+    next.set(RANDOMIZE_ITEM.id, RANDOMIZE_ITEM);
     return next;
   }, [items]);
 
@@ -399,6 +414,7 @@ function FlowCanvas({
         setCreativeDragPreview({
           x: clientX - bounds.left,
           y: clientY - bounds.top,
+          itemId: catalystItemId,
         });
       };
 
@@ -475,13 +491,27 @@ function FlowCanvas({
 
   const handleCreativeSpawnClick = useCallback(() => {
     if (creativeDragRef.current?.moved) return;
+    if (!creativeUnlocked) return;
     onAddItemToWorkspace(CREATIVE_ITEM_ID);
-  }, [onAddItemToWorkspace]);
+  }, [creativeUnlocked, onAddItemToWorkspace]);
 
-  const handleSubtractionSpawnClick = useCallback(() => {
+  const handleSplitSpawnClick = useCallback(() => {
     if (creativeDragRef.current?.moved) return;
-    onAddItemToWorkspace(SUBTRACTION_ITEM_ID);
-  }, [onAddItemToWorkspace]);
+    if (!splitUnlocked) return;
+    onAddItemToWorkspace(SPLIT_ITEM_ID);
+  }, [onAddItemToWorkspace, splitUnlocked]);
+
+  const handleOppositeSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!oppositeUnlocked) return;
+    onAddItemToWorkspace(OPPOSITE_ITEM_ID);
+  }, [onAddItemToWorkspace, oppositeUnlocked]);
+
+  const handleRandomizeSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!randomizeUnlocked) return;
+    onAddItemToWorkspace(RANDOMIZE_ITEM_ID);
+  }, [onAddItemToWorkspace, randomizeUnlocked]);
 
   const startMarqueeSelectionAtPoint = useCallback(
     (clientX: number, clientY: number) => {
@@ -598,7 +628,9 @@ function FlowCanvas({
         const item = itemById.get(workspaceItem.itemId);
         if (!item) return null;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
-        const isSubtractionItem = workspaceItem.itemId === SUBTRACTION_ITEM_ID;
+        const isSplitItem = workspaceItem.itemId === SPLIT_ITEM_ID;
+        const isOppositeItem = workspaceItem.itemId === OPPOSITE_ITEM_ID;
+        const isRandomizeItem = workspaceItem.itemId === RANDOMIZE_ITEM_ID;
 
         const isDragging = workspaceItem.nodeId === draggingNodeId;
         const isDragOverlapPair =
@@ -627,35 +659,59 @@ function FlowCanvas({
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
-                : isSubtractionItem
+                : isSplitItem
                   ? "rgba(251,146,60,0.34)"
+                : isOppositeItem
+                  ? "rgba(96,165,250,0.3)"
+                : isRandomizeItem
+                  ? "rgba(52,211,153,0.28)"
                 : "rgba(99,102,241,0.38)"
               : isCreativeItem
                 ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
-                : isSubtractionItem
+                : isSplitItem
                   ? "rgba(249,115,22,0.96)"
+                : isOppositeItem
+                  ? "rgba(37,99,235,0.96)"
+                : isRandomizeItem
+                  ? "rgba(5,150,105,0.96)"
                 : "rgba(15,23,42,0.98)",
             border: isSelected
               ? isCreativeItem
                 ? "1px solid rgba(216,180,254,0.96)"
-                : isSubtractionItem
+                : isSplitItem
                   ? "1px solid rgba(254,215,170,0.94)"
+                : isOppositeItem
+                  ? "1px solid rgba(147,197,253,0.92)"
+                : isRandomizeItem
+                  ? "1px solid rgba(167,243,208,0.92)"
                 : "1px solid rgba(99,102,241,0.95)"
               : isCreativeItem
                 ? "1px solid rgba(196,181,253,0.8)"
-                : isSubtractionItem
+                : isSplitItem
                   ? "1px solid rgba(254,215,170,0.76)"
+                : isOppositeItem
+                  ? "1px solid rgba(147,197,253,0.76)"
+                : isRandomizeItem
+                  ? "1px solid rgba(167,243,208,0.76)"
                 : "1px solid rgba(79,70,229,0.6)",
             boxShadow: isSelected
               ? isCreativeItem
                 ? "0 0 0 2px rgba(168,85,247,0.28), 0 8px 24px rgba(88,28,135,0.3)"
-                : isSubtractionItem
+                : isSplitItem
                   ? "0 0 0 2px rgba(251,146,60,0.2), 0 8px 24px rgba(194,65,12,0.24)"
+                : isOppositeItem
+                  ? "0 0 0 2px rgba(96,165,250,0.2), 0 8px 24px rgba(29,78,216,0.24)"
+                : isRandomizeItem
+                  ? "0 0 0 2px rgba(52,211,153,0.18), 0 8px 24px rgba(4,120,87,0.22)"
                 : "0 0 0 2px rgba(99,102,241,0.25)"
               : isCreativeItem
                 ? "0 8px 24px rgba(88,28,135,0.18)"
-                : isSubtractionItem
+                : isSplitItem
                   ? "0 8px 24px rgba(194,65,12,0.18)"
+                : isOppositeItem
+                  ? "0 8px 24px rgba(29,78,216,0.18)"
+                : isRandomizeItem
+                  ? "0 8px 24px rgba(4,120,87,0.18)"
                 : "none",
             color: "#e5e7eb",
             opacity: isConvergingNode ? 0 : isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
@@ -944,10 +1000,10 @@ function FlowCanvas({
           }}
         >
           <span className="creative-drag-preview-icon">
-            {CREATIVE_ITEM.icon}
+            {itemById.get(creativeDragPreview.itemId)?.icon ?? "•"}
           </span>
           <span className="creative-drag-preview-name">
-            {CREATIVE_ITEM.name}
+            {itemById.get(creativeDragPreview.itemId)?.name ?? ""}
           </span>
         </div>
       ) : null}
@@ -987,30 +1043,62 @@ function FlowCanvas({
       >
         ⬚
       </button>
-      <button
-        type="button"
-        className="graph-subtraction-button"
-        aria-label="Drag Subtraction into the workspace"
-        title="Drag Subtraction into the workspace to remove one concept from another"
-        onPointerDown={(event) =>
-          handleCatalystSpawnPointerDown(event, SUBTRACTION_ITEM_ID)
-        }
-        onClick={handleSubtractionSpawnClick}
-      >
-        {SUBTRACTION_ITEM.icon}
-      </button>
-      <button
-        type="button"
-        className="graph-creative-button"
-        aria-label="Drag Creative Spark into the workspace"
-        title="Drag Creative Spark into the workspace to make a combination more creative"
-        onPointerDown={(event) =>
-          handleCatalystSpawnPointerDown(event, CREATIVE_ITEM_ID)
-        }
-        onClick={handleCreativeSpawnClick}
-      >
-        {CREATIVE_ITEM.icon}
-      </button>
+      {randomizeUnlocked ? (
+        <button
+          type="button"
+          className="graph-randomize-button"
+          aria-label="Drag Randomize into the workspace"
+          title="Drag Randomize into the workspace to transform an item into another nearby variation"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, RANDOMIZE_ITEM_ID)
+          }
+          onClick={handleRandomizeSpawnClick}
+        >
+          {RANDOMIZE_ITEM.icon}
+        </button>
+      ) : null}
+      {oppositeUnlocked ? (
+        <button
+          type="button"
+          className="graph-opposite-button"
+          aria-label="Drag Opposite into the workspace"
+          title="Drag Opposite into the workspace to find the direct opposite of an input"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, OPPOSITE_ITEM_ID)
+          }
+          onClick={handleOppositeSpawnClick}
+        >
+          {OPPOSITE_ITEM.icon}
+        </button>
+      ) : null}
+      {splitUnlocked ? (
+        <button
+          type="button"
+          className="graph-subtraction-button"
+          aria-label="Drag Split into the workspace"
+          title="Drag Split into the workspace to remove one concept from another"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, SPLIT_ITEM_ID)
+          }
+          onClick={handleSplitSpawnClick}
+        >
+          {SPLIT_ITEM.icon}
+        </button>
+      ) : null}
+      {creativeUnlocked ? (
+        <button
+          type="button"
+          className="graph-creative-button"
+          aria-label="Drag Creative Spark into the workspace"
+          title="Drag Creative Spark into the workspace to make a combination more creative"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, CREATIVE_ITEM_ID)
+          }
+          onClick={handleCreativeSpawnClick}
+        >
+          {CREATIVE_ITEM.icon}
+        </button>
+      ) : null}
       {workspaceItems.length > 0 ? (
         <button
           type="button"

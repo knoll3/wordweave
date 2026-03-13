@@ -6,6 +6,7 @@ export interface Item {
 }
 
 export type AiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
+export type UnlockKey = "creative" | "split" | "opposite" | "random_tools";
 
 export const CREATIVE_ITEM_ID = -1;
 
@@ -16,13 +17,31 @@ export const CREATIVE_ITEM: Item = {
   icon: "✨",
 };
 
-export const SUBTRACTION_ITEM_ID = -2;
+export const SPLIT_ITEM_ID = -2;
 
-export const SUBTRACTION_ITEM: Item = {
-  id: SUBTRACTION_ITEM_ID,
-  name: "Subtraction",
-  normalizedName: "subtraction",
-  icon: "➖",
+export const SPLIT_ITEM: Item = {
+  id: SPLIT_ITEM_ID,
+  name: "Split",
+  normalizedName: "split",
+  icon: "✂️",
+};
+
+export const OPPOSITE_ITEM_ID = -3;
+
+export const OPPOSITE_ITEM: Item = {
+  id: OPPOSITE_ITEM_ID,
+  name: "Opposite",
+  normalizedName: "opposite",
+  icon: "↔️",
+};
+
+export const RANDOMIZE_ITEM_ID = -4;
+
+export const RANDOMIZE_ITEM: Item = {
+  id: RANDOMIZE_ITEM_ID,
+  name: "Randomize",
+  normalizedName: "randomize",
+  icon: "🔀",
 };
 
 export interface RecipeCandidate {
@@ -91,4 +110,13 @@ export interface GenerateCacheRecipesResult {
   requestedCount: number;
   generatedCount: number;
   recipes: GeneratedCacheRecipe[];
+}
+
+export interface FeatureUnlockStatus {
+  key: UnlockKey;
+  title: string;
+  summary: string;
+  unlocked: boolean;
+  introPending: boolean;
+  unlockedAt: string | null;
 }

@@ -2,16 +2,33 @@ import React, { useEffect, useState } from "react";
 import {
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
-  SUBTRACTION_ITEM,
-  SUBTRACTION_ITEM_ID,
+  OPPOSITE_ITEM,
+  OPPOSITE_ITEM_ID,
+  RANDOMIZE_ITEM,
+  RANDOMIZE_ITEM_ID,
+  SPLIT_ITEM,
+  SPLIT_ITEM_ID,
 } from "./types";
-import type { AiModel, Item, QuestLine, WorkspaceItem } from "./types";
+import type {
+  AiModel,
+  FeatureUnlockStatus,
+  Item,
+  QuestLine,
+  UnlockKey,
+  WorkspaceItem,
+} from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
-import { combineElements, generateQuest } from "./lib/api";
+import {
+  combineElements,
+  fetchUnlockStatuses,
+  generateQuest,
+  markUnlockIntroSeen,
+} from "./lib/api";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
+const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
@@ -28,6 +45,8 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
   const [activeQuest, setActiveQuest] = useState<QuestLine | null>(null);
   const [isGeneratingQuest, setIsGeneratingQuest] = useState(false);
+  const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
+  const [forceUnlocks, setForceUnlocks] = useState(false);
   const [dismissedCompletedQuestKey, setDismissedCompletedQuestKey] = useState<
     string | null
   >(null);
@@ -38,11 +57,23 @@ const App: React.FC = () => {
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
       setSelectedModel(storedModel as AiModel);
     }
+    setForceUnlocks(window.localStorage.getItem(FORCE_UNLOCKS_STORAGE_KEY) === "true");
   }, []);
 
   useEffect(() => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      FORCE_UNLOCKS_STORAGE_KEY,
+      forceUnlocks ? "true" : "false"
+    );
+  }, [forceUnlocks]);
+
+  useEffect(() => {
+    void loadFeatureUnlocks();
+  }, [items]);
 
   const hasCompletedActiveQuest =
     activeQuest != null &&
@@ -51,10 +82,26 @@ const App: React.FC = () => {
     activeQuest != null &&
     hasCompletedActiveQuest &&
     dismissedCompletedQuestKey !== activeQuest.normalizedName;
+  const pendingUnlockIntro =
+    featureUnlocks.find((unlock) => unlock.introPending) ?? null;
 
   function showError(message: string, err: unknown) {
     console.error(message, err);
     setErrorMessage(message);
+  }
+
+  async function loadFeatureUnlocks() {
+    try {
+      const statuses = await fetchUnlockStatuses();
+      setFeatureUnlocks(statuses);
+    } catch (err) {
+      console.error("Failed to load feature unlocks", err);
+    }
+  }
+
+  function isFeatureUnlocked(key: UnlockKey) {
+    if (forceUnlocks) return true;
+    return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
 
   function makeWorkspaceNodeId() {
@@ -63,7 +110,9 @@ const App: React.FC = () => {
 
   function findItemById(itemId: number) {
     if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
-    if (itemId === SUBTRACTION_ITEM_ID) return SUBTRACTION_ITEM;
+    if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
+    if (itemId === OPPOSITE_ITEM_ID) return OPPOSITE_ITEM;
+    if (itemId === RANDOMIZE_ITEM_ID) return RANDOMIZE_ITEM;
     return items.find((item) => item.id === itemId);
   }
 
@@ -162,26 +211,55 @@ const App: React.FC = () => {
     if (selectedItems.length < 2) return;
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
-    const hasSubtractiveCatalyst = selectedItems.some(
-      (item) => item.id === SUBTRACTION_ITEM_ID
-    );
-    if (hasCreativeCatalyst && hasSubtractiveCatalyst) {
-      showError("Use either Creative Spark or Subtraction, not both together.", null);
+    const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
+    const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
+    const hasRandomizeCatalyst = selectedItems.some((item) => item.id === RANDOMIZE_ITEM_ID);
+    const activeCatalystCount = [
+      hasCreativeCatalyst,
+      hasSplitCatalyst,
+      hasOppositeCatalyst,
+      hasRandomizeCatalyst,
+    ].filter(Boolean).length;
+    if (activeCatalystCount > 1) {
+      showError("Use only one catalyst at a time.", null);
       return;
     }
     const actualInputItems = selectedItems.filter(
-      (item) => item.id !== CREATIVE_ITEM_ID && item.id !== SUBTRACTION_ITEM_ID
+      (item) =>
+        item.id !== CREATIVE_ITEM_ID &&
+        item.id !== SPLIT_ITEM_ID &&
+        item.id !== OPPOSITE_ITEM_ID &&
+        item.id !== RANDOMIZE_ITEM_ID
     );
+    const catalystLabel = hasCreativeCatalyst
+      ? "Creative Spark"
+      : hasSplitCatalyst
+        ? "Split"
+        : hasOppositeCatalyst
+          ? "Opposite"
+          : hasRandomizeCatalyst
+            ? "Randomize"
+            : null;
     if (actualInputItems.length === 0) {
       showError(
-        hasSubtractiveCatalyst
-          ? "Subtraction needs at least one regular item to combine."
-          : "Creative Spark needs at least one regular item to combine.",
+        catalystLabel
+          ? `${catalystLabel} needs at least one regular item to combine.`
+          : "No regular items selected.",
         null
       );
       return;
     }
-    if (!hasCreativeCatalyst && !hasSubtractiveCatalyst && actualInputItems.length < 2) {
+    if (hasRandomizeCatalyst && actualInputItems.length !== 1) {
+      showError("Randomize needs exactly one regular item to transform.", null);
+      return;
+    }
+    if (
+      !hasCreativeCatalyst &&
+      !hasSplitCatalyst &&
+      !hasOppositeCatalyst &&
+      !hasRandomizeCatalyst &&
+      actualInputItems.length < 2
+    ) {
       return;
     }
 
@@ -190,7 +268,9 @@ const App: React.FC = () => {
       nodeIds: uniqueNodeIds,
       inputs: inputNames,
       creative: hasCreativeCatalyst,
-      subtractive: hasSubtractiveCatalyst,
+      subtractive: hasSplitCatalyst,
+      opposite: hasOppositeCatalyst,
+      randomize: hasRandomizeCatalyst,
     });
 
     try {
@@ -199,7 +279,9 @@ const App: React.FC = () => {
       setConvergingNodeIds(options?.converge ? uniqueNodeIds : null);
       const recipe = await combineElements(inputNames, {
         creative: hasCreativeCatalyst,
-        subtractive: hasSubtractiveCatalyst,
+        subtractive: hasSplitCatalyst,
+        opposite: hasOppositeCatalyst,
+        randomize: hasRandomizeCatalyst,
         model: selectedModel,
       });
       console.log("[combine] recipe received", recipe);
@@ -301,6 +383,41 @@ const App: React.FC = () => {
           </div>
         </div>
       ) : null}
+      {pendingUnlockIntro ? (
+        <div className="results-overlay" role="presentation">
+          <div className="results-backdrop" />
+          <div className="results-panel quest-complete-panel" role="dialog" aria-modal="true">
+            <div className="results-header">
+              <div>
+                <h3 className="results-title">{pendingUnlockIntro.title}</h3>
+                <p className="results-subtitle">{pendingUnlockIntro.summary}</p>
+              </div>
+            </div>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button primary"
+                onClick={async () => {
+                  try {
+                    await markUnlockIntroSeen(pendingUnlockIntro.key);
+                    setFeatureUnlocks((prev) =>
+                      prev.map((unlock) =>
+                        unlock.key === pendingUnlockIntro.key
+                          ? { ...unlock, introPending: false }
+                          : unlock
+                      )
+                    );
+                  } catch (err) {
+                    console.error("Failed to mark unlock intro as seen", err);
+                  }
+                }}
+              >
+                Continue
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <div className="app-root">
         <aside className="sidebar">
@@ -309,6 +426,7 @@ const App: React.FC = () => {
             onLibraryReset={handleLibraryReset}
             refreshToken={libraryRefreshToken}
             onItemsLoaded={setItems}
+            randomUnlocked={isFeatureUnlocked("random_tools")}
           />
         </aside>
 
@@ -323,6 +441,15 @@ const App: React.FC = () => {
                 <a className="button graph-link-button" href="/cache">
                   View Cache
                 </a>
+                <button
+                  type="button"
+                  className={`admin-toggle-button${forceUnlocks ? " active" : ""}`}
+                  onClick={() => setForceUnlocks((prev) => !prev)}
+                  aria-pressed={forceUnlocks}
+                  title="Force unlock hidden feature buttons for testing"
+                >
+                  Admin
+                </button>
                 <div className="model-selector" role="group" aria-label="AI model">
                   {AI_MODELS.map((model) => (
                     <button
@@ -411,6 +538,10 @@ const App: React.FC = () => {
                 onRemoveWorkspaceItem={removeWorkspaceItem}
                 onDuplicateWorkspaceItem={duplicateWorkspaceItem}
                 onAddItemToWorkspace={addItemToWorkspace}
+                creativeUnlocked={isFeatureUnlocked("creative")}
+                splitUnlocked={isFeatureUnlocked("split")}
+                oppositeUnlocked={isFeatureUnlocked("opposite")}
+                randomizeUnlocked={isFeatureUnlocked("random_tools")}
                 onCombineWorkspaceSelection={(nodeIds) =>
                   combineWorkspaceNodeIds(nodeIds, { converge: true })
                 }

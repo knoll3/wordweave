@@ -313,11 +313,15 @@ router.post("/combine", async (req, res) => {
 
   const creative = parsedBody.data.creative ?? false;
   const subtractive = parsedBody.data.subtractive ?? false;
+  const opposite = parsedBody.data.opposite ?? false;
+  const randomize = parsedBody.data.randomize ?? false;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
 
-  if (creative && subtractive) {
+  const activeModeCount = [creative, subtractive, opposite, randomize].filter(Boolean)
+    .length;
+  if (activeModeCount > 1) {
     return res.status(400).json({
-      error: "Creative and subtraction modes cannot be used together",
+      error: "Only one catalyst mode can be used at a time",
     });
   }
 
@@ -328,10 +332,20 @@ router.post("/combine", async (req, res) => {
     ? `creative|${inputKey}`
     : subtractive
       ? `subtract|${inputKey}`
+      : opposite
+        ? `opposite|${inputKey}`
+        : randomize
+          ? `randomize|${inputKey}`
       : inputKey;
 
   if (normalizedInputs.length === 0) {
     return res.status(400).json({ error: "No valid inputs provided" });
+  }
+
+  if (randomize && normalizedInputs.length !== 1) {
+    return res.status(400).json({
+      error: "Randomize requires exactly one regular input item",
+    });
   }
 
   try {
@@ -406,6 +420,8 @@ router.post("/combine", async (req, res) => {
         inputKey: recipeInputKey,
         creative,
         subtractive,
+        opposite,
+        randomize,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -467,7 +483,7 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative, subtractive, model }
+            { creative, subtractive, opposite, randomize, model }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -543,13 +559,15 @@ router.post("/combine", async (req, res) => {
       inputKey: recipeInputKey,
       creative,
       subtractive,
+      opposite,
+      randomize,
       inputs: normalizedInputs.map((i) => i.name),
     });
     let llmResult;
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative, subtractive, model }
+        { creative, subtractive, opposite, randomize, model }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

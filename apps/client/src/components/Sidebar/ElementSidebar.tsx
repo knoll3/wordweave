@@ -14,6 +14,7 @@ interface Props {
   onLibraryReset?: () => void;
   refreshToken?: number;
   onItemsLoaded?: (items: Item[]) => void;
+  randomUnlocked?: boolean;
 }
 
 const RANDOM_SPAWN_COUNT = 4;
@@ -111,6 +112,7 @@ const ElementSidebar: React.FC<Props> = ({
   onLibraryReset,
   refreshToken = 0,
   onItemsLoaded,
+  randomUnlocked = false,
 }) => {
   const [search, setSearch] = useState("");
   const [libraryItems, setLibraryItems] = useState<Item[]>([]);
@@ -311,21 +313,23 @@ const ElementSidebar: React.FC<Props> = ({
         </p>
       </header>
 
-      <div className="sidebar-quick-actions">
-        <button
-          type="button"
-          className="button secondary random-items-button"
-          onClick={handleAddRandomItems}
-          disabled={loadingItems || libraryItems.length === 0}
-          title="Add random library items to the workspace"
-          aria-label="Add random library items to the workspace"
-        >
-          <span className="random-items-icon" aria-hidden="true">
-            🎲
-          </span>
-          Random
-        </button>
-      </div>
+      {randomUnlocked ? (
+        <div className="sidebar-quick-actions">
+          <button
+            type="button"
+            className="button secondary random-items-button"
+            onClick={handleAddRandomItems}
+            disabled={loadingItems || libraryItems.length === 0}
+            title="Add random library items to the workspace"
+            aria-label="Add random library items to the workspace"
+          >
+            <span className="random-items-icon" aria-hidden="true">
+              🎲
+            </span>
+            Random
+          </button>
+        </div>
+      ) : null}
 
       <section className="sidebar-section library-section">
         <div className="library-header-row">

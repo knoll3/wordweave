@@ -6,6 +6,13 @@ import {
 } from "../db";
 import { searchDiscoveredElements } from "../search";
 import {
+  clearFeatureUnlocks,
+  getFeatureUnlockStatuses,
+  isKnownUnlockKey,
+  markFeatureUnlockIntroSeen,
+  syncFeatureUnlocks,
+} from "../unlocks";
+import {
   mapRecentRecipeRow,
 } from "../models";
 
@@ -22,6 +29,35 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Error in GET /elements", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/unlocks", async (_req, res) => {
+  try {
+    const db = await getDb();
+    await syncFeatureUnlocks(db);
+    persistDatabase(db);
+    return res.json(getFeatureUnlockStatuses(db));
+  } catch (err) {
+    console.error("Error in GET /elements/unlocks", err);
+    return res.status(500).json({ error: "Failed to load unlocks" });
+  }
+});
+
+router.post("/unlocks/:key/mark-seen", async (req, res) => {
+  const key = String(req.params.key ?? "");
+  if (!isKnownUnlockKey(key)) {
+    return res.status(404).json({ error: "Unknown unlock key" });
+  }
+
+  try {
+    const db = await getDb();
+    markFeatureUnlockIntroSeen(db, key);
+    persistDatabase(db);
+    return res.json({ ok: true });
+  } catch (err) {
+    console.error("Error in POST /elements/unlocks/:key/mark-seen", err);
+    return res.status(500).json({ error: "Failed to mark unlock intro as seen" });
   }
 });
 
@@ -198,6 +234,7 @@ router.post("/reset-library", async (_req, res) => {
     db.run("BEGIN");
     try {
       db.run("DELETE FROM discoveries");
+      clearFeatureUnlocks(db);
       const seedStmt = db.prepare(
         `
         INSERT OR IGNORE INTO discoveries (element_id)

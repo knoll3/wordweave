@@ -1,6 +1,7 @@
 import type {
   AiModel,
   CacheRecipe,
+  FeatureUnlockStatus,
   GenerateCacheRecipesResult,
   Item,
   QuestLine,
@@ -34,6 +35,20 @@ export async function fetchItems(query?: string): Promise<Item[]> {
   }
   const res = await fetch(url.toString());
   return handleResponse<Item[]>(res);
+}
+
+export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {
+  const res = await fetch(`${API_BASE}/elements/unlocks`);
+  return handleResponse<FeatureUnlockStatus[]>(res);
+}
+
+export async function markUnlockIntroSeen(key: FeatureUnlockStatus["key"]): Promise<{
+  ok: boolean;
+}> {
+  const res = await fetch(`${API_BASE}/elements/unlocks/${key}/mark-seen`, {
+    method: "POST",
+  });
+  return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function fetchRecentRecipes(): Promise<RecentRecipe[]> {
@@ -88,12 +103,20 @@ export async function resetCache(): Promise<{
 
 export async function combineElements(
   inputs: string[],
-  options?: { creative?: boolean; subtractive?: boolean; model?: AiModel }
+  options?: {
+    creative?: boolean;
+    subtractive?: boolean;
+    opposite?: boolean;
+    randomize?: boolean;
+    model?: AiModel;
+  }
 ): Promise<Recipe> {
   console.log("[combine] request", {
     inputs,
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
+    opposite: options?.opposite ?? false,
+    randomize: options?.randomize ?? false,
     model: options?.model ?? null,
   });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
@@ -105,6 +128,8 @@ export async function combineElements(
       inputs,
       creative: options?.creative ?? false,
       subtractive: options?.subtractive ?? false,
+      opposite: options?.opposite ?? false,
+      randomize: options?.randomize ?? false,
       model: options?.model,
     }),
   });
