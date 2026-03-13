@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  COMBINE_RESULT_PLACEHOLDER_ITEM,
+  COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CRAFT_ITEM,
   CRAFT_ITEM_ID,
   CREATIVE_ITEM,
@@ -17,6 +19,7 @@ import type {
   AiModel,
   FeatureUnlockStatus,
   Item,
+  SelectionCombineLayout,
   UnlockKey,
   WorkspaceItem,
 } from "./types";
@@ -95,7 +98,6 @@ const App: React.FC = () => {
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [isCombining, setIsCombining] = useState(false);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[] | null>(null);
-  const [convergingNodeIds, setConvergingNodeIds] = useState<string[] | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -201,6 +203,9 @@ const App: React.FC = () => {
 
   function findItemById(itemId: number) {
     if (itemId === CRAFT_ITEM_ID) return CRAFT_ITEM;
+    if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) {
+      return COMBINE_RESULT_PLACEHOLDER_ITEM;
+    }
     if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
     if (itemId === EVOLVE_ITEM_ID) return EVOLVE_ITEM;
     if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
@@ -263,21 +268,21 @@ const App: React.FC = () => {
 
   async function combineWorkspaceNodeIds(
     nodeIds: string[],
-    options?: { converge?: boolean }
-  ) {
-    if (isCombining) return;
+    options?: { selectionLayout?: SelectionCombineLayout | null }
+  ): Promise<boolean> {
+    if (isCombining) return false;
     const uniqueNodeIds = Array.from(new Set(nodeIds));
-    if (uniqueNodeIds.length < 2) return;
+    if (uniqueNodeIds.length < 2) return false;
 
     const selectedNodes = uniqueNodeIds
       .map((nodeId) => workspaceItems.find((n) => n.nodeId === nodeId))
       .filter(Boolean) as WorkspaceItem[];
-    if (selectedNodes.length < 2) return;
+    if (selectedNodes.length < 2) return false;
 
     const selectedItems = selectedNodes
       .map((node) => findItemById(node.itemId))
       .filter(Boolean) as Item[];
-    if (selectedItems.length < 2) return;
+    if (selectedItems.length < 2) return false;
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
     const hasEvolveCatalyst = selectedItems.some((item) => item.id === EVOLVE_ITEM_ID);
@@ -295,7 +300,7 @@ const App: React.FC = () => {
     ].filter(Boolean).length;
     if (activeCatalystCount > 1) {
       showError("Use only one catalyst at a time.", null);
-      return;
+      return false;
     }
     const actualInputItems = selectedItems.filter(
       (item) =>
@@ -326,11 +331,11 @@ const App: React.FC = () => {
           : "No regular items selected.",
         null
       );
-      return;
+      return false;
     }
     if (hasRandomizeCatalyst && actualInputItems.length !== 1) {
       showError("Randomize needs exactly one regular item to transform.", null);
-      return;
+      return false;
     }
     if (
       !hasCreativeCatalyst &&
@@ -339,7 +344,7 @@ const App: React.FC = () => {
       !hasRandomizeCatalyst &&
       actualInputItems.length < 2
     ) {
-      return;
+      return false;
     }
 
     const inputNames = actualInputItems.map((item) => item.name);
@@ -356,8 +361,32 @@ const App: React.FC = () => {
 
     try {
       setIsCombining(true);
-      setCombiningNodeIds(uniqueNodeIds);
-      setConvergingNodeIds(options?.converge ? uniqueNodeIds : null);
+      const selectionLayout = options?.selectionLayout ?? null;
+      const placeholderNodeId = selectionLayout?.placeholderNodeId ?? null;
+      const combiningIds = placeholderNodeId
+        ? [...uniqueNodeIds, placeholderNodeId]
+        : uniqueNodeIds;
+
+      if (selectionLayout) {
+        setWorkspaceItems((prev) => {
+          const next = prev.map((node) => {
+            const layoutNode = selectionLayout.nodePositions.find(
+              (entry) => entry.nodeId === node.nodeId
+            );
+            return layoutNode ? { ...node, position: layoutNode.position } : node;
+          });
+          return [
+            ...next,
+            {
+              nodeId: selectionLayout.placeholderNodeId,
+              itemId: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+              position: selectionLayout.placeholderPosition,
+            },
+          ];
+        });
+      }
+
+      setCombiningNodeIds(combiningIds);
       const recipe = await combineElements(inputNames, {
         crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
@@ -372,7 +401,7 @@ const App: React.FC = () => {
       if (!recipe.resultElement) {
         console.warn("[combine] missing resultElement in response", recipe);
         showError("Combine returned no result item.", null);
-        return;
+        return false;
       }
 
       setItems((prev) => {
@@ -383,50 +412,67 @@ const App: React.FC = () => {
       setLibraryRefreshToken((prev) => prev + 1);
       console.log("[combine] item added", recipe.resultElement);
 
-      const centerSum = selectedNodes.reduce(
-        (acc, node) => ({
-          x: acc.x + node.position.x,
-          y: acc.y + node.position.y,
-        }),
-        { x: 0, y: 0 }
-      );
-      const center = {
-        x: centerSum.x / selectedNodes.length,
-        y: centerSum.y / selectedNodes.length,
-      };
+      if (selectionLayout) {
+        setWorkspaceItems((prev) =>
+          prev.map((node) =>
+            node.nodeId === selectionLayout.placeholderNodeId
+              ? {
+                  ...node,
+                  itemId: recipe.resultElement!.id,
+                }
+              : node
+          )
+        );
+      } else {
+        const centerSum = selectedNodes.reduce(
+          (acc, node) => ({
+            x: acc.x + node.position.x,
+            y: acc.y + node.position.y,
+          }),
+          { x: 0, y: 0 }
+        );
+        const center = {
+          x: centerSum.x / selectedNodes.length,
+          y: centerSum.y / selectedNodes.length,
+        };
 
-      setWorkspaceItems((prev) => {
-        const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
-        return [
-          ...withoutInputs,
-          {
-            nodeId: makeWorkspaceNodeId(),
-            itemId: recipe.resultElement!.id,
-            position: center,
-          },
-        ];
-      });
+        setWorkspaceItems((prev) => {
+          const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
+          return [
+            ...withoutInputs,
+            {
+              nodeId: makeWorkspaceNodeId(),
+              itemId: recipe.resultElement!.id,
+              position: center,
+            },
+          ];
+        });
+      }
+      return true;
     } catch (err) {
       console.error("[combine] failed", err);
+      if (options?.selectionLayout) {
+        setWorkspaceItems((prev) =>
+          prev.filter((node) => node.nodeId !== options.selectionLayout!.placeholderNodeId)
+        );
+      }
       showError(
         err instanceof Error && err.message
           ? err.message
           : "Failed to combine items. Please try again.",
         err
       );
+      return false;
     } finally {
       setIsCombining(false);
       setCombiningNodeIds(null);
-      setConvergingNodeIds(null);
       console.log("[combine] finished");
     }
   }
 
   async function combineWorkspaceItems(sourceNodeId: string, targetNodeId: string) {
     if (sourceNodeId === targetNodeId) return;
-    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
-      converge: false,
-    });
+    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId]);
   }
 
   return (
@@ -568,7 +614,6 @@ const App: React.FC = () => {
                 onWorkspaceItemsChange={setWorkspaceItems}
                 onViewportCenterChange={setViewportCenter}
                 combiningNodeIds={combiningNodeIds}
-                convergingNodeIds={convergingNodeIds}
                 onClearWorkspace={clearWorkspaceItems}
                 onRemoveWorkspaceItem={removeWorkspaceItem}
                 onDuplicateWorkspaceItem={duplicateWorkspaceItem}
@@ -579,8 +624,10 @@ const App: React.FC = () => {
                 splitUnlocked={isFeatureUnlocked("split")}
                 oppositeUnlocked={isFeatureUnlocked("opposite")}
                 randomizeUnlocked={isFeatureUnlocked("random_tools")}
-                onCombineWorkspaceSelection={(nodeIds) =>
-                  combineWorkspaceNodeIds(nodeIds, { converge: true })
+                onCombineWorkspaceSelection={(layout) =>
+                  combineWorkspaceNodeIds(layout.nodeIds, {
+                    selectionLayout: layout,
+                  })
                 }
                 onCombineWorkspaceItems={combineWorkspaceItems}
               />

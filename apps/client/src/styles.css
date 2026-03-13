@@ -859,13 +859,6 @@ body {
   box-shadow: inset 0 0 0 1px rgba(191, 219, 254, 0.08);
 }
 
-.combine-converge-layer {
-  position: absolute;
-  inset: 0;
-  z-index: 24;
-  pointer-events: none;
-}
-
 .creative-drag-preview {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -897,44 +890,26 @@ body {
   text-overflow: ellipsis;
 }
 
-.combine-converge-node {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  padding: 6px 12px;
+.graph-result-placeholder-node {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
-  white-space: nowrap;
-  font-size: 11px;
-  line-height: 1;
-  background: rgba(99, 102, 241, 0.38);
-  border: 1px solid rgba(99, 102, 241, 0.95);
-  color: #e5e7eb;
-  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.25);
-  animation: converge-to-center 520ms cubic-bezier(0.2, 0.8, 0.2, 1) forwards,
-    node-combine-pulse 1.2s ease-in-out infinite;
 }
 
-.combine-converge-icon {
-  flex: 0 0 auto;
-  font-size: 0.95rem;
+.graph-result-placeholder-label {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
-.combine-converge-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-@keyframes converge-to-center {
-  from {
-    transform: translate(-50%, -50%) translate(0, 0);
-  }
-  to {
-    transform: translate(-50%, -50%)
-      translate(var(--converge-x), var(--converge-y));
-  }
+.graph-result-placeholder-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.28);
+  border-top-color: rgba(226, 232, 240, 0.92);
+  animation: search-pending-spin 0.75s linear infinite;
 }
 
 .combine-tray {

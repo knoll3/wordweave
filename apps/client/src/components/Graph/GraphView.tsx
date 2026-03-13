@@ -14,6 +14,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import {
+  COMBINE_RESULT_PLACEHOLDER_ITEM,
+  COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CRAFT_ITEM,
   CRAFT_ITEM_ID,
   CREATIVE_ITEM,
@@ -27,7 +29,7 @@ import {
   SPLIT_ITEM,
   SPLIT_ITEM_ID,
 } from "../../types";
-import type { Item, WorkspaceItem } from "../../types";
+import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 
 interface Props {
   items: Item[];
@@ -35,7 +37,6 @@ interface Props {
   onWorkspaceItemsChange: (items: WorkspaceItem[]) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
-  convergingNodeIds?: string[] | null;
   onClearWorkspace: () => void;
   onRemoveWorkspaceItem: (nodeId: string) => void;
   onDuplicateWorkspaceItem: (
@@ -52,7 +53,7 @@ interface Props {
   splitUnlocked: boolean;
   oppositeUnlocked: boolean;
   randomizeUnlocked: boolean;
-  onCombineWorkspaceSelection: (nodeIds: string[]) => void;
+  onCombineWorkspaceSelection: (layout: SelectionCombineLayout) => Promise<boolean>;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
     targetNodeId: string
@@ -93,7 +94,6 @@ function FlowCanvas({
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
-  convergingNodeIds,
   onClearWorkspace,
   onRemoveWorkspaceItem,
   onDuplicateWorkspaceItem,
@@ -122,6 +122,12 @@ function FlowCanvas({
   const [isMarqueeMode, setIsMarqueeMode] = useState(false);
   const [marqueeSelection, setMarqueeSelection] =
     useState<MarqueeSelection | null>(null);
+  const [selectionCombineAwaitingStart, setSelectionCombineAwaitingStart] =
+    useState(false);
+  const [selectionCombineActive, setSelectionCombineActive] = useState(false);
+  const [selectionCombinePlaceholderId, setSelectionCombinePlaceholderId] = useState<
+    string | null
+  >(null);
 
   const pressStateRef = useRef<PressState | null>(null);
   const creativeDragRef = useRef<CreativeDragState | null>(null);
@@ -160,6 +166,7 @@ function FlowCanvas({
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CRAFT_ITEM.id, CRAFT_ITEM);
+    next.set(COMBINE_RESULT_PLACEHOLDER_ITEM.id, COMBINE_RESULT_PLACEHOLDER_ITEM);
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
     next.set(EVOLVE_ITEM.id, EVOLVE_ITEM);
     next.set(SPLIT_ITEM.id, SPLIT_ITEM);
@@ -171,10 +178,36 @@ function FlowCanvas({
   useEffect(() => {
     const workspaceNodeIds = new Set(workspaceItems.map((item) => item.nodeId));
     setSelectedNodeIds((prev) => prev.filter((id) => workspaceNodeIds.has(id)));
+    setSelectionCombinePlaceholderId((prev) =>
+      prev && !workspaceNodeIds.has(prev) ? null : prev
+    );
   }, [workspaceItems]);
+
+  useEffect(() => {
+    if (selectionCombineAwaitingStart && combiningNodeIds?.length) {
+      setSelectionCombineAwaitingStart(false);
+      setSelectionCombineActive(true);
+    }
+  }, [combiningNodeIds, selectionCombineAwaitingStart]);
+
+  useEffect(() => {
+    if (selectionCombineActive && !combiningNodeIds?.length) {
+      setSelectionCombineActive(false);
+      setSelectionCombineAwaitingStart(false);
+      setSelectionCombinePlaceholderId(null);
+      setSelectedNodeIds([]);
+    }
+  }, [combiningNodeIds, selectionCombineActive]);
 
   const selectionMode = selectedNodeIds.length > 0;
   const hasMultiSelection = selectedNodeIds.length >= 2;
+  const selectionBoundsNodeIds = useMemo(
+    () =>
+      selectionCombineActive && selectionCombinePlaceholderId
+        ? [...selectedNodeIds, selectionCombinePlaceholderId]
+        : selectedNodeIds,
+    [selectedNodeIds, selectionCombineActive, selectionCombinePlaceholderId]
+  );
 
   const marqueeSelectionRect = useMemo(() => {
     if (!marqueeSelection) return null;
@@ -264,11 +297,11 @@ function FlowCanvas({
   );
 
   const selectionBoundsVisual = useMemo(() => {
-    if (!wrapperRef.current || selectedNodeIds.length === 0) {
+    if (!wrapperRef.current || selectionBoundsNodeIds.length === 0) {
       return null;
     }
 
-    const nodeVisuals = getNodeVisualsLocal(selectedNodeIds);
+    const nodeVisuals = getNodeVisualsLocal(selectionBoundsNodeIds);
     if (!nodeVisuals.length) return null;
 
     const nodeBounds = nodeVisuals.reduce(
@@ -297,42 +330,111 @@ function FlowCanvas({
       height:
         nodeBounds.bottom - nodeBounds.top + paddingTop + paddingBottom,
     };
-  }, [getNodeVisualsLocal, hasMultiSelection, selectedNodeIds, viewportVersion]);
+  }, [getNodeVisualsLocal, hasMultiSelection, selectionBoundsNodeIds, viewportVersion]);
 
-  const combineConvergeVisual = useMemo(() => {
-    if (!wrapperRef.current || !convergingNodeIds || convergingNodeIds.length < 2) {
-      return null;
-    }
+  const buildSelectionCombineLayout = useCallback((): SelectionCombineLayout | null => {
+    if (!reactFlow || selectedNodeIds.length < 2) return null;
 
-    const bounds = wrapperRef.current.getBoundingClientRect();
-    const nodeVisuals = getNodeVisualsLocal(convergingNodeIds);
-    if (nodeVisuals.length < 2) return null;
+    const paddingX = 16;
+    const paddingY = 16;
+    const gapX = 10;
+    const gapY = 10;
+    const placeholderWidth = 132;
+    const placeholderHeight = 34;
 
-    const centerSum = nodeVisuals.reduce(
+    const flowNodes = selectedNodeIds
+      .map((nodeId) => {
+        const node = reactFlow.getNode(nodeId);
+        if (!node) return null;
+        return {
+          nodeId,
+          width: node.width ?? 110,
+          height: node.height ?? 34,
+          left: node.position.x,
+          top: node.position.y,
+          right: node.position.x + (node.width ?? 110),
+          bottom: node.position.y + (node.height ?? 34),
+        };
+      })
+      .filter(
+        (
+          node
+        ): node is {
+          nodeId: string;
+          width: number;
+          height: number;
+          left: number;
+          top: number;
+          right: number;
+          bottom: number;
+        } => !!node
+      );
+
+    if (flowNodes.length < 2) return null;
+
+    flowNodes.sort((a, b) => {
+      const yDelta = a.top - b.top;
+      if (Math.abs(yDelta) > 18) return yDelta;
+      return a.left - b.left;
+    });
+
+    const bounds = flowNodes.reduce(
       (acc, node) => ({
-        x: acc.x + node.x,
-        y: acc.y + node.y,
+        left: Math.min(acc.left, node.left),
+        top: Math.min(acc.top, node.top),
+        right: Math.max(acc.right, node.right),
+        bottom: Math.max(acc.bottom, node.bottom),
       }),
-      { x: 0, y: 0 }
+      {
+        left: Number.POSITIVE_INFINITY,
+        top: Number.POSITIVE_INFINITY,
+        right: Number.NEGATIVE_INFINITY,
+        bottom: Number.NEGATIVE_INFINITY,
+      }
     );
-    const localCenter = {
-      x: centerSum.x / nodeVisuals.length,
-      y: centerSum.y / nodeVisuals.length,
+
+    const containerWidth = Math.max(
+      220,
+      Math.min(420, bounds.right - bounds.left + paddingX * 2)
+    );
+    const rowLimit = containerWidth - paddingX * 2;
+
+    let cursorX = 0;
+    let cursorY = 0;
+    let rowHeight = 0;
+
+    const placeBox = (width: number, height: number) => {
+      if (cursorX > 0 && cursorX + width > rowLimit) {
+        cursorX = 0;
+        cursorY += rowHeight + gapY;
+        rowHeight = 0;
+      }
+
+      const position = {
+        x: bounds.left + paddingX + cursorX,
+        y: bounds.top + paddingY + cursorY,
+      };
+
+      cursorX += width + gapX;
+      rowHeight = Math.max(rowHeight, height);
+
+      return position;
     };
-    const clampedCenter = {
-      x: Math.max(44, Math.min(bounds.width - 44, localCenter.x)),
-      y: Math.max(44, Math.min(bounds.height - 44, localCenter.y)),
-    };
+
+    const nodePositions = flowNodes.map((node) => ({
+      nodeId: node.nodeId,
+      position: placeBox(node.width, node.height),
+    }));
+
+    const placeholderPosition = placeBox(placeholderWidth, placeholderHeight);
 
     return {
-      center: clampedCenter,
-      nodes: nodeVisuals.map((node) => ({
-        ...node,
-        dx: clampedCenter.x - node.x,
-        dy: clampedCenter.y - node.y,
-      })),
+      nodeIds: [...selectedNodeIds],
+      nodePositions,
+      placeholderNodeId: `workspace-${Date.now()}-result-placeholder`,
+      placeholderPosition,
     };
-  }, [convergingNodeIds, getNodeVisualsLocal, viewportVersion, workspaceItems]);
+  }, [reactFlow, selectedNodeIds]);
 
   const toggleNodeSelection = useCallback((nodeId: string) => {
     setSelectedNodeIds((prev) =>
@@ -655,6 +757,8 @@ function FlowCanvas({
         const isSplitItem = workspaceItem.itemId === SPLIT_ITEM_ID;
         const isOppositeItem = workspaceItem.itemId === OPPOSITE_ITEM_ID;
         const isRandomizeItem = workspaceItem.itemId === RANDOMIZE_ITEM_ID;
+        const isResultPlaceholder =
+          workspaceItem.itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
 
         const isDragging = workspaceItem.nodeId === draggingNodeId;
         const isDragOverlapPair =
@@ -663,23 +767,39 @@ function FlowCanvas({
           (workspaceItem.nodeId === draggingNodeId ||
             workspaceItem.nodeId === hoverTargetNodeId);
         const isCombiningNode = !!combiningNodeIds?.includes(workspaceItem.nodeId);
-        const isConvergingNode = !!convergingNodeIds?.includes(workspaceItem.nodeId);
-        const shouldPulseCombineNode = isCombiningNode && !isConvergingNode;
+        const shouldPulseCombineNode = isCombiningNode;
         const isSelected = selectedNodeIds.includes(workspaceItem.nodeId);
+        const isSelectionCombineNode =
+          selectionCombineActive ||
+          (selectionCombineAwaitingStart &&
+            (selectedNodeIds.includes(workspaceItem.nodeId) ||
+              workspaceItem.nodeId === selectionCombinePlaceholderId));
 
         const icon = item.icon || item.name.charAt(0).toUpperCase();
 
         return {
           id: workspaceItem.nodeId,
           position: workspaceItem.position,
-          data: { label: `${icon} ${item.name}` },
+          data: {
+            label: isResultPlaceholder ? (
+              <span className="graph-result-placeholder-label" aria-hidden="true">
+                <span className="graph-result-placeholder-spinner" />
+              </span>
+            ) : (
+              `${icon} ${item.name}`
+            ),
+          },
           type: "default",
-          className: shouldPulseCombineNode ? "node-combining" : undefined,
+          className: `${shouldPulseCombineNode ? "node-combining" : ""}${
+            isResultPlaceholder ? " graph-result-placeholder-node" : ""
+          }`.trim(),
           zIndex: isDragging ? 1000 : isSelected ? 20 : 1,
           style: {
             borderRadius: 999,
             padding: "6px 12px",
             fontSize: 11,
+            minWidth: isResultPlaceholder ? 132 : undefined,
+            minHeight: isResultPlaceholder ? 34 : undefined,
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
@@ -706,6 +826,8 @@ function FlowCanvas({
                   ? "rgba(37,99,235,0.96)"
                 : isRandomizeItem
                   ? "rgba(5,150,105,0.96)"
+                : isResultPlaceholder
+                  ? "rgba(15,23,42,0.58)"
                 : "rgba(15,23,42,0.98)",
             border: isSelected
               ? isCreativeItem
@@ -733,6 +855,8 @@ function FlowCanvas({
                   ? "1px solid rgba(147,197,253,0.76)"
                 : isRandomizeItem
                   ? "1px solid rgba(167,243,208,0.76)"
+                : isResultPlaceholder
+                  ? "1px dashed rgba(148,163,184,0.58)"
                 : "1px solid rgba(79,70,229,0.6)",
             boxShadow: isSelected
               ? isCreativeItem
@@ -760,20 +884,27 @@ function FlowCanvas({
                   ? "0 8px 24px rgba(29,78,216,0.18)"
                 : isRandomizeItem
                   ? "0 8px 24px rgba(4,120,87,0.18)"
+                : isResultPlaceholder
+                  ? "inset 0 0 0 1px rgba(148,163,184,0.08)"
                 : "none",
             color: "#e5e7eb",
-            opacity: isConvergingNode ? 0 : isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
+            opacity: isCombiningNode ? 1 : isDragOverlapPair ? 0.5 : 1,
+            transition: isSelectionCombineNode
+              ? "transform 220ms ease, opacity 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease"
+              : "opacity 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease",
           },
         } satisfies Node;
       })
       .filter(Boolean) as Node[];
   }, [
     combiningNodeIds,
-    convergingNodeIds,
     draggingNodeId,
     hoverTargetNodeId,
     itemById,
     selectedNodeIds,
+    selectionCombineActive,
+    selectionCombineAwaitingStart,
+    selectionCombinePlaceholderId,
     workspaceItems,
   ]);
 
@@ -1015,29 +1146,6 @@ function FlowCanvas({
       >
         <Background gap={16} color="rgba(148,163,184,0.24)" />
       </ReactFlow>
-      {combineConvergeVisual ? (
-        <div className="combine-converge-layer" aria-hidden="true">
-          {combineConvergeVisual.nodes.map((node) => (
-            <div
-              key={`combine-converge-${node.nodeId}`}
-              className="combine-converge-node"
-              style={
-                {
-                  left: `${node.x}px`,
-                  top: `${node.y}px`,
-                  width: `${node.width}px`,
-                  height: `${node.height}px`,
-                  "--converge-x": `${node.dx}px`,
-                  "--converge-y": `${node.dy}px`,
-                } as React.CSSProperties
-              }
-            >
-              <span className="combine-converge-icon">{node.icon}</span>
-              <span className="combine-converge-name">{node.name}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
       {creativeDragPreview ? (
         <div
           className="creative-drag-preview"
@@ -1205,9 +1313,16 @@ function FlowCanvas({
             type="button"
             className="button primary graph-combine-selected-button"
             aria-label="Combine selected items"
-            onClick={() => {
-              onCombineWorkspaceSelection(selectedNodeIds);
-              setSelectedNodeIds([]);
+            onClick={async () => {
+              const layout = buildSelectionCombineLayout();
+              if (!layout) return;
+              setSelectionCombinePlaceholderId(layout.placeholderNodeId);
+              setSelectionCombineAwaitingStart(true);
+              const started = await onCombineWorkspaceSelection(layout);
+              if (!started) {
+                setSelectionCombineAwaitingStart(false);
+                setSelectionCombinePlaceholderId(null);
+              }
             }}
           >
             Combine

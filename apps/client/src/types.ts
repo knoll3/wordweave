@@ -68,6 +68,15 @@ export const EVOLVE_ITEM: Item = {
   icon: "🧬",
 };
 
+export const COMBINE_RESULT_PLACEHOLDER_ITEM_ID = -7;
+
+export const COMBINE_RESULT_PLACEHOLDER_ITEM: Item = {
+  id: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+  name: "Combining",
+  normalizedName: "combining",
+  icon: null,
+};
+
 export interface RecipeCandidate {
   id: number;
   name: string;
@@ -96,6 +105,16 @@ export interface WorkspaceItem {
   nodeId: string;
   itemId: number;
   position: { x: number; y: number };
+}
+
+export interface SelectionCombineLayout {
+  nodeIds: string[];
+  nodePositions: Array<{
+    nodeId: string;
+    position: { x: number; y: number };
+  }>;
+  placeholderNodeId: string;
+  placeholderPosition: { x: number; y: number };
 }
 
 export interface QuestStep {
