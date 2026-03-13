@@ -18,6 +18,94 @@ interface Props {
 
 const RANDOM_SPAWN_COUNT = 4;
 
+function tokenize(value: string) {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/i)
+    .map((part) => part.trim())
+    .filter(Boolean);
+}
+
+function levenshtein(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left.length) return right.length;
+  if (!right.length) return left.length;
+
+  const prev = new Array(right.length + 1).fill(0);
+  const next = new Array(right.length + 1).fill(0);
+
+  for (let j = 0; j <= right.length; j += 1) prev[j] = j;
+
+  for (let i = 1; i <= left.length; i += 1) {
+    next[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      next[j] = Math.min(
+        next[j - 1] + 1,
+        prev[j] + 1,
+        prev[j - 1] + cost
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) prev[j] = next[j];
+  }
+
+  return prev[right.length];
+}
+
+function lexicalScore(query: string, candidateName: string) {
+  const normalizedQuery = query.trim().toLowerCase();
+  const normalizedCandidate = candidateName.trim().toLowerCase();
+  if (!normalizedQuery) return 0;
+  if (normalizedCandidate === normalizedQuery) return 4;
+  if (normalizedCandidate.startsWith(normalizedQuery)) return 3;
+  if (normalizedCandidate.includes(normalizedQuery)) return 2;
+
+  const queryTokens = tokenize(normalizedQuery);
+  const candidateTokens = tokenize(normalizedCandidate);
+  const overlap = queryTokens.filter((token) => candidateTokens.includes(token)).length;
+  if (overlap > 0) {
+    return 1 + overlap / queryTokens.length;
+  }
+
+  return 0;
+}
+
+function getCorrectedQuery(query: string, items: Item[]) {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed.length < 3) return null;
+
+  const hasStrongDirectMatch = items.some((item) => {
+    const normalizedName = item.name.trim().toLowerCase();
+    return (
+      normalizedName === trimmed ||
+      normalizedName.startsWith(trimmed) ||
+      normalizedName.includes(trimmed)
+    );
+  });
+  if (hasStrongDirectMatch) return null;
+
+  let bestName: string | null = null;
+  let bestDistance = Number.POSITIVE_INFINITY;
+
+  for (const item of items) {
+    const normalizedName = item.name.trim().toLowerCase();
+    const distance = levenshtein(trimmed, normalizedName);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestName = item.name;
+    }
+  }
+
+  if (!bestName) return null;
+
+  const normalizedBest = bestName.trim().toLowerCase();
+  const relativeDistance = bestDistance / Math.max(trimmed.length, normalizedBest.length);
+  if (bestDistance <= 2 || relativeDistance <= 0.25) {
+    return bestName;
+  }
+  return null;
+}
+
 const ElementSidebar: React.FC<Props> = ({
   onAddItemToWorkspace,
   onLibraryReset,
@@ -47,6 +135,11 @@ const ElementSidebar: React.FC<Props> = ({
     void loadLibraryItems();
   }, [refreshToken]);
 
+  const correctedSearchQuery = useMemo(
+    () => getCorrectedQuery(search, libraryItems),
+    [libraryItems, search]
+  );
+
   useEffect(() => {
     if (!search.trim()) {
       setSemanticPending(false);
@@ -56,13 +149,13 @@ const ElementSidebar: React.FC<Props> = ({
     }
     setSemanticPending(true);
     const timeoutId = window.setTimeout(() => {
-      void loadSemanticItems(search);
+      void loadSemanticItems(correctedSearchQuery ?? search);
     }, 220);
 
     return () => {
       window.clearTimeout(timeoutId);
     };
-  }, [search]);
+  }, [correctedSearchQuery, search]);
 
   async function loadLibraryItems() {
     const requestId = ++latestRequestIdRef.current;
@@ -100,27 +193,17 @@ const ElementSidebar: React.FC<Props> = ({
 
   const lexicalSearchItems = useMemo(() => {
     const trimmed = search.trim().toLowerCase();
+    const corrected = correctedSearchQuery?.trim().toLowerCase() ?? "";
     if (!trimmed) return libraryItems;
 
     const scored = libraryItems
       .map((item) => {
-        const normalizedName = item.name.trim().toLowerCase();
-        let score = 0;
-        if (normalizedName === trimmed) {
-          score = 4;
-        } else if (normalizedName.startsWith(trimmed)) {
-          score = 3;
-        } else if (normalizedName.includes(trimmed)) {
-          score = 2;
-        } else {
-          const queryTokens = trimmed.split(/\s+/).filter(Boolean);
-          const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
-          const overlap = queryTokens.filter((token) => nameTokens.includes(token)).length;
-          if (overlap > 0) {
-            score = 1 + overlap / queryTokens.length;
-          }
-        }
-        return { item, score };
+        const rawScore = lexicalScore(trimmed, item.name);
+        const correctedScore = corrected ? lexicalScore(corrected, item.name) - 0.15 : 0;
+        return {
+          item,
+          score: Math.max(rawScore, correctedScore),
+        };
       })
       .filter((entry) => entry.score > 0)
       .sort((left, right) => {
@@ -131,7 +214,7 @@ const ElementSidebar: React.FC<Props> = ({
       });
 
     return scored.map((entry) => entry.item);
-  }, [libraryItems, search]);
+  }, [correctedSearchQuery, libraryItems, search]);
 
   const displayedItems = useMemo(() => {
     if (search.trim()) {
