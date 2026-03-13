@@ -1,6 +1,17 @@
 import express from "express";
-import { discoverElement, ensureElement, getDb, persistDatabase } from "../db";
-import { DEFAULT_MODEL_NAME, generateResult } from "../openaiClient";
+import {
+  BASE_ELEMENTS,
+  discoverElement,
+  ensureElement,
+  getDb,
+  persistDatabase,
+} from "../db";
+import {
+  DEFAULT_MODEL_NAME,
+  generateRecipeBatch,
+  generateResult,
+  OpenAiModel,
+} from "../openaiClient";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -13,6 +24,269 @@ import {
 } from "../models";
 
 const router = express.Router();
+const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
+const CACHE_BATCH_SIZE = 25;
+
+type KnownItem = {
+  name: string;
+  normalizedName: string;
+};
+
+function loadKnownCacheItems(db: Awaited<ReturnType<typeof getDb>>) {
+  const items = new Map<string, KnownItem>();
+
+  for (const element of BASE_ELEMENTS) {
+    items.set(element.name.trim().toLowerCase(), {
+      name: element.name,
+      normalizedName: element.name.trim().toLowerCase(),
+    });
+  }
+
+  const stmt = db.prepare(`
+    SELECT DISTINCT e.name, e.normalized_name
+    FROM recipes r
+    JOIN elements e ON e.id = r.result_element_id
+    WHERE r.result_element_id IS NOT NULL
+  `);
+
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    const normalizedName = String(row.normalized_name);
+    if (!items.has(normalizedName)) {
+      items.set(normalizedName, {
+        name: String(row.name),
+        normalizedName,
+      });
+    }
+  }
+  stmt.free();
+
+  return [...items.values()];
+}
+
+function loadExistingRecipeKeys(db: Awaited<ReturnType<typeof getDb>>) {
+  const stmt = db.prepare("SELECT input_key FROM recipes");
+  const keys = new Set<string>();
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    keys.add(String(row.input_key));
+  }
+  stmt.free();
+  return keys;
+}
+
+function sampleMissingRecipePairs(
+  items: KnownItem[],
+  existingRecipeKeys: Set<string>,
+  maxPairs: number
+) {
+  const candidates: Array<{ left: KnownItem; right: KnownItem; inputKey: string }> = [];
+
+  for (let i = 0; i < items.length; i += 1) {
+    for (let j = i; j < items.length; j += 1) {
+      const { inputKey } = normalizeInputs([items[i].name, items[j].name]);
+      if (existingRecipeKeys.has(inputKey)) continue;
+      candidates.push({
+        left: items[i],
+        right: items[j],
+        inputKey,
+      });
+    }
+  }
+
+  for (let i = candidates.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+  }
+
+  return candidates.slice(0, Math.min(maxPairs, candidates.length));
+}
+
+function upsertCanonicalRecipe(params: {
+  db: Awaited<ReturnType<typeof getDb>>;
+  inputKey: string;
+  inputDisplayJson: string;
+  resultName: string;
+  resultIcon: string;
+}) {
+  let recipeId: number | null = null;
+  const existingStmt = params.db.prepare("SELECT id FROM recipes WHERE input_key = ?");
+  const existingRow = existingStmt.getAsObject([params.inputKey]) as Record<string, unknown>;
+  existingStmt.free();
+
+  if (existingRow.id !== undefined) {
+    recipeId = Number(existingRow.id);
+    const updateRecipeStmt = params.db.prepare(
+      "UPDATE recipes SET input_display_json = ?, chosen_candidate_id = NULL, result_element_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    );
+    updateRecipeStmt.run([params.inputDisplayJson, recipeId]);
+    updateRecipeStmt.free();
+
+    const deleteCandidatesStmt = params.db.prepare(
+      "DELETE FROM recipe_candidates WHERE recipe_id = ?"
+    );
+    deleteCandidatesStmt.run([recipeId]);
+    deleteCandidatesStmt.free();
+  } else {
+    const insertRecipeStmt = params.db.prepare(
+      "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
+    );
+    insertRecipeStmt.run([params.inputKey, params.inputDisplayJson]);
+    insertRecipeStmt.free();
+
+    const recipeIdStmt = params.db.prepare("SELECT last_insert_rowid() AS id");
+    if (recipeIdStmt.step()) {
+      const row = recipeIdStmt.getAsObject() as Record<string, unknown>;
+      recipeId = Number(row.id);
+    }
+    recipeIdStmt.free();
+  }
+
+  if (!recipeId || Number.isNaN(recipeId)) {
+    throw new Error("Failed to upsert recipe");
+  }
+
+  const insertCandidateStmt = params.db.prepare(
+    "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
+  );
+  insertCandidateStmt.run([recipeId, params.resultName, params.resultIcon, 0]);
+  insertCandidateStmt.free();
+
+  const candidateIdStmt = params.db.prepare("SELECT last_insert_rowid() AS id");
+  let candidateId: number | null = null;
+  if (candidateIdStmt.step()) {
+    const row = candidateIdStmt.getAsObject() as Record<string, unknown>;
+    candidateId = Number(row.id);
+  }
+  candidateIdStmt.free();
+
+  if (!candidateId || Number.isNaN(candidateId)) {
+    throw new Error("Failed to create recipe candidate");
+  }
+
+  const elementId = ensureElement(params.db, {
+    name: params.resultName,
+    normalizedName: params.resultName.trim().toLowerCase(),
+    icon: params.resultIcon,
+  });
+
+  const updateRecipeStmt = params.db.prepare(
+    "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+  );
+  updateRecipeStmt.run([candidateId, elementId, recipeId]);
+  updateRecipeStmt.free();
+
+  return { recipeId, candidateId, elementId };
+}
+
+router.post("/generate-cache", async (_req, res) => {
+  try {
+    const db = await getDb();
+    const knownItems = loadKnownCacheItems(db);
+    const existingRecipeKeys = loadExistingRecipeKeys(db);
+    const pairs = sampleMissingRecipePairs(
+      knownItems,
+      existingRecipeKeys,
+      CACHE_BATCH_SIZE
+    );
+
+    if (pairs.length === 0) {
+      console.log("[api][recipe-batch] no missing recipe pairs available");
+      return res.json({
+        requestedCount: 0,
+        generatedCount: 0,
+        recipes: [],
+      });
+    }
+
+    console.log("[api][recipe-batch] selected pairs", {
+      model: CACHE_BATCH_MODEL,
+      knownItemCount: knownItems.length,
+      pairCount: pairs.length,
+      pairs: pairs.map((pair) => `${pair.left.name} + ${pair.right.name}`),
+    });
+
+    const batch = await generateRecipeBatch({
+      model: CACHE_BATCH_MODEL,
+      pairs: pairs.map((pair) => ({
+        left: pair.left.name,
+        right: pair.right.name,
+      })),
+    });
+
+    const pairByKey = new Map(
+      pairs.map((pair) => [pair.inputKey, pair] as const)
+    );
+    const inserted: Array<{
+      recipeId: number;
+      inputKey: string;
+      inputs: string[];
+      resultName: string;
+      resultIcon: string;
+    }> = [];
+
+    db.run("BEGIN");
+    try {
+      for (const generated of batch.recipes) {
+        const { normalizedInputs, inputKey } = normalizeInputs([
+          generated.left,
+          generated.right,
+        ]);
+        const selectedPair = pairByKey.get(inputKey);
+        if (!selectedPair) {
+          console.warn("[api][recipe-batch] skipping unexpected pair", generated);
+          continue;
+        }
+
+        if (existingRecipeKeys.has(inputKey)) {
+          console.warn("[api][recipe-batch] skipping existing recipe key", {
+            inputKey,
+          });
+          continue;
+        }
+
+        const resultName = toTitleCaseWords(generated.result);
+        const upserted = upsertCanonicalRecipe({
+          db,
+          inputKey,
+          inputDisplayJson: JSON.stringify(normalizedInputs),
+          resultName,
+          resultIcon: generated.icon,
+        });
+
+        inserted.push({
+          recipeId: upserted.recipeId,
+          inputKey,
+          inputs: normalizedInputs.map((input) => input.name),
+          resultName,
+          resultIcon: generated.icon,
+        });
+        existingRecipeKeys.add(inputKey);
+      }
+      db.run("COMMIT");
+    } catch (err) {
+      db.run("ROLLBACK");
+      throw err;
+    }
+
+    persistDatabase(db);
+
+    console.log(
+      `[api][recipe-batch] generated count=${inserted.length} path="${inserted
+        .map((recipe) => `${recipe.inputs.join(" + ")} -> ${recipe.resultName}`)
+        .join(" | ")}"`
+    );
+
+    return res.json({
+      requestedCount: pairs.length,
+      generatedCount: inserted.length,
+      recipes: inserted,
+    });
+  } catch (err) {
+    console.error("[api][recipe-batch] failed", err);
+    return res.status(500).json({ error: "Failed to generate recipe batch" });
+  }
+});
 
 router.post("/combine", async (req, res) => {
   console.log("[api][combine] request body", req.body);

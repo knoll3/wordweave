@@ -33,9 +33,22 @@ export const questChainStepSchema = z.object({
 });
 
 export const questChainSchema = z.object({
+  start: z.string().min(1).max(64),
   steps: z.array(questChainStepSchema).length(3),
+});
+
+export const recipeBatchStepSchema = z.object({
+  left: z.string().min(1).max(64),
+  right: z.string().min(1).max(64),
+  result: z.string().min(1).max(64),
+  icon: z.string().min(1).max(8),
+});
+
+export const recipeBatchSchema = z.object({
+  recipes: z.array(recipeBatchStepSchema).max(25),
 });
 
 export type LlmResult = z.infer<typeof llmResultSchema>;
 export type QuestInputChoice = z.infer<typeof questInputChoiceSchema>;
 export type QuestChain = z.infer<typeof questChainSchema>;
+export type RecipeBatch = z.infer<typeof recipeBatchSchema>;

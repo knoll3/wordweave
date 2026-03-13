@@ -1,5 +1,7 @@
 import type {
   AiModel,
+  CacheRecipe,
+  GenerateCacheRecipesResult,
   Item,
   QuestLine,
   Recipe,
@@ -55,6 +57,18 @@ export async function fetchCacheStats(): Promise<{
     recipeCount: number;
     candidateCount: number;
   }>(res);
+}
+
+export async function fetchCacheRecipes(): Promise<CacheRecipe[]> {
+  const res = await fetch(`${API_BASE}/elements/cache-recipes`);
+  return handleResponse<CacheRecipe[]>(res);
+}
+
+export async function generateCacheRecipes(): Promise<GenerateCacheRecipesResult> {
+  const res = await fetch(`${API_BASE}/recipes/generate-cache`, {
+    method: "POST",
+  });
+  return handleResponse<GenerateCacheRecipesResult>(res);
 }
 
 export async function resetCache(): Promise<{

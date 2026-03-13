@@ -28,8 +28,10 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
   const [activeQuest, setActiveQuest] = useState<QuestLine | null>(null);
   const [isGeneratingQuest, setIsGeneratingQuest] = useState(false);
-  const [completedQuest, setCompletedQuest] = useState<QuestLine | null>(null);
-  const [showQuestCompleteModal, setShowQuestCompleteModal] = useState(false);
+  const [dismissedCompletedQuestKey, setDismissedCompletedQuestKey] = useState<
+    string | null
+  >(null);
+  const [isQuestExpanded, setIsQuestExpanded] = useState(false);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -42,15 +44,13 @@ const App: React.FC = () => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
 
-  useEffect(() => {
-    if (!activeQuest || showQuestCompleteModal) return;
-    const hasUnlockedTarget = items.some(
-      (item) => item.normalizedName === activeQuest.normalizedName
-    );
-    if (!hasUnlockedTarget) return;
-    setCompletedQuest(activeQuest);
-    setShowQuestCompleteModal(true);
-  }, [activeQuest, items, showQuestCompleteModal]);
+  const hasCompletedActiveQuest =
+    activeQuest != null &&
+    items.some((item) => item.normalizedName === activeQuest.normalizedName);
+  const showQuestCompleteModal =
+    activeQuest != null &&
+    hasCompletedActiveQuest &&
+    dismissedCompletedQuestKey !== activeQuest.normalizedName;
 
   function showError(message: string, err: unknown) {
     console.error(message, err);
@@ -127,8 +127,8 @@ const App: React.FC = () => {
         discoveredItems: items.map((item) => item.name),
       });
       setActiveQuest(quest);
-      setCompletedQuest(null);
-      setShowQuestCompleteModal(false);
+      setDismissedCompletedQuestKey(null);
+      setIsQuestExpanded(false);
     } catch (err) {
       console.error("[quest] failed", err);
       showError("Failed to generate quest. Please try again.", err);
@@ -139,8 +139,8 @@ const App: React.FC = () => {
 
   function handleResetQuest() {
     setActiveQuest(null);
-    setCompletedQuest(null);
-    setShowQuestCompleteModal(false);
+    setDismissedCompletedQuestKey(null);
+    setIsQuestExpanded(false);
   }
 
   async function combineWorkspaceNodeIds(
@@ -274,18 +274,18 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      {showQuestCompleteModal && completedQuest ? (
+      {showQuestCompleteModal && activeQuest ? (
         <div className="results-overlay" role="presentation">
           <div
             className="results-backdrop"
-            onClick={() => setShowQuestCompleteModal(false)}
+            onClick={() => setDismissedCompletedQuestKey(activeQuest.normalizedName)}
           />
           <div className="results-panel quest-complete-panel" role="dialog" aria-modal="true">
             <div className="results-header">
               <div>
                 <h3 className="results-title">Quest Complete</h3>
                 <p className="results-subtitle">
-                  You discovered <strong>{completedQuest.name}</strong>.
+                  You discovered <strong>{activeQuest.name}</strong>.
                 </p>
               </div>
             </div>
@@ -293,7 +293,7 @@ const App: React.FC = () => {
               <button
                 type="button"
                 className="button primary"
-                onClick={() => setShowQuestCompleteModal(false)}
+                onClick={() => setDismissedCompletedQuestKey(activeQuest.normalizedName)}
               >
                 Continue
               </button>
@@ -320,6 +320,9 @@ const App: React.FC = () => {
                 <p className="section-help">
                   Drag items onto each other in the workspace to combine.
                 </p>
+                <a className="button graph-link-button" href="/cache">
+                  View Cache
+                </a>
                 <div className="model-selector" role="group" aria-label="AI model">
                   {AI_MODELS.map((model) => (
                     <button
@@ -364,16 +367,30 @@ const App: React.FC = () => {
                   {isGeneratingQuest ? "Generating..." : "Generate Quest"}
                 </button>
                 {activeQuest?.steps.length ? (
-                  <ol className="quest-step-list">
-                    {activeQuest.steps.map((step, index) => (
-                      <li key={`${step.recipeId}-${step.normalizedTarget}`} className="quest-step-item">
-                        <span className="quest-step-target">{step.target}</span>
-                        <span className="quest-step-formula">
-                          {step.inputs.join(" + ")}
-                        </span>
-                      </li>
-                    ))}
-                  </ol>
+                  <>
+                    <button
+                      type="button"
+                      className="button secondary quest-expand-button"
+                      onClick={() => setIsQuestExpanded((prev) => !prev)}
+                    >
+                      {isQuestExpanded ? "Hide Steps" : "Show Steps"}
+                    </button>
+                    {isQuestExpanded ? (
+                      <ol className="quest-step-list">
+                        {activeQuest.steps.map((step) => (
+                          <li
+                            key={`${step.recipeId}-${step.normalizedTarget}`}
+                            className="quest-step-item"
+                          >
+                            <span className="quest-step-target">{step.target}</span>
+                            <span className="quest-step-formula">
+                              {step.inputs.join(" + ")}
+                            </span>
+                          </li>
+                        ))}
+                      </ol>
+                    ) : null}
+                  </>
                 ) : null}
                 <div className="quest-panel-help">
                   {isGeneratingQuest

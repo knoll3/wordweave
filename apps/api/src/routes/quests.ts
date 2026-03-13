@@ -32,7 +32,7 @@ const router = express.Router();
 
 const QUEST_STEP_COUNT = 3;
 const STEP_RETRY_LIMIT = 40;
-const QUEST_MODEL: OpenAiModel = "gpt-5-nano";
+const QUEST_MODEL: OpenAiModel = "gpt-5-mini";
 const QUEST_INPUT_SAMPLE_SIZE = 100;
 
 function randomFrom<T>(items: T[]) {
@@ -239,10 +239,12 @@ async function generateHiddenQuestStep(params: {
 function isRejectedIntermediateResult(params: {
   step: QuestStep;
   generatedOutputs: Set<string>;
+  candidateItemNames: Set<string>;
 }) {
   return (
     params.step.normalizedInputs.includes(params.step.normalizedTarget) ||
-    params.generatedOutputs.has(params.step.normalizedTarget)
+    params.generatedOutputs.has(params.step.normalizedTarget) ||
+    params.candidateItemNames.has(params.step.normalizedTarget)
   );
 }
 
@@ -252,11 +254,13 @@ function isRejectedFinalResult(params: {
   discoveredItems: Set<string>;
   cachedResultNames: Set<string>;
   baseItems: Set<string>;
+  candidateItemNames: Set<string>;
 }) {
   return (
     isRejectedIntermediateResult({
       step: params.step,
       generatedOutputs: params.generatedOutputs,
+      candidateItemNames: params.candidateItemNames,
     }) ||
     params.baseItems.has(params.step.normalizedTarget) ||
     params.discoveredItems.has(params.step.normalizedTarget) ||
@@ -321,12 +325,11 @@ router.post("/generate", async (req, res) => {
     }
 
     const sampledQuestItems = sampleItems(questSourceItems, QUEST_INPUT_SAMPLE_SIZE);
-    const startPool = leafItems.length > 0 ? leafItems : baseQuestItems;
-    const startItem = randomFrom(startPool);
+    const candidateItemNames = new Set(
+      sampledQuestItems.map((item) => item.normalizedName)
+    );
 
     console.log("[api][quest] generation inputs", {
-      startPool: leafItems.length > 0 ? "cache-leaves" : "base-elements",
-      startItem: startItem.name,
       cacheItemCount: cacheItems.length,
       leafItemCount: leafItems.length,
       candidateCount: sampledQuestItems.length,
@@ -334,8 +337,19 @@ router.post("/generate", async (req, res) => {
 
     const chainPlan = await generateQuestChain({
       model: QUEST_MODEL,
-      startItem: startItem.name,
       candidateItems: sampledQuestItems.map((item) => item.name),
+    });
+    const startItem = findItemByName(sampledQuestItems, chainPlan.start) ??
+      findItemByName(questSourceItems, chainPlan.start);
+
+    if (!startItem) {
+      return res.status(500).json({
+        error: `Quest chain referenced unknown start item: ${chainPlan.start}`,
+      });
+    }
+
+    console.log("[api][quest] planned start item", {
+      startItem: startItem.name,
     });
 
     const questSteps: QuestStep[] = [];
@@ -377,10 +391,12 @@ router.post("/generate", async (req, res) => {
               discoveredItems,
               cachedResultNames,
               baseItems,
+              candidateItemNames,
             })
           : isRejectedIntermediateResult({
               step,
               generatedOutputs,
+              candidateItemNames,
             });
 
       if (rejected) {

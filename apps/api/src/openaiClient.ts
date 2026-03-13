@@ -3,16 +3,19 @@ import {
   llmResultSchema,
   questChainSchema,
   questInputChoiceSchema,
+  recipeBatchSchema,
 } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 
 export type OpenAiModel =
+  | "gpt-5-mini"
   | "gpt-5-nano"
   | "gpt-4.1"
   | "gpt-4.1-mini"
   | "gpt-4.1-nano";
 
 const MODEL_NAMES: OpenAiModel[] = [
+  "gpt-5-mini",
   "gpt-5-nano",
   "gpt-4.1",
   "gpt-4.1-mini",
@@ -131,29 +134,37 @@ Candidate items:
 
 const QUEST_CHAIN_PROMPT = `
 You are planning a 3-step hidden quest chain for a sandbox discovery game.
+The player will be provided with the final result.
+They are tasked with combining items in 3 steps to get to the final result.
+For this reason, the chain must be extremely easy, extremely direct, and extremely logical.
 
-You are given:
-- one starting item that is unused elsewhere and must be the left input of step 1
-- a pool of candidate partner items
+You are given a pool of candidate items.
 
 Build a 3-step chain that follows these rules:
-- step 1 uses the starting item plus one partner item
+- choose one starting item from the provided candidate pool
+- step 1 uses the chosen starting item plus one partner item from the candidate pool
 - step 2 uses the result of step 1 plus one partner item
 - step 3 uses the result of step 2 plus one partner item
-- pick partner items only from the provided candidate pool
+- pick the starting item and all partner items only from the provided candidate pool
+- none of the intermediate or final results may be identical to any item from the provided candidate pool
 - think carefully about what the combinations should produce
+- every step should feel obvious to an average player on first glance
+- prefer the most basic and expected result over a clever or creative one
 - produce results that match the style of normal crafting-game outputs: simple, expected, broadly recognizable nouns
 - prefer one-word results whenever possible
-- if a result has two words, it must be a very common phrase that most players would recognize instantly
+- if a result has two words, it must be an extremely common phrase
 - avoid ornate, poetic, fantasy, embellished, or overly specific phrases
 - avoid piling descriptive adjectives onto nouns
 - avoid obscure or niche concepts
-- favor simple real-world or very widely known concepts over cleverness
+- favor everyday real-world concepts over unusual or stylized concepts
+- choose the most straightforward and common path, not the most interesting one
+- the final target should be simple and familiar, not surprising
 - do not explain your reasoning
 
 Return ONLY valid JSON in this format:
 
 {
+  "start": "chosen starting item from candidate pool",
   "steps": [
     { "right": "partner item", "result": "result item", "icon": "emoji" },
     { "right": "partner item", "result": "result item", "icon": "emoji" },
@@ -161,12 +172,74 @@ Return ONLY valid JSON in this format:
   ]
 }
 
-Starting item:
-{{QUEST_CHAIN_START}}
-
 Candidate partner items:
 {{QUEST_CHAIN_CANDIDATES}}
 `.trim();
+
+const RECIPE_BATCH_PROMPT = `
+You are the crafting engine for a sandbox discovery game.
+
+You are given multiple unique input pairs. For each pair, return the single most fundamental, widely recognized concept that those inputs point to together.
+
+Think carefully about the most expected result of combining nouns together through association or literal combination.
+Do not shy away from pop culture references or cultural nuances where it makes sense.
+
+Rules:
+- Return one result for every provided pair.
+- Keep each result short and noun-like.
+- Do not return explanations, descriptions, or sentences.
+- Favor the most common, obvious, culturally or logically dominant concept linked to each pair.
+- Use the exact left/right inputs provided for each pair.
+- Do not skip pairs.
+- Return only valid JSON.
+
+Return ONLY valid JSON in this format:
+
+{
+  "recipes": [
+    { "left": "input one", "right": "input two", "result": "result name", "icon": "emoji" }
+  ]
+}
+
+Pairs:
+{{RECIPE_BATCH_PAIRS}}
+`.trim();
+
+function logUsageAndCost(params: {
+  logPrefix: string;
+  responseModel: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+}) {
+  const cost = estimateTextTokenCostUsd({
+    model: params.responseModel,
+    promptTokens: params.promptTokens,
+    completionTokens: params.completionTokens,
+    cachedPromptTokens: params.cachedPromptTokens,
+  });
+
+  if (cost) {
+    console.log(`${params.logPrefix} usage and cost`, {
+      model: params.responseModel,
+      pricingModel: cost.pricingModel,
+      promptTokens: cost.promptTokens,
+      cachedPromptTokens: cost.cachedPromptTokens,
+      uncachedPromptTokens: cost.uncachedPromptTokens,
+      completionTokens: cost.completionTokens,
+      promptCostUsd: Number(cost.promptCostUsd.toFixed(8)),
+      completionCostUsd: Number(cost.completionCostUsd.toFixed(8)),
+      totalCostUsd: Number(cost.totalCostUsd.toFixed(8)),
+    });
+  } else {
+    console.warn(`${params.logPrefix} usage and cost unavailable for model pricing`, {
+      model: params.responseModel,
+      promptTokens: params.promptTokens,
+      cachedPromptTokens: params.cachedPromptTokens,
+      completionTokens: params.completionTokens,
+    });
+  }
+}
 
 function getOpenAI(): OpenAI {
   const key = process.env.OPENAI_API_KEY;
@@ -223,33 +296,13 @@ export async function generateResult(
   const cachedPromptTokens =
     response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
   const responseModel = response.model ?? model;
-  const cost = estimateTextTokenCostUsd({
-    model: responseModel,
+  logUsageAndCost({
+    logPrefix: "[openai]",
+    responseModel,
     promptTokens,
     completionTokens,
     cachedPromptTokens,
   });
-
-  if (cost) {
-    console.log("[openai] usage and cost", {
-      model: responseModel,
-      pricingModel: cost.pricingModel,
-      promptTokens: cost.promptTokens,
-      cachedPromptTokens: cost.cachedPromptTokens,
-      uncachedPromptTokens: cost.uncachedPromptTokens,
-      completionTokens: cost.completionTokens,
-      promptCostUsd: Number(cost.promptCostUsd.toFixed(8)),
-      completionCostUsd: Number(cost.completionCostUsd.toFixed(8)),
-      totalCostUsd: Number(cost.totalCostUsd.toFixed(8)),
-    });
-  } else {
-    console.warn("[openai] usage and cost unavailable for model pricing", {
-      model: responseModel,
-      promptTokens,
-      cachedPromptTokens,
-      completionTokens,
-    });
-  }
 
   const content = response.choices[0]?.message?.content;
   if (!content) {
@@ -329,22 +382,17 @@ export async function chooseQuestInputs(params: {
 
 export async function generateQuestChain(params: {
   model?: OpenAiModel;
-  startItem: string;
   candidateItems: string[];
 }) {
   const openai = getOpenAI();
   const model = params.model ?? DEFAULT_MODEL_NAME;
   const prompt = QUEST_CHAIN_PROMPT.replace(
-    "{{QUEST_CHAIN_START}}",
-    JSON.stringify(params.startItem)
-  ).replace(
     "{{QUEST_CHAIN_CANDIDATES}}",
     JSON.stringify(params.candidateItems)
   );
 
   console.log("[openai][quest-chain] sending request", {
     model,
-    startItem: params.startItem,
     candidateCount: params.candidateItems.length,
     prompt,
   });
@@ -376,6 +424,67 @@ export async function generateQuestChain(params: {
   }
 
   console.log("[openai][quest-chain] parsed result", result.data);
+
+  return result.data;
+}
+
+export async function generateRecipeBatch(params: {
+  model?: OpenAiModel;
+  pairs: Array<{ left: string; right: string }>;
+}) {
+  const openai = getOpenAI();
+  const model = params.model ?? DEFAULT_MODEL_NAME;
+  const prompt = RECIPE_BATCH_PROMPT.replace(
+    "{{RECIPE_BATCH_PAIRS}}",
+    JSON.stringify(params.pairs)
+  );
+
+  console.log("[openai][recipe-batch] sending request", {
+    model,
+    pairCount: params.pairs.length,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 1,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const promptTokens = response.usage?.prompt_tokens ?? 0;
+  const completionTokens = response.usage?.completion_tokens ?? 0;
+  const cachedPromptTokens =
+    response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const responseModel = response.model ?? model;
+  logUsageAndCost({
+    logPrefix: "[openai][recipe-batch]",
+    responseModel,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][recipe-batch] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  const result = recipeBatchSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error("OpenAI recipe batch failed validation");
+  }
+
+  console.log("[openai][recipe-batch] parsed result", result.data);
 
   return result.data;
 }

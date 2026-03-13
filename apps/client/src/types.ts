@@ -68,3 +68,27 @@ export interface QuestLine {
   normalizedName: string;
   steps: QuestStep[];
 }
+
+export interface CacheRecipe {
+  id: number;
+  inputKey: string;
+  inputs: { name: string; normalized: string }[];
+  chosenCandidateId: number | null;
+  resultElement: Item | null;
+  candidates: RecipeCandidate[];
+  updatedAt: string;
+}
+
+export interface GeneratedCacheRecipe {
+  recipeId: number;
+  inputKey: string;
+  inputs: string[];
+  resultName: string;
+  resultIcon: string;
+}
+
+export interface GenerateCacheRecipesResult {
+  requestedCount: number;
+  generatedCount: number;
+  recipes: GeneratedCacheRecipe[];
+}

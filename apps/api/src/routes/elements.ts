@@ -4,7 +4,10 @@ import {
   getDb,
   persistDatabase,
 } from "../db";
-import { mapElementRow, mapRecentRecipeRow } from "../models";
+import {
+  mapElementRow,
+  mapRecentRecipeRow,
+} from "../models";
 
 const router = express.Router();
 
@@ -109,6 +112,110 @@ router.get("/cache-stats", async (_req, res) => {
   } catch (err) {
     console.error("Error in GET /elements/cache-stats", err);
     return res.status(500).json({ error: "Failed to load cache stats" });
+  }
+});
+
+router.get("/cache-recipes", async (_req, res) => {
+  try {
+    const db = await getDb();
+    const stmt = db.prepare(
+      `
+      SELECT
+        r.id,
+        r.input_key,
+        r.input_display_json,
+        r.updated_at,
+        r.chosen_candidate_id,
+        r.result_element_id,
+        e.id AS result_element_id_value,
+        e.name AS result_element_name,
+        e.normalized_name AS result_element_normalized_name,
+        e.icon AS result_element_icon
+      FROM recipes r
+      LEFT JOIN elements e ON e.id = r.result_element_id
+      ORDER BY r.updated_at DESC, r.id DESC
+      `
+    );
+
+    const recipes: Array<{
+      id: number;
+      inputKey: string;
+      inputs: { name: string; normalized: string }[];
+      chosenCandidateId: number | null;
+      resultElement: {
+        id: number;
+        name: string;
+        normalizedName: string;
+        icon: string | null;
+      } | null;
+      candidates: Array<{
+        id: number;
+        name: string;
+        icon: string;
+        orderIndex: number;
+      }>;
+      updatedAt: string;
+    }> = [];
+
+    while (stmt.step()) {
+      const row = stmt.getAsObject() as Record<string, unknown>;
+      const recipeId = Number(row.id);
+      const candidateStmt = db.prepare(
+        `
+        SELECT id, name, icon, order_index
+        FROM recipe_candidates
+        WHERE recipe_id = ?
+        ORDER BY order_index ASC, id ASC
+        `
+      );
+      const candidates: Array<{
+        id: number;
+        name: string;
+        icon: string;
+        orderIndex: number;
+      }> = [];
+      while (candidateStmt.step()) {
+        const candidateRow = candidateStmt.getAsObject() as Record<string, unknown>;
+        candidates.push({
+          id: Number(candidateRow.id),
+          name: String(candidateRow.name),
+          icon: String(candidateRow.icon),
+          orderIndex: Number(candidateRow.order_index),
+        });
+      }
+      candidateStmt.free();
+
+      recipes.push({
+        id: recipeId,
+        inputKey: String(row.input_key),
+        inputs: JSON.parse(String(row.input_display_json)) as {
+          name: string;
+          normalized: string;
+        }[],
+        chosenCandidateId:
+          row.chosen_candidate_id == null ? null : Number(row.chosen_candidate_id),
+        resultElement:
+          row.result_element_id_value == null
+            ? null
+            : {
+                id: Number(row.result_element_id_value),
+                name: String(row.result_element_name),
+                normalizedName: String(row.result_element_normalized_name),
+                icon:
+                  row.result_element_icon == null
+                    ? null
+                    : String(row.result_element_icon),
+              },
+        candidates,
+        updatedAt: String(row.updated_at),
+      });
+    }
+    stmt.free();
+
+    return res.json(recipes);
+  } catch (err) {
+    console.error("Error in GET /elements/cache-recipes", err);
+    return res.status(500).json({ error: "Failed to load recipe cache" });
   }
 });
 
