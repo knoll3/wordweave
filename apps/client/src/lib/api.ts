@@ -107,9 +107,11 @@ export async function combineElements(
     creative?: boolean;
     subtractive?: boolean;
     opposite?: boolean;
+    popCulture?: boolean;
     evolve?: boolean;
     randomize?: boolean;
     crafting?: boolean;
+    wordCombine?: boolean;
     model?: AiModel;
   }
 ): Promise<Recipe> {
@@ -118,9 +120,11 @@ export async function combineElements(
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
+    popCulture: options?.popCulture ?? false,
     evolve: options?.evolve ?? false,
     randomize: options?.randomize ?? false,
     crafting: options?.crafting ?? false,
+    wordCombine: options?.wordCombine ?? false,
     model: options?.model ?? null,
   });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
@@ -133,9 +137,11 @@ export async function combineElements(
       creative: options?.creative ?? false,
       subtractive: options?.subtractive ?? false,
       opposite: options?.opposite ?? false,
+      popCulture: options?.popCulture ?? false,
       evolve: options?.evolve ?? false,
       randomize: options?.randomize ?? false,
       crafting: options?.crafting ?? false,
+      wordCombine: options?.wordCombine ?? false,
       model: options?.model,
     }),
   });

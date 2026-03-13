@@ -230,6 +230,67 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const POP_CULTURE_PROMPT = `
+You are the pop culture engine for a sandbox discovery game.
+
+The player provides one or more nouns as input. Your job is to return one specific and widely recognizable pop culture reference that those inputs point to together.
+
+Think in terms of recognizable references from film, television, music, celebrities, famous characters, franchises, scenes, or iconic entertainment culture.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and noun-like.
+- Do not return explanations, descriptions, or sentences.
+- Favor a specific, recognizable reference over a broad genre or category.
+- The result should be something real and well known, not invented.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
+const WORD_COMBINE_PROMPT = `
+You are the compound word engine for a sandbox discovery game.
+
+The player provides one or more nouns as input. Your job is to return the single real word or common dictionary-style compound phrase that those inputs form together.
+
+Be extremely strict.
+
+Rules:
+- Only return a real and recognizable word or common compound phrase that would appear in a dictionary, encyclopedia, or widely used reference.
+- If the inputs do not form a real established term, fail instead of guessing.
+- Do not invent blends, slang, portmanteaus, or made-up words.
+- Do not return explanations, descriptions, or sentences outside the JSON fields.
+- When you fail, return only a failure object.
+- When you succeed, return exactly one result.
+
+Return ONLY valid JSON in this format:
+
+Either:
+
+{
+  "failed": true,
+  "reason": "brief reason"
+}
+
+or:
+
+{
+  "failed": false,
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 const QUEST_INPUT_SELECTION_PROMPT = `
 You are planning an interesting quest chain for a sandbox discovery game.
 
@@ -375,8 +436,10 @@ export async function generateResult(
     creative?: boolean;
     subtractive?: boolean;
     opposite?: boolean;
+    popCulture?: boolean;
     randomize?: boolean;
     crafting?: boolean;
+    wordCombine?: boolean;
     evolve?: boolean;
     model?: OpenAiModel;
   }
@@ -388,12 +451,16 @@ export async function generateResult(
     ? SUBTRACTIVE_PROMPT
     : options?.opposite
       ? OPPOSITE_PROMPT
+      : options?.popCulture
+        ? POP_CULTURE_PROMPT
       : options?.evolve
         ? EVOLVE_PROMPT
-    : options?.randomize
-      ? RANDOMIZE_PROMPT
-    : options?.crafting
-      ? CRAFT_PROMPT
+      : options?.randomize
+        ? RANDOMIZE_PROMPT
+      : options?.crafting
+        ? CRAFT_PROMPT
+      : options?.wordCombine
+        ? WORD_COMBINE_PROMPT
         : options?.creative
           ? CREATIVE_PROMPT
           : BASE_PROMPT;
@@ -408,9 +475,11 @@ export async function generateResult(
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
+    popCulture: options?.popCulture ?? false,
     evolve: options?.evolve ?? false,
     randomize: options?.randomize ?? false,
     crafting: options?.crafting ?? false,
+    wordCombine: options?.wordCombine ?? false,
     temperature: 1,
     prompt,
   });
@@ -456,11 +525,11 @@ export async function generateResult(
     throw new Error("Failed to parse OpenAI JSON response");
   }
 
-  if (options?.crafting) {
+  if (options?.crafting || options?.wordCombine) {
     const craftResult = craftLlmResultSchema.safeParse(parsed);
     if (!craftResult.success) {
-      console.error("[openai] craft response failed schema validation", parsed);
-      throw new Error("OpenAI craft response failed validation");
+      console.error("[openai] strict-mode response failed schema validation", parsed);
+      throw new Error("OpenAI strict response failed validation");
     }
     console.log("[openai] parsed result", craftResult.data);
     if (craftResult.data.failed) {

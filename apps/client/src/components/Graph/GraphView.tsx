@@ -22,12 +22,16 @@ import {
   CREATIVE_ITEM_ID,
   EVOLVE_ITEM,
   EVOLVE_ITEM_ID,
+  POP_CULTURE_ITEM,
+  POP_CULTURE_ITEM_ID,
   OPPOSITE_ITEM,
   OPPOSITE_ITEM_ID,
   RANDOMIZE_ITEM,
   RANDOMIZE_ITEM_ID,
   SPLIT_ITEM,
   SPLIT_ITEM_ID,
+  WORD_COMBINE_ITEM,
+  WORD_COMBINE_ITEM_ID,
 } from "../../types";
 import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 
@@ -50,9 +54,11 @@ interface Props {
   craftUnlocked: boolean;
   creativeUnlocked: boolean;
   evolveUnlocked: boolean;
+  popCultureUnlocked: boolean;
   splitUnlocked: boolean;
   oppositeUnlocked: boolean;
   randomizeUnlocked: boolean;
+  wordCombineUnlocked: boolean;
   onCombineWorkspaceSelection: (layout: SelectionCombineLayout) => Promise<boolean>;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
@@ -101,9 +107,11 @@ function FlowCanvas({
   craftUnlocked,
   creativeUnlocked,
   evolveUnlocked,
+  popCultureUnlocked,
   splitUnlocked,
   oppositeUnlocked,
   randomizeUnlocked,
+  wordCombineUnlocked,
   onCombineWorkspaceSelection,
   onCombineWorkspaceItems,
 }: Props) {
@@ -128,6 +136,11 @@ function FlowCanvas({
   const [selectionCombinePlaceholderId, setSelectionCombinePlaceholderId] = useState<
     string | null
   >(null);
+  const selectionMoveDragRef = useRef<{
+    pointerId: number;
+    startFlowPoint: { x: number; y: number };
+    initialPositions: Array<{ nodeId: string; position: { x: number; y: number } }>;
+  } | null>(null);
 
   const pressStateRef = useRef<PressState | null>(null);
   const creativeDragRef = useRef<CreativeDragState | null>(null);
@@ -169,9 +182,11 @@ function FlowCanvas({
     next.set(COMBINE_RESULT_PLACEHOLDER_ITEM.id, COMBINE_RESULT_PLACEHOLDER_ITEM);
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
     next.set(EVOLVE_ITEM.id, EVOLVE_ITEM);
+    next.set(POP_CULTURE_ITEM.id, POP_CULTURE_ITEM);
     next.set(SPLIT_ITEM.id, SPLIT_ITEM);
     next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
     next.set(RANDOMIZE_ITEM.id, RANDOMIZE_ITEM);
+    next.set(WORD_COMBINE_ITEM.id, WORD_COMBINE_ITEM);
     return next;
   }, [items]);
 
@@ -631,11 +646,109 @@ function FlowCanvas({
     onAddItemToWorkspace(OPPOSITE_ITEM_ID);
   }, [onAddItemToWorkspace, oppositeUnlocked]);
 
+  const handlePopCultureSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!popCultureUnlocked) return;
+    onAddItemToWorkspace(POP_CULTURE_ITEM_ID);
+  }, [onAddItemToWorkspace, popCultureUnlocked]);
+
   const handleRandomizeSpawnClick = useCallback(() => {
     if (creativeDragRef.current?.moved) return;
     if (!randomizeUnlocked) return;
     onAddItemToWorkspace(RANDOMIZE_ITEM_ID);
   }, [onAddItemToWorkspace, randomizeUnlocked]);
+
+  const handleWordCombineSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!wordCombineUnlocked) return;
+    onAddItemToWorkspace(WORD_COMBINE_ITEM_ID);
+  }, [onAddItemToWorkspace, wordCombineUnlocked]);
+
+  const handleSelectionMovePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (!reactFlow || selectedNodeIds.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+
+      const startFlowPoint = reactFlow.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const initialPositions = selectedNodeIds
+        .map((nodeId) => {
+          const workspaceNode = workspaceItems.find((item) => item.nodeId === nodeId);
+          return workspaceNode
+            ? { nodeId, position: workspaceNode.position }
+            : null;
+        })
+        .filter(
+          (
+            value
+          ): value is { nodeId: string; position: { x: number; y: number } } => !!value
+        );
+
+      selectionMoveDragRef.current = {
+        pointerId: event.pointerId,
+        startFlowPoint,
+        initialPositions,
+      };
+
+      window.addEventListener("pointermove", handleSelectionMovePointerMove);
+      window.addEventListener("pointerup", handleSelectionMovePointerUp);
+      window.addEventListener("pointercancel", handleSelectionMovePointerUp);
+    },
+    [reactFlow, selectedNodeIds, workspaceItems]
+  );
+
+  const handleSelectionMovePointerMove = useCallback((event: PointerEvent) => {
+    const dragState = selectionMoveDragRef.current;
+    if (!dragState || !reactFlow) return;
+    const currentFlowPoint = reactFlow.screenToFlowPosition({
+      x: event.clientX,
+      y: event.clientY,
+    });
+    const delta = {
+      x: currentFlowPoint.x - dragState.startFlowPoint.x,
+      y: currentFlowPoint.y - dragState.startFlowPoint.y,
+    };
+    onWorkspaceItemsChange(
+      workspaceItems.map((item) => {
+        const initial = dragState.initialPositions.find(
+          (entry) => entry.nodeId === item.nodeId
+        );
+        return initial
+          ? {
+              ...item,
+              position: {
+                x: initial.position.x + delta.x,
+                y: initial.position.y + delta.y,
+              },
+            }
+          : item;
+      })
+    );
+  }, [onWorkspaceItemsChange, reactFlow, workspaceItems]);
+
+  const handleSelectionMovePointerUp = useCallback((event: PointerEvent) => {
+    if (
+      !selectionMoveDragRef.current ||
+      selectionMoveDragRef.current.pointerId !== event.pointerId
+    ) {
+      return;
+    }
+    selectionMoveDragRef.current = null;
+    window.removeEventListener("pointermove", handleSelectionMovePointerMove);
+    window.removeEventListener("pointerup", handleSelectionMovePointerUp);
+    window.removeEventListener("pointercancel", handleSelectionMovePointerUp);
+  }, [handleSelectionMovePointerMove]);
+
+  useEffect(() => {
+    return () => {
+      window.removeEventListener("pointermove", handleSelectionMovePointerMove);
+      window.removeEventListener("pointerup", handleSelectionMovePointerUp);
+      window.removeEventListener("pointercancel", handleSelectionMovePointerUp);
+    };
+  }, [handleSelectionMovePointerMove, handleSelectionMovePointerUp]);
 
   const startMarqueeSelectionAtPoint = useCallback(
     (clientX: number, clientY: number) => {
@@ -754,9 +867,11 @@ function FlowCanvas({
         const isCraftItem = workspaceItem.itemId === CRAFT_ITEM_ID;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
         const isEvolveItem = workspaceItem.itemId === EVOLVE_ITEM_ID;
+        const isPopCultureItem = workspaceItem.itemId === POP_CULTURE_ITEM_ID;
         const isSplitItem = workspaceItem.itemId === SPLIT_ITEM_ID;
         const isOppositeItem = workspaceItem.itemId === OPPOSITE_ITEM_ID;
         const isRandomizeItem = workspaceItem.itemId === RANDOMIZE_ITEM_ID;
+        const isWordCombineItem = workspaceItem.itemId === WORD_COMBINE_ITEM_ID;
         const isResultPlaceholder =
           workspaceItem.itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
 
@@ -807,12 +922,16 @@ function FlowCanvas({
                   ? "rgba(244,114,182,0.28)"
                 : isCraftItem
                   ? "rgba(245, 158, 11, 0.28)"
+                : isPopCultureItem
+                  ? "rgba(250,204,21,0.28)"
                 : isSplitItem
                   ? "rgba(251,146,60,0.34)"
                 : isOppositeItem
                   ? "rgba(96,165,250,0.3)"
                 : isRandomizeItem
                   ? "rgba(52,211,153,0.28)"
+                : isWordCombineItem
+                  ? "rgba(192,132,252,0.28)"
                 : "rgba(99,102,241,0.38)"
               : isCreativeItem
                 ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
@@ -820,12 +939,16 @@ function FlowCanvas({
                   ? "rgba(190,24,93,0.96)"
                 : isCraftItem
                   ? "rgba(180, 83, 9, 0.96)"
+                : isPopCultureItem
+                  ? "rgba(202,138,4,0.96)"
                 : isSplitItem
                   ? "rgba(249,115,22,0.96)"
                 : isOppositeItem
                   ? "rgba(37,99,235,0.96)"
                 : isRandomizeItem
                   ? "rgba(5,150,105,0.96)"
+                : isWordCombineItem
+                  ? "rgba(126,34,206,0.96)"
                 : isResultPlaceholder
                   ? "rgba(15,23,42,0.58)"
                 : "rgba(15,23,42,0.98)",
@@ -836,12 +959,16 @@ function FlowCanvas({
                   ? "1px solid rgba(251,207,232,0.92)"
                 : isCraftItem
                   ? "1px solid rgba(253, 230, 138, 0.92)"
+                : isPopCultureItem
+                  ? "1px solid rgba(254,240,138,0.92)"
                 : isSplitItem
                   ? "1px solid rgba(254,215,170,0.94)"
                 : isOppositeItem
                   ? "1px solid rgba(147,197,253,0.92)"
                 : isRandomizeItem
                   ? "1px solid rgba(167,243,208,0.92)"
+                : isWordCombineItem
+                  ? "1px solid rgba(233,213,255,0.92)"
                 : "1px solid rgba(99,102,241,0.95)"
               : isCreativeItem
                 ? "1px solid rgba(196,181,253,0.8)"
@@ -849,12 +976,16 @@ function FlowCanvas({
                   ? "1px solid rgba(251,207,232,0.76)"
                 : isCraftItem
                   ? "1px solid rgba(253, 230, 138, 0.76)"
+                : isPopCultureItem
+                  ? "1px solid rgba(254,240,138,0.76)"
                 : isSplitItem
                   ? "1px solid rgba(254,215,170,0.76)"
                 : isOppositeItem
                   ? "1px solid rgba(147,197,253,0.76)"
                 : isRandomizeItem
                   ? "1px solid rgba(167,243,208,0.76)"
+                : isWordCombineItem
+                  ? "1px solid rgba(233,213,255,0.76)"
                 : isResultPlaceholder
                   ? "1px dashed rgba(148,163,184,0.58)"
                 : "1px solid rgba(79,70,229,0.6)",
@@ -865,12 +996,16 @@ function FlowCanvas({
                   ? "0 0 0 2px rgba(244,114,182,0.18), 0 8px 24px rgba(157,23,77,0.22)"
                 : isCraftItem
                   ? "0 0 0 2px rgba(245, 158, 11, 0.18), 0 8px 24px rgba(146, 64, 14, 0.22)"
+                : isPopCultureItem
+                  ? "0 0 0 2px rgba(250,204,21,0.18), 0 8px 24px rgba(161,98,7,0.22)"
                 : isSplitItem
                   ? "0 0 0 2px rgba(251,146,60,0.2), 0 8px 24px rgba(194,65,12,0.24)"
                 : isOppositeItem
                   ? "0 0 0 2px rgba(96,165,250,0.2), 0 8px 24px rgba(29,78,216,0.24)"
                 : isRandomizeItem
                   ? "0 0 0 2px rgba(52,211,153,0.18), 0 8px 24px rgba(4,120,87,0.22)"
+                : isWordCombineItem
+                  ? "0 0 0 2px rgba(192,132,252,0.18), 0 8px 24px rgba(107,33,168,0.22)"
                 : "0 0 0 2px rgba(99,102,241,0.25)"
               : isCreativeItem
                 ? "0 8px 24px rgba(88,28,135,0.18)"
@@ -878,12 +1013,16 @@ function FlowCanvas({
                   ? "0 8px 24px rgba(157,23,77,0.18)"
                 : isCraftItem
                   ? "0 8px 24px rgba(146, 64, 14, 0.18)"
+                : isPopCultureItem
+                  ? "0 8px 24px rgba(161,98,7,0.18)"
                 : isSplitItem
                   ? "0 8px 24px rgba(194,65,12,0.18)"
                 : isOppositeItem
                   ? "0 8px 24px rgba(29,78,216,0.18)"
                 : isRandomizeItem
                   ? "0 8px 24px rgba(4,120,87,0.18)"
+                : isWordCombineItem
+                  ? "0 8px 24px rgba(107,33,168,0.18)"
                 : isResultPlaceholder
                   ? "inset 0 0 0 1px rgba(148,163,184,0.08)"
                 : "none",
@@ -1213,6 +1352,34 @@ function FlowCanvas({
           {EVOLVE_ITEM.icon}
         </button>
       ) : null}
+      {wordCombineUnlocked ? (
+        <button
+          type="button"
+          className="graph-word-combine-button"
+          aria-label="Drag Compound into the workspace"
+          title="Drag Compound into the workspace to join inputs into a real established compound word or phrase"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, WORD_COMBINE_ITEM_ID)
+          }
+          onClick={handleWordCombineSpawnClick}
+        >
+          {WORD_COMBINE_ITEM.icon}
+        </button>
+      ) : null}
+      {popCultureUnlocked ? (
+        <button
+          type="button"
+          className="graph-pop-culture-button"
+          aria-label="Drag Pop Culture into the workspace"
+          title="Drag Pop Culture into the workspace to resolve a combination as a specific pop culture reference"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, POP_CULTURE_ITEM_ID)
+          }
+          onClick={handlePopCultureSpawnClick}
+        >
+          {POP_CULTURE_ITEM.icon}
+        </button>
+      ) : null}
       {craftUnlocked ? (
         <button
           type="button"
@@ -1290,6 +1457,21 @@ function FlowCanvas({
           onClick={onClearWorkspace}
         >
           Clear
+        </button>
+      ) : null}
+      {hasMultiSelection && selectionBoundsVisual ? (
+        <button
+          type="button"
+          className="graph-selection-move-handle"
+          aria-label="Move selected items"
+          title="Move selected items"
+          style={{
+            left: `${selectionBoundsVisual.left + selectionBoundsVisual.width}px`,
+            top: `${selectionBoundsVisual.top}px`,
+          }}
+          onPointerDown={handleSelectionMovePointerDown}
+        >
+          ✥
         </button>
       ) : null}
       {hasMultiSelection && selectionBoundsVisual ? (

@@ -8,7 +8,9 @@ export type UnlockKey =
   | "opposite"
   | "random_tools"
   | "craft"
-  | "evolve";
+  | "evolve"
+  | "pop_culture"
+  | "word_combine";
 
 type UnlockDefinition = {
   key: UnlockKey;
@@ -16,6 +18,7 @@ type UnlockDefinition = {
   summary: string;
   acceptedWords: string[];
   similarityThreshold: number;
+  autoPromptEligible?: boolean;
 };
 
 type DiscoveredRow = {
@@ -53,6 +56,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "dream",
     ],
     similarityThreshold: 0.82,
+    autoPromptEligible: true,
   },
   {
     key: "split",
@@ -79,6 +83,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "detach",
     ],
     similarityThreshold: 0.84,
+    autoPromptEligible: true,
   },
   {
     key: "opposite",
@@ -100,6 +105,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "flip",
     ],
     similarityThreshold: 0.84,
+    autoPromptEligible: true,
   },
   {
     key: "random_tools",
@@ -153,6 +159,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "assembly",
     ],
     similarityThreshold: 0.82,
+    autoPromptEligible: true,
   },
   {
     key: "evolve",
@@ -182,6 +189,62 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "ascend",
     ],
     similarityThreshold: 0.82,
+    autoPromptEligible: true,
+  },
+  {
+    key: "pop_culture",
+    title: "Pop Culture Unlocked",
+    summary:
+      "Pop Culture adds a catalyst item that resolves combinations as a specific pop culture reference tied to the inputs.",
+    acceptedWords: [
+      "movie",
+      "movies",
+      "film",
+      "cinema",
+      "show",
+      "tv",
+      "television",
+      "music",
+      "song",
+      "album",
+      "band",
+      "actor",
+      "actress",
+      "celebrity",
+      "hollywood",
+      "culture",
+      "pop culture",
+      "fandom",
+      "franchise",
+      "entertainment",
+    ],
+    similarityThreshold: 0.82,
+    autoPromptEligible: true,
+  },
+  {
+    key: "word_combine",
+    title: "Compound Unlocked",
+    summary:
+      "Compound adds a catalyst item that joins inputs into a real dictionary or Wikipedia-style compound word or phrase when one truly exists.",
+    acceptedWords: [
+      "compound",
+      "compound word",
+      "combine words",
+      "word",
+      "vocabulary",
+      "language",
+      "dictionary",
+      "phrase",
+      "spelling",
+      "portmanteau",
+      "lexicon",
+      "linguistics",
+      "grammar",
+      "name",
+      "term",
+    ],
+    similarityThreshold: 0.83,
+    autoPromptEligible: true,
   },
 ];
 
@@ -450,4 +513,24 @@ export function clearFeatureUnlocks(db: Database) {
 
 export function isKnownUnlockKey(value: string): value is UnlockKey {
   return UNLOCK_DEFINITIONS.some((definition) => definition.key === value);
+}
+
+export function getUnlockDefinitions() {
+  return UNLOCK_DEFINITIONS;
+}
+
+export function getUnlockedAutoPromptKeyForInputs(
+  db: Database,
+  inputs: string[]
+): UnlockKey | null {
+  const normalizedInputs = new Set(inputs.map((value) => normalize(value)));
+  for (const definition of UNLOCK_DEFINITIONS) {
+    if (!definition.autoPromptEligible || !isUnlocked(db, definition.key)) continue;
+    if (
+      definition.acceptedWords.some((word) => normalizedInputs.has(normalize(word)))
+    ) {
+      return definition.key;
+    }
+  }
+  return null;
 }

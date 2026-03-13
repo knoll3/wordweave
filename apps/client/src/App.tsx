@@ -8,12 +8,16 @@ import {
   CREATIVE_ITEM_ID,
   EVOLVE_ITEM,
   EVOLVE_ITEM_ID,
+  POP_CULTURE_ITEM,
+  POP_CULTURE_ITEM_ID,
   OPPOSITE_ITEM,
   OPPOSITE_ITEM_ID,
   RANDOMIZE_ITEM,
   RANDOMIZE_ITEM_ID,
   SPLIT_ITEM,
   SPLIT_ITEM_ID,
+  WORD_COMBINE_ITEM,
+  WORD_COMBINE_ITEM_ID,
 } from "./types";
 import type {
   AiModel,
@@ -90,6 +94,22 @@ const FEATURE_QUESTS: Array<{
       "Gain the Evolve catalyst so a concept can advance into its next stronger, more developed form.",
     criteria:
       "Discover something close to evolution, progress, growth, upgrade, development, or transformation.",
+  },
+  {
+    key: "pop_culture",
+    title: "Unlock Pop Culture",
+    description:
+      "Gain the Pop Culture catalyst so combinations can resolve into a specific entertainment or celebrity reference.",
+    criteria:
+      "Discover something close to movies, shows, music, celebrities, Hollywood, fandom, or pop culture.",
+  },
+  {
+    key: "word_combine",
+    title: "Unlock Compound",
+    description:
+      "Gain the Compound catalyst so inputs can join into a real established compound word or phrase when one truly exists.",
+    criteria:
+      "Discover something close to language, dictionary, vocabulary, compound words, phrases, or linguistics.",
   },
 ];
 
@@ -208,9 +228,11 @@ const App: React.FC = () => {
     }
     if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
     if (itemId === EVOLVE_ITEM_ID) return EVOLVE_ITEM;
+    if (itemId === POP_CULTURE_ITEM_ID) return POP_CULTURE_ITEM;
     if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
     if (itemId === OPPOSITE_ITEM_ID) return OPPOSITE_ITEM;
     if (itemId === RANDOMIZE_ITEM_ID) return RANDOMIZE_ITEM;
+    if (itemId === WORD_COMBINE_ITEM_ID) return WORD_COMBINE_ITEM;
     return items.find((item) => item.id === itemId);
   }
 
@@ -286,17 +308,25 @@ const App: React.FC = () => {
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
     const hasEvolveCatalyst = selectedItems.some((item) => item.id === EVOLVE_ITEM_ID);
+    const hasPopCultureCatalyst = selectedItems.some(
+      (item) => item.id === POP_CULTURE_ITEM_ID
+    );
     const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
     const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
     const hasRandomizeCatalyst = selectedItems.some((item) => item.id === RANDOMIZE_ITEM_ID);
     const hasCraftCatalyst = selectedItems.some((item) => item.id === CRAFT_ITEM_ID);
+    const hasWordCombineCatalyst = selectedItems.some(
+      (item) => item.id === WORD_COMBINE_ITEM_ID
+    );
     const activeCatalystCount = [
       hasCraftCatalyst,
       hasCreativeCatalyst,
       hasEvolveCatalyst,
+      hasPopCultureCatalyst,
       hasSplitCatalyst,
       hasOppositeCatalyst,
       hasRandomizeCatalyst,
+      hasWordCombineCatalyst,
     ].filter(Boolean).length;
     if (activeCatalystCount > 1) {
       showError("Use only one catalyst at a time.", null);
@@ -307,23 +337,29 @@ const App: React.FC = () => {
         item.id !== CRAFT_ITEM_ID &&
         item.id !== CREATIVE_ITEM_ID &&
         item.id !== EVOLVE_ITEM_ID &&
+        item.id !== POP_CULTURE_ITEM_ID &&
         item.id !== SPLIT_ITEM_ID &&
         item.id !== OPPOSITE_ITEM_ID &&
-        item.id !== RANDOMIZE_ITEM_ID
+        item.id !== RANDOMIZE_ITEM_ID &&
+        item.id !== WORD_COMBINE_ITEM_ID
     );
     const catalystLabel = hasCraftCatalyst
       ? "Craft"
       : hasCreativeCatalyst
         ? "Creative Spark"
-        : hasEvolveCatalyst
-          ? "Evolve"
-          : hasSplitCatalyst
-            ? "Split"
-            : hasOppositeCatalyst
-              ? "Opposite"
-              : hasRandomizeCatalyst
-                ? "Randomize"
-                : null;
+      : hasEvolveCatalyst
+        ? "Evolve"
+      : hasPopCultureCatalyst
+        ? "Pop Culture"
+      : hasSplitCatalyst
+        ? "Split"
+      : hasOppositeCatalyst
+        ? "Opposite"
+      : hasRandomizeCatalyst
+        ? "Randomize"
+      : hasWordCombineCatalyst
+        ? "Compound"
+        : null;
     if (actualInputItems.length === 0) {
       showError(
         catalystLabel
@@ -354,9 +390,11 @@ const App: React.FC = () => {
       crafting: hasCraftCatalyst,
       creative: hasCreativeCatalyst,
       evolve: hasEvolveCatalyst,
+      popCulture: hasPopCultureCatalyst,
       subtractive: hasSplitCatalyst,
       opposite: hasOppositeCatalyst,
       randomize: hasRandomizeCatalyst,
+      wordCombine: hasWordCombineCatalyst,
     });
 
     try {
@@ -391,9 +429,11 @@ const App: React.FC = () => {
         crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
         evolve: hasEvolveCatalyst,
+        popCulture: hasPopCultureCatalyst,
         subtractive: hasSplitCatalyst,
         opposite: hasOppositeCatalyst,
         randomize: hasRandomizeCatalyst,
+        wordCombine: hasWordCombineCatalyst,
         model: selectedModel,
       });
       console.log("[combine] recipe received", recipe);
@@ -621,9 +661,11 @@ const App: React.FC = () => {
                 craftUnlocked={isFeatureUnlocked("craft")}
                 creativeUnlocked={isFeatureUnlocked("creative")}
                 evolveUnlocked={isFeatureUnlocked("evolve")}
+                popCultureUnlocked={isFeatureUnlocked("pop_culture")}
                 splitUnlocked={isFeatureUnlocked("split")}
                 oppositeUnlocked={isFeatureUnlocked("opposite")}
                 randomizeUnlocked={isFeatureUnlocked("random_tools")}
+                wordCombineUnlocked={isFeatureUnlocked("word_combine")}
                 onCombineWorkspaceSelection={(layout) =>
                   combineWorkspaceNodeIds(layout.nodeIds, {
                     selectionLayout: layout,

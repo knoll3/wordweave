@@ -12,7 +12,9 @@ export type UnlockKey =
   | "opposite"
   | "random_tools"
   | "craft"
-  | "evolve";
+  | "evolve"
+  | "pop_culture"
+  | "word_combine";
 
 export const CREATIVE_ITEM_ID = -1;
 
@@ -66,6 +68,24 @@ export const EVOLVE_ITEM: Item = {
   name: "Evolve",
   normalizedName: "evolve",
   icon: "🧬",
+};
+
+export const POP_CULTURE_ITEM_ID = -8;
+
+export const POP_CULTURE_ITEM: Item = {
+  id: POP_CULTURE_ITEM_ID,
+  name: "Pop Culture",
+  normalizedName: "pop culture",
+  icon: "🎬",
+};
+
+export const WORD_COMBINE_ITEM_ID = -9;
+
+export const WORD_COMBINE_ITEM: Item = {
+  id: WORD_COMBINE_ITEM_ID,
+  name: "Compound",
+  normalizedName: "compound",
+  icon: "🔗",
 };
 
 export const COMBINE_RESULT_PLACEHOLDER_ITEM_ID = -7;

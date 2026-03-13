@@ -13,6 +13,7 @@ import {
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
+import { getUnlockedAutoPromptKeyForInputs } from "../unlocks";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -314,18 +315,22 @@ router.post("/combine", async (req, res) => {
   const creative = parsedBody.data.creative ?? false;
   const subtractive = parsedBody.data.subtractive ?? false;
   const opposite = parsedBody.data.opposite ?? false;
+  const popCulture = parsedBody.data.popCulture ?? false;
   const evolve = parsedBody.data.evolve ?? false;
   const randomize = parsedBody.data.randomize ?? false;
   const crafting = parsedBody.data.crafting ?? false;
+  const wordCombine = parsedBody.data.wordCombine ?? false;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
 
   const activeModeCount = [
     creative,
     subtractive,
     opposite,
+    popCulture,
     evolve,
     randomize,
     crafting,
+    wordCombine,
   ].filter(Boolean).length;
   if (activeModeCount > 1) {
     return res.status(400).json({
@@ -336,19 +341,6 @@ router.post("/combine", async (req, res) => {
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
   );
-  const recipeInputKey = creative
-    ? `creative|${inputKey}`
-    : subtractive
-      ? `subtract|${inputKey}`
-      : opposite
-        ? `opposite|${inputKey}`
-        : evolve
-          ? `evolve|${inputKey}`
-        : randomize
-          ? `randomize|${inputKey}`
-          : crafting
-            ? `craft|${inputKey}`
-      : inputKey;
 
   if (normalizedInputs.length === 0) {
     return res.status(400).json({ error: "No valid inputs provided" });
@@ -362,8 +354,55 @@ router.post("/combine", async (req, res) => {
 
   try {
     const db = await getDb();
+    const autoPromptKey =
+      activeModeCount === 0
+        ? getUnlockedAutoPromptKeyForInputs(
+            db,
+            normalizedInputs.map((input) => input.normalized)
+          )
+        : null;
 
-    if (creative) {
+    const effectiveCreative = creative || autoPromptKey === "creative";
+    const effectiveSubtractive = subtractive || autoPromptKey === "split";
+    const effectiveOpposite = opposite || autoPromptKey === "opposite";
+    const effectivePopCulture = popCulture || autoPromptKey === "pop_culture";
+    const effectiveCrafting = crafting || autoPromptKey === "craft";
+    const effectiveEvolve = evolve || autoPromptKey === "evolve";
+    const effectiveWordCombine =
+      wordCombine || autoPromptKey === "word_combine";
+
+    const recipeInputKey = effectiveCreative
+      ? `creative|${inputKey}`
+      : effectiveSubtractive
+        ? `subtract|${inputKey}`
+        : effectiveOpposite
+          ? `opposite|${inputKey}`
+          : effectivePopCulture
+            ? `pop|${inputKey}`
+            : effectiveEvolve
+              ? `evolve|${inputKey}`
+              : randomize
+                ? `randomize|${inputKey}`
+                : effectiveCrafting
+                  ? `craft|${inputKey}`
+                  : effectiveWordCombine
+                    ? `compound|${inputKey}`
+                    : inputKey;
+
+    console.log("[api][combine] resolved mode", {
+      inputKey,
+      autoPromptKey,
+      creative: effectiveCreative,
+      subtractive: effectiveSubtractive,
+      opposite: effectiveOpposite,
+      popCulture: effectivePopCulture,
+      evolve: effectiveEvolve,
+      randomize,
+      crafting: effectiveCrafting,
+      wordCombine: effectiveWordCombine,
+    });
+
+    if (effectiveCreative) {
       console.log("[api][combine] creative mode bypassing cache", {
         inputs: normalizedInputs.map((i) => i.name),
       });
@@ -431,11 +470,13 @@ router.post("/combine", async (req, res) => {
       console.log("[api][combine] cache hit", {
         inputKey: recipeInputKey,
         creative,
-        subtractive,
-        opposite,
-        evolve,
+        subtractive: effectiveSubtractive,
+        opposite: effectiveOpposite,
+        popCulture: effectivePopCulture,
+        evolve: effectiveEvolve,
         randomize,
-        crafting,
+        crafting: effectiveCrafting,
+        wordCombine: effectiveWordCombine,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -497,7 +538,17 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative, subtractive, opposite, evolve, randomize, crafting, model }
+            {
+              creative: effectiveCreative,
+              subtractive: effectiveSubtractive,
+              opposite: effectiveOpposite,
+              popCulture: effectivePopCulture,
+              evolve: effectiveEvolve,
+              randomize,
+              crafting: effectiveCrafting,
+              wordCombine: effectiveWordCombine,
+              model,
+            }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -572,18 +623,30 @@ router.post("/combine", async (req, res) => {
     console.log("[api][combine] cache miss; generating via OpenAI", {
       inputKey: recipeInputKey,
       creative,
-      subtractive,
-      opposite,
-      evolve,
+      subtractive: effectiveSubtractive,
+      opposite: effectiveOpposite,
+      popCulture: effectivePopCulture,
+      evolve: effectiveEvolve,
       randomize,
-      crafting,
+      crafting: effectiveCrafting,
+      wordCombine: effectiveWordCombine,
       inputs: normalizedInputs.map((i) => i.name),
     });
     let llmResult;
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative, subtractive, opposite, evolve, randomize, crafting, model }
+        {
+          creative: effectiveCreative,
+          subtractive: effectiveSubtractive,
+          opposite: effectiveOpposite,
+          popCulture: effectivePopCulture,
+          evolve: effectiveEvolve,
+          randomize,
+          crafting: effectiveCrafting,
+          wordCombine: effectiveWordCombine,
+          model,
+        }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {
