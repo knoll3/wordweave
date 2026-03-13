@@ -87,6 +87,22 @@ function createSchema(db: Database): void {
       discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
     );
+
+    CREATE TABLE IF NOT EXISTS element_embeddings (
+      element_id INTEGER PRIMARY KEY,
+      model TEXT NOT NULL,
+      search_text TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS search_query_embeddings (
+      query_text TEXT PRIMARY KEY,
+      model TEXT NOT NULL,
+      embedding_json TEXT NOT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
   `);
 }
 

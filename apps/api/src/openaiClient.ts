@@ -31,6 +31,7 @@ function resolveDefaultModelName(): OpenAiModel {
 }
 
 export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
+export const DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-small";
 const BASE_PROMPT = `
 You are the crafting engine for a sandbox discovery game.
 
@@ -487,4 +488,41 @@ export async function generateRecipeBatch(params: {
   console.log("[openai][recipe-batch] parsed result", result.data);
 
   return result.data;
+}
+
+export async function generateEmbeddings(texts: string[]) {
+  const openai = getOpenAI();
+  const cleanTexts = texts.map((text) => text.trim()).filter(Boolean);
+
+  if (cleanTexts.length === 0) {
+    return {
+      model: DEFAULT_EMBEDDING_MODEL_NAME,
+      embeddings: [] as Array<{ text: string; embedding: number[] }>,
+    };
+  }
+
+  console.log("[openai][embeddings] sending request", {
+    model: DEFAULT_EMBEDDING_MODEL_NAME,
+    count: cleanTexts.length,
+    texts: cleanTexts,
+  });
+
+  const response = await openai.embeddings.create({
+    model: DEFAULT_EMBEDDING_MODEL_NAME,
+    input: cleanTexts,
+  });
+
+  console.log("[openai][embeddings] usage", {
+    model: response.model,
+    promptTokens: response.usage?.prompt_tokens ?? 0,
+    totalTokens: response.usage?.total_tokens ?? 0,
+  });
+
+  return {
+    model: response.model,
+    embeddings: response.data.map((item, index) => ({
+      text: cleanTexts[index],
+      embedding: item.embedding,
+    })),
+  };
 }

@@ -4,13 +4,15 @@ import type { Item } from "../../types";
 interface Props {
   items: Item[];
   onAddToWorkspace: (item: Item) => void;
+  pendingLabel?: string | null;
 }
 
 const ElementList: React.FC<Props> = ({
   items,
   onAddToWorkspace,
+  pendingLabel = null,
 }) => {
-  if (!items.length) {
+  if (!items.length && !pendingLabel) {
     return (
       <div className="sidebar-placeholder">
         No items yet. Start by combining the base items.
@@ -43,6 +45,12 @@ const ElementList: React.FC<Props> = ({
           </button>
         );
       })}
+      {pendingLabel ? (
+        <div className="element-list-status" role="status" aria-live="polite">
+          <span className="search-pending-spinner" aria-hidden="true" />
+          <span>{pendingLabel}</span>
+        </div>
+      ) : null}
     </div>
   );
 };

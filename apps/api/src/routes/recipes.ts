@@ -12,6 +12,7 @@ import {
   generateResult,
   OpenAiModel,
 } from "../openaiClient";
+import { ensureSearchIndexForElementIds } from "../search";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -26,6 +27,21 @@ import {
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
 const CACHE_BATCH_SIZE = 25;
+
+async function syncSearchIndex(
+  db: Awaited<ReturnType<typeof getDb>>,
+  elementIds: number[]
+) {
+  if (elementIds.length === 0) return;
+  try {
+    await ensureSearchIndexForElementIds(db, elementIds);
+  } catch (error) {
+    console.warn("[api][search] failed to sync search index", {
+      elementIds,
+      error,
+    });
+  }
+}
 
 type KnownItem = {
   name: string;
@@ -349,6 +365,7 @@ router.post("/combine", async (req, res) => {
         icon: llmResult.icon,
       });
       discoverElement(db, elementId);
+      await syncSearchIndex(db, [elementId]);
       persistDatabase(db);
 
       let elementStmt = db.prepare(
@@ -425,6 +442,7 @@ router.post("/combine", async (req, res) => {
 
       if (resultElement) {
         discoverElement(db, Number(resultElement.id));
+        await syncSearchIndex(db, [Number(resultElement.id)]);
         persistDatabase(db);
       }
 
@@ -492,6 +510,7 @@ router.post("/combine", async (req, res) => {
           icon: chosenIcon,
         });
         discoverElement(db, elementId);
+        await syncSearchIndex(db, [elementId]);
 
         const updateRecipeStmt = db.prepare(
           "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -596,6 +615,7 @@ router.post("/combine", async (req, res) => {
         icon: llmResult.icon,
       });
       discoverElement(db, elementId);
+      await syncSearchIndex(db, [elementId]);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -695,6 +715,7 @@ router.post("/:id/select", async (req, res) => {
         icon: candidateIcon,
       });
       discoverElement(db, elementId);
+      await syncSearchIndex(db, [elementId]);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"

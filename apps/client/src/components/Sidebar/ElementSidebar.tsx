@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Item } from "../../types";
 import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
@@ -25,42 +25,142 @@ const ElementSidebar: React.FC<Props> = ({
   onItemsLoaded,
 }) => {
   const [search, setSearch] = useState("");
-  const [items, setItems] = useState<Item[]>([]);
+  const [libraryItems, setLibraryItems] = useState<Item[]>([]);
+  const [semanticItems, setSemanticItems] = useState<Item[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
+  const [semanticPending, setSemanticPending] = useState(false);
+  const [semanticLoading, setSemanticLoading] = useState(false);
   const [isResettingLibrary, setIsResettingLibrary] = useState(false);
   const [isResettingCache, setIsResettingCache] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [showResetCacheConfirm, setShowResetCacheConfirm] = useState(false);
   const [cacheRecipeCount, setCacheRecipeCount] = useState<number | null>(null);
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
+  const latestRequestIdRef = useRef(0);
+  const latestSemanticRequestIdRef = useRef(0);
 
   useEffect(() => {
-    void loadItems();
+    void loadLibraryItems();
   }, []);
 
   useEffect(() => {
-    void loadItems(search);
+    void loadLibraryItems();
   }, [refreshToken]);
 
-  async function loadItems(query?: string) {
+  useEffect(() => {
+    if (!search.trim()) {
+      setSemanticPending(false);
+      setSemanticLoading(false);
+      setSemanticItems([]);
+      return;
+    }
+    setSemanticPending(true);
+    const timeoutId = window.setTimeout(() => {
+      void loadSemanticItems(search);
+    }, 220);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [search]);
+
+  async function loadLibraryItems() {
+    const requestId = ++latestRequestIdRef.current;
     try {
       setLoadingItems(true);
-      const data = await fetchItems(query);
-      setItems(data);
-      if (!query || !query.trim()) {
-        onItemsLoaded?.(data);
-      }
+      const data = await fetchItems();
+      if (requestId !== latestRequestIdRef.current) return;
+      setLibraryItems(data);
+      onItemsLoaded?.(data);
     } catch (err) {
       console.error("Failed to load items", err);
     } finally {
-      setLoadingItems(false);
+      if (requestId === latestRequestIdRef.current) {
+        setLoadingItems(false);
+      }
     }
   }
 
+  async function loadSemanticItems(query: string) {
+    const requestId = ++latestSemanticRequestIdRef.current;
+    try {
+      setSemanticPending(false);
+      setSemanticLoading(true);
+      const data = await fetchItems(query);
+      if (requestId !== latestSemanticRequestIdRef.current) return;
+      setSemanticItems(data);
+    } catch (err) {
+      console.error("Failed to load semantic items", err);
+    } finally {
+      if (requestId === latestSemanticRequestIdRef.current) {
+        setSemanticLoading(false);
+      }
+    }
+  }
+
+  const lexicalSearchItems = useMemo(() => {
+    const trimmed = search.trim().toLowerCase();
+    if (!trimmed) return libraryItems;
+
+    const scored = libraryItems
+      .map((item) => {
+        const normalizedName = item.name.trim().toLowerCase();
+        let score = 0;
+        if (normalizedName === trimmed) {
+          score = 4;
+        } else if (normalizedName.startsWith(trimmed)) {
+          score = 3;
+        } else if (normalizedName.includes(trimmed)) {
+          score = 2;
+        } else {
+          const queryTokens = trimmed.split(/\s+/).filter(Boolean);
+          const nameTokens = normalizedName.split(/\s+/).filter(Boolean);
+          const overlap = queryTokens.filter((token) => nameTokens.includes(token)).length;
+          if (overlap > 0) {
+            score = 1 + overlap / queryTokens.length;
+          }
+        }
+        return { item, score };
+      })
+      .filter((entry) => entry.score > 0)
+      .sort((left, right) => {
+        if (right.score !== left.score) return right.score - left.score;
+        return left.item.name.localeCompare(right.item.name, "en", {
+          sensitivity: "base",
+        });
+      });
+
+    return scored.map((entry) => entry.item);
+  }, [libraryItems, search]);
+
+  const displayedItems = useMemo(() => {
+    if (search.trim()) {
+      const deduped = new Map<number, Item>();
+      for (const item of lexicalSearchItems) {
+        deduped.set(item.id, item);
+      }
+      for (const item of semanticItems) {
+        if (!deduped.has(item.id)) {
+          deduped.set(item.id, item);
+        }
+      }
+      return [...deduped.values()];
+    }
+
+    if (sortBy === "time") {
+      // Keep API order (created_at ASC) so newest items stay toward the end.
+      return libraryItems;
+    }
+    return [...libraryItems].sort((a, b) =>
+      a.name.localeCompare(b.name, "en", { sensitivity: "base" })
+    );
+  }, [libraryItems, lexicalSearchItems, search, semanticItems, sortBy]);
+
   function handleSearchChange(value: string) {
     setSearch(value);
-    void loadItems(value);
   }
+
+  const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
 
   async function openResetCacheConfirm() {
     setShowResetCacheConfirm(true);
@@ -80,8 +180,9 @@ const ElementSidebar: React.FC<Props> = ({
       await resetLibrary();
       setShowResetConfirm(false);
       setSearch("");
+      setSemanticItems([]);
       onLibraryReset?.();
-      await loadItems();
+      await loadLibraryItems();
     } catch (err) {
       console.error("Failed to reset library", err);
     } finally {
@@ -104,20 +205,10 @@ const ElementSidebar: React.FC<Props> = ({
     }
   }
 
-  const displayedItems = useMemo(() => {
-    if (sortBy === "time") {
-      // Keep API order (created_at ASC) so newest items stay toward the end.
-      return items;
-    }
-    return [...items].sort((a, b) =>
-      a.name.localeCompare(b.name, "en", { sensitivity: "base" })
-    );
-  }, [items, sortBy]);
-
   function handleAddRandomItems() {
-    if (!items.length) return;
+    if (!libraryItems.length) return;
 
-    const pool = [...items];
+    const pool = [...libraryItems];
     for (let i = pool.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -142,7 +233,7 @@ const ElementSidebar: React.FC<Props> = ({
           type="button"
           className="button secondary random-items-button"
           onClick={handleAddRandomItems}
-          disabled={loadingItems || items.length === 0}
+          disabled={loadingItems || libraryItems.length === 0}
           title="Add random library items to the workspace"
           aria-label="Add random library items to the workspace"
         >
@@ -177,10 +268,13 @@ const ElementSidebar: React.FC<Props> = ({
         {loadingItems ? (
           <div className="sidebar-placeholder">Loading items…</div>
         ) : (
-          <ElementList
-            items={displayedItems}
-            onAddToWorkspace={onAddItemToWorkspace}
-          />
+          <div className="library-results">
+            <ElementList
+              items={displayedItems}
+              onAddToWorkspace={onAddItemToWorkspace}
+              pendingLabel={isSearchAwaitingMore ? "Searching more results…" : null}
+            />
+          </div>
         )}
         <div className="library-danger-actions">
           <button

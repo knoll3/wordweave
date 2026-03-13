@@ -4,8 +4,8 @@ import {
   getDb,
   persistDatabase,
 } from "../db";
+import { searchDiscoveredElements } from "../search";
 import {
-  mapElementRow,
   mapRecentRecipeRow,
 } from "../models";
 
@@ -16,37 +16,9 @@ router.get("/", async (req, res) => {
 
   try {
     const db = await getDb();
-
-    let stmt;
-    if (q) {
-      stmt = db.prepare(
-        `
-        SELECT e.id, e.name, e.normalized_name, e.icon
-        FROM discoveries d
-        JOIN elements e ON e.id = d.element_id
-        WHERE e.name LIKE ?
-        ORDER BY d.discovered_at ASC
-        `
-      );
-      stmt.bind([`%${q}%`]);
-    } else {
-      stmt = db.prepare(
-        `
-        SELECT e.id, e.name, e.normalized_name, e.icon
-        FROM discoveries d
-        JOIN elements e ON e.id = d.element_id
-        ORDER BY d.discovered_at ASC
-        `
-      );
-    }
-
-    const rows: any[] = [];
-    while (stmt.step()) {
-      rows.push(stmt.getAsObject());
-    }
-    stmt.free();
-
-    return res.json(rows.map(mapElementRow));
+    const items = await searchDiscoveredElements(db, q);
+    persistDatabase(db);
+    return res.json(items);
   } catch (err) {
     console.error("Error in GET /elements", err);
     return res.status(500).json({ error: "Internal server error" });
