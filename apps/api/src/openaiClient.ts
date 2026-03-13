@@ -1,5 +1,6 @@
 import OpenAI from "openai";
 import {
+  craftLlmResultSchema,
   llmResultSchema,
   questChainSchema,
   questInputChoiceSchema,
@@ -161,6 +162,48 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const CRAFT_PROMPT = `
+You are the physical crafting engine for a sandbox discovery game.
+
+The player provides several nouns as input. Your job is to return the single most plausible result if the physical inputs were crafted, assembled, forged, built, or manufactured together.
+
+Focus on tangible, physical outputs only.
+Ignore any input that is abstract, conceptual, emotional, symbolic, fictional in a non-physical sense, or otherwise not something that could participate in real physical crafting.
+Ignore any input that does not help produce a believable crafted object or material result.
+
+Rules:
+- Be extremely strict. If the remaining physical inputs do not support a clear real-world crafted result, fail instead of guessing.
+- Do not invent a result just because the words feel loosely compatible.
+- Do not use metaphorical, thematic, symbolic, or associative reasoning.
+- Prefer a concrete crafted object, tool, material, device, structure, or manufactured result.
+- If some inputs are not physically craftable, ignore them and reassess using only the remaining physical inputs.
+- If fewer than two usable physical crafting inputs remain, fail.
+- If the usable inputs would not plausibly be crafted together in the real world, fail.
+- When you fail, return only a failure object.
+- When you succeed, return exactly one concrete result.
+- Do not return explanations, descriptions, or sentences outside the JSON fields.
+
+Return ONLY valid JSON in this format:
+
+Either:
+
+{
+  "failed": true,
+  "reason": "brief reason"
+}
+
+or:
+
+{
+  "failed": false,
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 const QUEST_INPUT_SELECTION_PROMPT = `
 You are planning an interesting quest chain for a sandbox discovery game.
 
@@ -307,18 +350,21 @@ export async function generateResult(
     subtractive?: boolean;
     opposite?: boolean;
     randomize?: boolean;
+    crafting?: boolean;
     model?: OpenAiModel;
   }
-) {
+): Promise<{ name: string; icon: string }> {
   const openai = getOpenAI();
   const model = options?.model ?? DEFAULT_MODEL_NAME;
 
   const promptTemplate = options?.subtractive
-    ? SUBTRACTIVE_PROMPT
+      ? SUBTRACTIVE_PROMPT
     : options?.opposite
       ? OPPOSITE_PROMPT
-      : options?.randomize
-        ? RANDOMIZE_PROMPT
+    : options?.randomize
+      ? RANDOMIZE_PROMPT
+    : options?.crafting
+      ? CRAFT_PROMPT
         : options?.creative
           ? CREATIVE_PROMPT
           : BASE_PROMPT;
@@ -334,6 +380,7 @@ export async function generateResult(
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
     randomize: options?.randomize ?? false,
+    crafting: options?.crafting ?? false,
     temperature: 1,
     prompt,
   });
@@ -377,6 +424,19 @@ export async function generateResult(
   } catch (err) {
     console.error("[openai] failed to parse response as JSON", err);
     throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  if (options?.crafting) {
+    const craftResult = craftLlmResultSchema.safeParse(parsed);
+    if (!craftResult.success) {
+      console.error("[openai] craft response failed schema validation", parsed);
+      throw new Error("OpenAI craft response failed validation");
+    }
+    console.log("[openai] parsed result", craftResult.data);
+    if (craftResult.data.failed) {
+      throw new Error(craftResult.data.reason);
+    }
+    return craftResult.data;
   }
 
   const result = llmResultSchema.safeParse(parsed);

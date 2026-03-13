@@ -315,10 +315,16 @@ router.post("/combine", async (req, res) => {
   const subtractive = parsedBody.data.subtractive ?? false;
   const opposite = parsedBody.data.opposite ?? false;
   const randomize = parsedBody.data.randomize ?? false;
+  const crafting = parsedBody.data.crafting ?? false;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
 
-  const activeModeCount = [creative, subtractive, opposite, randomize].filter(Boolean)
-    .length;
+  const activeModeCount = [
+    creative,
+    subtractive,
+    opposite,
+    randomize,
+    crafting,
+  ].filter(Boolean).length;
   if (activeModeCount > 1) {
     return res.status(400).json({
       error: "Only one catalyst mode can be used at a time",
@@ -336,6 +342,8 @@ router.post("/combine", async (req, res) => {
         ? `opposite|${inputKey}`
         : randomize
           ? `randomize|${inputKey}`
+          : crafting
+            ? `craft|${inputKey}`
       : inputKey;
 
   if (normalizedInputs.length === 0) {
@@ -422,6 +430,7 @@ router.post("/combine", async (req, res) => {
         subtractive,
         opposite,
         randomize,
+        crafting,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -483,7 +492,7 @@ router.post("/combine", async (req, res) => {
           // If no candidates exist, regenerate one now.
           const generated = await generateResult(
             normalizedInputs.map((i) => i.name),
-            { creative, subtractive, opposite, randomize, model }
+            { creative, subtractive, opposite, randomize, crafting, model }
           );
           console.log("[api][combine] backfill generated result", generated);
 
@@ -561,13 +570,14 @@ router.post("/combine", async (req, res) => {
       subtractive,
       opposite,
       randomize,
+      crafting,
       inputs: normalizedInputs.map((i) => i.name),
     });
     let llmResult;
     try {
       llmResult = await generateResult(
         normalizedInputs.map((i) => i.name),
-        { creative, subtractive, opposite, randomize, model }
+        { creative, subtractive, opposite, randomize, crafting, model }
       );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

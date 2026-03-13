@@ -6,7 +6,8 @@ export type UnlockKey =
   | "creative"
   | "split"
   | "opposite"
-  | "random_tools";
+  | "random_tools"
+  | "craft";
 
 type UnlockDefinition = {
   key: UnlockKey;
@@ -123,6 +124,35 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
     ],
     similarityThreshold: 0.82,
   },
+  {
+    key: "craft",
+    title: "Craft Unlocked",
+    summary:
+      "Craft adds a catalyst item that asks for the physical crafted result of combining the inputs together.",
+    acceptedWords: [
+      "craft",
+      "crafting",
+      "build",
+      "builder",
+      "construction",
+      "construct",
+      "make",
+      "maker",
+      "forge",
+      "forging",
+      "smith",
+      "blacksmith",
+      "artisan",
+      "manufacture",
+      "workshop",
+      "tool",
+      "tools",
+      "hardware",
+      "engineering",
+      "assembly",
+    ],
+    similarityThreshold: 0.82,
+  },
 ];
 
 function buildSearchText(name: string) {
@@ -236,11 +266,28 @@ function isUnlocked(db: Database, key: UnlockKey) {
 }
 
 function insertUnlock(db: Database, key: UnlockKey) {
+  throw new Error("insertUnlock requires source metadata");
+}
+
+function insertUnlockWithSource(
+  db: Database,
+  params: {
+    key: UnlockKey;
+    sourceItemName: string;
+    sourceMatchedWord: string;
+  }
+) {
   const stmt = db.prepare(`
-    INSERT OR IGNORE INTO player_unlocks (feature_key, unlocked_at, intro_shown_at)
-    VALUES (?, CURRENT_TIMESTAMP, NULL)
+    INSERT OR IGNORE INTO player_unlocks (
+      feature_key,
+      unlocked_at,
+      intro_shown_at,
+      source_item_name,
+      source_matched_word
+    )
+    VALUES (?, CURRENT_TIMESTAMP, NULL, ?, ?)
   `);
-  stmt.run([key]);
+  stmt.run([params.key, params.sourceItemName, params.sourceMatchedWord]);
   stmt.free();
 }
 
@@ -268,7 +315,11 @@ export async function syncFeatureUnlocks(db: Database) {
       discoveredNames.has(normalize(word))
     );
     if (directMatch) {
-      insertUnlock(db, definition.key);
+      insertUnlockWithSource(db, {
+        key: definition.key,
+        sourceItemName: directMatch,
+        sourceMatchedWord: directMatch,
+      });
       console.log("[api][unlock] unlocked by direct match", {
         key: definition.key,
         match: directMatch,
@@ -295,7 +346,11 @@ export async function syncFeatureUnlocks(db: Database) {
     }
 
     if (matchedWord && matchedItem) {
-      insertUnlock(db, definition.key);
+      insertUnlockWithSource(db, {
+        key: definition.key,
+        sourceItemName: matchedItem,
+        sourceMatchedWord: matchedWord,
+      });
       console.log("[api][unlock] unlocked by embedding similarity", {
         key: definition.key,
         acceptedWord: matchedWord,
@@ -308,12 +363,17 @@ export async function syncFeatureUnlocks(db: Database) {
 
 export function getFeatureUnlockStatuses(db: Database) {
   const stmt = db.prepare(`
-    SELECT feature_key, unlocked_at, intro_shown_at
+    SELECT feature_key, unlocked_at, intro_shown_at, source_item_name, source_matched_word
     FROM player_unlocks
   `);
   const rows = new Map<
     string,
-    { unlockedAt: string; introShownAt: string | null }
+    {
+      unlockedAt: string;
+      introShownAt: string | null;
+      sourceItemName: string | null;
+      sourceMatchedWord: string | null;
+    }
   >();
   while (stmt.step()) {
     const row = stmt.getAsObject() as Record<string, unknown>;
@@ -321,6 +381,10 @@ export function getFeatureUnlockStatuses(db: Database) {
       unlockedAt: String(row.unlocked_at),
       introShownAt:
         row.intro_shown_at == null ? null : String(row.intro_shown_at),
+      sourceItemName:
+        row.source_item_name == null ? null : String(row.source_item_name),
+      sourceMatchedWord:
+        row.source_matched_word == null ? null : String(row.source_matched_word),
     });
   }
   stmt.free();
@@ -334,6 +398,8 @@ export function getFeatureUnlockStatuses(db: Database) {
       unlocked: !!row,
       introPending: !!row && row.introShownAt == null,
       unlockedAt: row?.unlockedAt ?? null,
+      sourceItemName: row?.sourceItemName ?? null,
+      sourceMatchedWord: row?.sourceMatchedWord ?? null,
     };
   });
 }

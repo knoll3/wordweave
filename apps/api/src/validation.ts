@@ -6,6 +6,7 @@ export const combineRequestSchema = z.object({
   subtractive: z.boolean().optional().default(false),
   opposite: z.boolean().optional().default(false),
   randomize: z.boolean().optional().default(false),
+  crafting: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),
@@ -23,6 +24,18 @@ export const llmResultSchema = z.object({
   name: z.string().min(1).max(64),
   icon: z.string().min(1).max(8),
 });
+
+export const craftLlmResultSchema = z.union([
+  z.object({
+    failed: z.literal(true),
+    reason: z.string().min(1).max(160),
+  }),
+  z.object({
+    failed: z.literal(false).optional(),
+    name: z.string().min(1).max(64),
+    icon: z.string().min(1).max(8),
+  }),
+]);
 
 export const questInputChoiceSchema = z.object({
   items: z.array(z.string().min(1).max(64)).min(3).max(8),
@@ -51,6 +64,7 @@ export const recipeBatchSchema = z.object({
 });
 
 export type LlmResult = z.infer<typeof llmResultSchema>;
+export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type QuestInputChoice = z.infer<typeof questInputChoiceSchema>;
 export type QuestChain = z.infer<typeof questChainSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;

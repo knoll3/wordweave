@@ -107,9 +107,36 @@ function createSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS player_unlocks (
       feature_key TEXT PRIMARY KEY,
       unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      intro_shown_at DATETIME NULL
+      intro_shown_at DATETIME NULL,
+      source_item_name TEXT NULL,
+      source_matched_word TEXT NULL
     );
   `);
+
+  ensureColumn(db, "player_unlocks", "source_item_name", "TEXT NULL");
+  ensureColumn(db, "player_unlocks", "source_matched_word", "TEXT NULL");
+}
+
+function ensureColumn(
+  db: Database,
+  tableName: string,
+  columnName: string,
+  columnDefinition: string
+) {
+  const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
+  let exists = false;
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    if (String(row.name) === columnName) {
+      exists = true;
+      break;
+    }
+  }
+  stmt.free();
+
+  if (!exists) {
+    db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
+  }
 }
 
 function seedBaseElements(db: Database): void {

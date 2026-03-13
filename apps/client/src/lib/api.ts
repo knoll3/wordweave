@@ -108,6 +108,7 @@ export async function combineElements(
     subtractive?: boolean;
     opposite?: boolean;
     randomize?: boolean;
+    crafting?: boolean;
     model?: AiModel;
   }
 ): Promise<Recipe> {
@@ -117,6 +118,7 @@ export async function combineElements(
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
     randomize: options?.randomize ?? false,
+    crafting: options?.crafting ?? false,
     model: options?.model ?? null,
   });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
@@ -130,6 +132,7 @@ export async function combineElements(
       subtractive: options?.subtractive ?? false,
       opposite: options?.opposite ?? false,
       randomize: options?.randomize ?? false,
+      crafting: options?.crafting ?? false,
       model: options?.model,
     }),
   });

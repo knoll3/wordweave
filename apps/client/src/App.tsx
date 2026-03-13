@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  CRAFT_ITEM,
+  CRAFT_ITEM_ID,
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
   OPPOSITE_ITEM,
@@ -28,6 +30,7 @@ const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
+const TOAST_DURATION_MS = 3500;
 
 const FEATURE_QUESTS: Array<{
   key: UnlockKey;
@@ -66,6 +69,14 @@ const FEATURE_QUESTS: Array<{
       "Gain the Random library action and the Randomize catalyst for chance-driven experimentation.",
     criteria:
       "Discover something close to random, chance, chaos, luck, surprise, shuffle, or entropy.",
+  },
+  {
+    key: "craft",
+    title: "Unlock Craft",
+    description:
+      "Gain the Craft catalyst so combinations can resolve as a physical built or manufactured result.",
+    criteria:
+      "Discover something close to craft, build, forge, tool, maker, workshop, or construction.",
   },
 ];
 
@@ -121,6 +132,14 @@ const App: React.FC = () => {
   }, [trackedQuestKey]);
 
   useEffect(() => {
+    if (!errorMessage) return;
+    const timeoutId = window.setTimeout(() => {
+      setErrorMessage(null);
+    }, TOAST_DURATION_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [errorMessage]);
+
+  useEffect(() => {
     void loadFeatureUnlocks();
   }, [items]);
 
@@ -171,6 +190,7 @@ const App: React.FC = () => {
   }
 
   function findItemById(itemId: number) {
+    if (itemId === CRAFT_ITEM_ID) return CRAFT_ITEM;
     if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
     if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
     if (itemId === OPPOSITE_ITEM_ID) return OPPOSITE_ITEM;
@@ -252,7 +272,9 @@ const App: React.FC = () => {
     const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
     const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
     const hasRandomizeCatalyst = selectedItems.some((item) => item.id === RANDOMIZE_ITEM_ID);
+    const hasCraftCatalyst = selectedItems.some((item) => item.id === CRAFT_ITEM_ID);
     const activeCatalystCount = [
+      hasCraftCatalyst,
       hasCreativeCatalyst,
       hasSplitCatalyst,
       hasOppositeCatalyst,
@@ -264,12 +286,15 @@ const App: React.FC = () => {
     }
     const actualInputItems = selectedItems.filter(
       (item) =>
+        item.id !== CRAFT_ITEM_ID &&
         item.id !== CREATIVE_ITEM_ID &&
         item.id !== SPLIT_ITEM_ID &&
         item.id !== OPPOSITE_ITEM_ID &&
         item.id !== RANDOMIZE_ITEM_ID
     );
-    const catalystLabel = hasCreativeCatalyst
+    const catalystLabel = hasCraftCatalyst
+      ? "Craft"
+      : hasCreativeCatalyst
       ? "Creative Spark"
       : hasSplitCatalyst
         ? "Split"
@@ -305,6 +330,7 @@ const App: React.FC = () => {
     console.log("[combine] combine selected nodes", {
       nodeIds: uniqueNodeIds,
       inputs: inputNames,
+      crafting: hasCraftCatalyst,
       creative: hasCreativeCatalyst,
       subtractive: hasSplitCatalyst,
       opposite: hasOppositeCatalyst,
@@ -316,6 +342,7 @@ const App: React.FC = () => {
       setCombiningNodeIds(uniqueNodeIds);
       setConvergingNodeIds(options?.converge ? uniqueNodeIds : null);
       const recipe = await combineElements(inputNames, {
+        crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
         subtractive: hasSplitCatalyst,
         opposite: hasOppositeCatalyst,
@@ -363,7 +390,12 @@ const App: React.FC = () => {
       });
     } catch (err) {
       console.error("[combine] failed", err);
-      showError("Failed to combine items. Please try again.", err);
+      showError(
+        err instanceof Error && err.message
+          ? err.message
+          : "Failed to combine items. Please try again.",
+        err
+      );
     } finally {
       setIsCombining(false);
       setCombiningNodeIds(null);
@@ -402,6 +434,17 @@ const App: React.FC = () => {
               <div>
                 <h3 className="results-title">{pendingUnlockIntro.title}</h3>
                 <p className="results-subtitle">{pendingUnlockIntro.summary}</p>
+                {pendingUnlockIntro.sourceItemName ? (
+                  <p className="results-subtitle">
+                    Unlocked by discovering{" "}
+                    <strong>{pendingUnlockIntro.sourceItemName}</strong>
+                    {pendingUnlockIntro.sourceMatchedWord &&
+                    pendingUnlockIntro.sourceMatchedWord.toLowerCase() !==
+                      pendingUnlockIntro.sourceItemName.toLowerCase()
+                      ? `, which matched "${pendingUnlockIntro.sourceMatchedWord}".`
+                      : "."}
+                  </p>
+                ) : null}
               </div>
             </div>
             <div className="confirm-actions">
@@ -512,6 +555,7 @@ const App: React.FC = () => {
                 onRemoveWorkspaceItem={removeWorkspaceItem}
                 onDuplicateWorkspaceItem={duplicateWorkspaceItem}
                 onAddItemToWorkspace={addItemToWorkspace}
+                craftUnlocked={isFeatureUnlocked("craft")}
                 creativeUnlocked={isFeatureUnlocked("creative")}
                 splitUnlocked={isFeatureUnlocked("split")}
                 oppositeUnlocked={isFeatureUnlocked("opposite")}

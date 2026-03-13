@@ -6,7 +6,12 @@ export interface Item {
 }
 
 export type AiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
-export type UnlockKey = "creative" | "split" | "opposite" | "random_tools";
+export type UnlockKey =
+  | "creative"
+  | "split"
+  | "opposite"
+  | "random_tools"
+  | "craft";
 
 export const CREATIVE_ITEM_ID = -1;
 
@@ -42,6 +47,15 @@ export const RANDOMIZE_ITEM: Item = {
   name: "Randomize",
   normalizedName: "randomize",
   icon: "🔀",
+};
+
+export const CRAFT_ITEM_ID = -5;
+
+export const CRAFT_ITEM: Item = {
+  id: CRAFT_ITEM_ID,
+  name: "Craft",
+  normalizedName: "craft",
+  icon: "🔨",
 };
 
 export interface RecipeCandidate {
@@ -119,4 +133,6 @@ export interface FeatureUnlockStatus {
   unlocked: boolean;
   introPending: boolean;
   unlockedAt: string | null;
+  sourceItemName: string | null;
+  sourceMatchedWord: string | null;
 }

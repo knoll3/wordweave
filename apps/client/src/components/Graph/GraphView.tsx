@@ -14,6 +14,8 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 import {
+  CRAFT_ITEM,
+  CRAFT_ITEM_ID,
   CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
   OPPOSITE_ITEM,
@@ -42,6 +44,7 @@ interface Props {
     itemId: number,
     position?: { x: number; y: number }
   ) => void;
+  craftUnlocked: boolean;
   creativeUnlocked: boolean;
   splitUnlocked: boolean;
   oppositeUnlocked: boolean;
@@ -92,6 +95,7 @@ function FlowCanvas({
   onRemoveWorkspaceItem,
   onDuplicateWorkspaceItem,
   onAddItemToWorkspace,
+  craftUnlocked,
   creativeUnlocked,
   splitUnlocked,
   oppositeUnlocked,
@@ -151,6 +155,7 @@ function FlowCanvas({
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
+    next.set(CRAFT_ITEM.id, CRAFT_ITEM);
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
     next.set(SPLIT_ITEM.id, SPLIT_ITEM);
     next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
@@ -489,6 +494,12 @@ function FlowCanvas({
     [clearCreativeDrag, onAddItemToWorkspace, reactFlow]
   );
 
+  const handleCraftSpawnClick = useCallback(() => {
+    if (creativeDragRef.current?.moved) return;
+    if (!craftUnlocked) return;
+    onAddItemToWorkspace(CRAFT_ITEM_ID);
+  }, [craftUnlocked, onAddItemToWorkspace]);
+
   const handleCreativeSpawnClick = useCallback(() => {
     if (creativeDragRef.current?.moved) return;
     if (!creativeUnlocked) return;
@@ -627,6 +638,7 @@ function FlowCanvas({
       .map((workspaceItem) => {
         const item = itemById.get(workspaceItem.itemId);
         if (!item) return null;
+        const isCraftItem = workspaceItem.itemId === CRAFT_ITEM_ID;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
         const isSplitItem = workspaceItem.itemId === SPLIT_ITEM_ID;
         const isOppositeItem = workspaceItem.itemId === OPPOSITE_ITEM_ID;
@@ -659,6 +671,8 @@ function FlowCanvas({
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
+                : isCraftItem
+                  ? "rgba(245, 158, 11, 0.28)"
                 : isSplitItem
                   ? "rgba(251,146,60,0.34)"
                 : isOppositeItem
@@ -668,6 +682,8 @@ function FlowCanvas({
                 : "rgba(99,102,241,0.38)"
               : isCreativeItem
                 ? "linear-gradient(135deg, rgba(88,28,135,0.96), rgba(76,29,149,0.92))"
+                : isCraftItem
+                  ? "rgba(180, 83, 9, 0.96)"
                 : isSplitItem
                   ? "rgba(249,115,22,0.96)"
                 : isOppositeItem
@@ -678,6 +694,8 @@ function FlowCanvas({
             border: isSelected
               ? isCreativeItem
                 ? "1px solid rgba(216,180,254,0.96)"
+                : isCraftItem
+                  ? "1px solid rgba(253, 230, 138, 0.92)"
                 : isSplitItem
                   ? "1px solid rgba(254,215,170,0.94)"
                 : isOppositeItem
@@ -687,6 +705,8 @@ function FlowCanvas({
                 : "1px solid rgba(99,102,241,0.95)"
               : isCreativeItem
                 ? "1px solid rgba(196,181,253,0.8)"
+                : isCraftItem
+                  ? "1px solid rgba(253, 230, 138, 0.76)"
                 : isSplitItem
                   ? "1px solid rgba(254,215,170,0.76)"
                 : isOppositeItem
@@ -697,6 +717,8 @@ function FlowCanvas({
             boxShadow: isSelected
               ? isCreativeItem
                 ? "0 0 0 2px rgba(168,85,247,0.28), 0 8px 24px rgba(88,28,135,0.3)"
+                : isCraftItem
+                  ? "0 0 0 2px rgba(245, 158, 11, 0.18), 0 8px 24px rgba(146, 64, 14, 0.22)"
                 : isSplitItem
                   ? "0 0 0 2px rgba(251,146,60,0.2), 0 8px 24px rgba(194,65,12,0.24)"
                 : isOppositeItem
@@ -706,6 +728,8 @@ function FlowCanvas({
                 : "0 0 0 2px rgba(99,102,241,0.25)"
               : isCreativeItem
                 ? "0 8px 24px rgba(88,28,135,0.18)"
+                : isCraftItem
+                  ? "0 8px 24px rgba(146, 64, 14, 0.18)"
                 : isSplitItem
                   ? "0 8px 24px rgba(194,65,12,0.18)"
                 : isOppositeItem
@@ -1043,6 +1067,20 @@ function FlowCanvas({
       >
         ⬚
       </button>
+      {craftUnlocked ? (
+        <button
+          type="button"
+          className="graph-craft-button"
+          aria-label="Drag Craft into the workspace"
+          title="Drag Craft into the workspace to resolve a combination as a physical crafted result"
+          onPointerDown={(event) =>
+            handleCatalystSpawnPointerDown(event, CRAFT_ITEM_ID)
+          }
+          onClick={handleCraftSpawnClick}
+        >
+          {CRAFT_ITEM.icon}
+        </button>
+      ) : null}
       {randomizeUnlocked ? (
         <button
           type="button"
