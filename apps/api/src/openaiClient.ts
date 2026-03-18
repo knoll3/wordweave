@@ -70,7 +70,8 @@ Rules:
 - Keep the result short and noun-like.
 - Do not return explanations, descriptions, sentences.
 - The result should still feel plausibly craftable from the inputs, just notably more imaginative than the default path.
-- The result should be something that is real and would show up in a google search or on wikipedia, not a term that you just make up.
+- The result should be something that is real and would show up in a google search or on wikipedia.
+- Do not make stuff up. Ask yourself first: "Would this show up on a wikipedia page?"
 
 Return ONLY valid JSON in this format:
 

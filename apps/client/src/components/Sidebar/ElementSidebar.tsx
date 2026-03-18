@@ -120,6 +120,7 @@ const ElementSidebar: React.FC<Props> = ({
   const [loadingItems, setLoadingItems] = useState(false);
   const [semanticPending, setSemanticPending] = useState(false);
   const [semanticLoading, setSemanticLoading] = useState(false);
+  const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [isResettingLibrary, setIsResettingLibrary] = useState(false);
   const [isResettingCache, setIsResettingCache] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
@@ -163,12 +164,18 @@ const ElementSidebar: React.FC<Props> = ({
     const requestId = ++latestRequestIdRef.current;
     try {
       setLoadingItems(true);
+      setLibraryLoadError(null);
       const data = await fetchItems();
       if (requestId !== latestRequestIdRef.current) return;
       setLibraryItems(data);
       onItemsLoaded?.(data);
     } catch (err) {
       console.error("Failed to load items", err);
+      if (requestId === latestRequestIdRef.current) {
+        setLibraryLoadError(
+          err instanceof Error ? err.message : "Failed to load library items"
+        );
+      }
     } finally {
       if (requestId === latestRequestIdRef.current) {
         setLoadingItems(false);
@@ -354,6 +361,8 @@ const ElementSidebar: React.FC<Props> = ({
         <ElementSearch value={search} onChange={handleSearchChange} />
         {loadingItems ? (
           <div className="sidebar-placeholder">Loading items…</div>
+        ) : libraryLoadError ? (
+          <div className="sidebar-placeholder">{libraryLoadError}</div>
         ) : (
           <div className="library-results">
             <ElementList

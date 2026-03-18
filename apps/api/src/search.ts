@@ -172,8 +172,9 @@ async function upsertElementEmbeddings(
     const batch = rows.slice(offset, offset + EMBEDDING_BATCH_SIZE);
     const texts = batch.map((row) => buildSearchText(row.name));
     const response = await generateEmbeddings(texts);
+    const savepointName = `element_embedding_batch_${offset}`;
 
-    db.run("BEGIN");
+    db.run(`SAVEPOINT ${savepointName}`);
     try {
       const stmt = db.prepare(
         `
@@ -196,9 +197,10 @@ async function upsertElementEmbeddings(
         ]);
       });
       stmt.free();
-      db.run("COMMIT");
+      db.run(`RELEASE SAVEPOINT ${savepointName}`);
     } catch (error) {
-      db.run("ROLLBACK");
+      db.run(`ROLLBACK TO SAVEPOINT ${savepointName}`);
+      db.run(`RELEASE SAVEPOINT ${savepointName}`);
       throw error;
     }
   }

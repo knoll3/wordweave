@@ -9,8 +9,7 @@ import type {
   RecentRecipe,
 } from "../types";
 
-const API_BASE =
-  import.meta.env.VITE_API_BASE_URL ?? "http://localhost:4000/api";
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -29,12 +28,16 @@ async function handleResponse<T>(res: Response): Promise<T> {
 }
 
 export async function fetchItems(query?: string): Promise<Item[]> {
-  const url = new URL(`${API_BASE}/elements`);
+  const url = new URL(`${API_BASE}/elements`, window.location.origin);
   if (query && query.trim()) {
     url.searchParams.set("q", query.trim());
   }
   const res = await fetch(url.toString());
-  return handleResponse<Item[]>(res);
+  const data = await handleResponse<unknown>(res);
+  if (!Array.isArray(data)) {
+    throw new Error("Items response was not an array");
+  }
+  return data as Item[];
 }
 
 export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {

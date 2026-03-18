@@ -44,7 +44,7 @@ At the repo root:
    - **`API_PORT`** (optional, default `4000`)
    - **`CLIENT_PORT`** (optional, default `5173`)
 
-The `.env` file is read by the API; the client talks to `http://localhost:4000/api` by default unless you override `VITE_API_BASE_URL` in a client-side `.env` if desired.
+The `.env` file is read by the API. In development, the client uses the Vite dev server proxy by default and talks to `/api`, which is forwarded to the API server. If needed, you can still override `VITE_API_BASE_URL` in a client-side `.env`.
 
 ---
 
@@ -70,6 +70,7 @@ npm run dev:api
 
 - Starts the Express API with hot-reload (ts-node-dev).
 - Default base URL: `http://localhost:4000/api`.
+- The API binds to `0.0.0.0` by default so other machines on your local network can reach it.
 - On first run, a SQLite database file is created at `apps/api/data/craft.db` and seeded with four base elements (Fire, Water, Earth, Air).
 
 Key API routes:
@@ -104,6 +105,7 @@ npm run dev:client
 Then open:
 
 - `http://localhost:5173` (or your configured `CLIENT_PORT`)
+- From another machine on the same LAN, open `http://YOUR_HOST_MACHINE_IP:5173`
 
 Make sure the API is also running so the client can load elements and generate combinations.
 
@@ -141,4 +143,3 @@ You can then use the app at `http://localhost:5173`.
 - The **Recent creations** panel shows a compact list of your latest canonical results.
 
 This prototype is designed for a single local user, optimized for simplicity and fast iteration rather than multi-user scale.
-

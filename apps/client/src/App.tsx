@@ -39,6 +39,8 @@ const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
+const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
+const LAST_CLIENT_ERROR_STORAGE_KEY = "wordweave.last-client-error";
 const TOAST_DURATION_MS = 3500;
 
 const FEATURE_QUESTS: Array<{
@@ -116,8 +118,7 @@ const FEATURE_QUESTS: Array<{
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
-  const [isCombining, setIsCombining] = useState(false);
-  const [combiningNodeIds, setCombiningNodeIds] = useState<string[] | null>(null);
+  const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -129,6 +130,7 @@ const App: React.FC = () => {
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
   const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
+  const [lastClientError, setLastClientError] = useState<string | null>(null);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -144,6 +146,48 @@ const App: React.FC = () => {
       FEATURE_QUESTS.some((quest) => quest.key === storedTrackedQuest)
     ) {
       setTrackedQuestKey(storedTrackedQuest);
+    }
+
+    const storedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (storedWorkspace) {
+      try {
+        const parsed = JSON.parse(storedWorkspace);
+        if (Array.isArray(parsed)) {
+          setWorkspaceItems(
+            parsed.filter(
+              (item): item is WorkspaceItem =>
+                !!item &&
+                typeof item.nodeId === "string" &&
+                typeof item.itemId === "number" &&
+                item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID &&
+                !!item.position &&
+                typeof item.position.x === "number" &&
+                typeof item.position.y === "number"
+            )
+          );
+        }
+      } catch (err) {
+        console.warn("Failed to restore workspace items", err);
+      }
+    }
+
+    const storedClientError = window.localStorage.getItem(
+      LAST_CLIENT_ERROR_STORAGE_KEY
+    );
+    if (storedClientError) {
+      try {
+        const parsed = JSON.parse(storedClientError) as {
+          message?: string;
+          capturedAt?: string;
+        };
+        setLastClientError(
+          parsed.capturedAt
+            ? `Client crash captured at ${parsed.capturedAt}: ${parsed.message ?? "Unknown error"}`
+            : parsed.message ?? "A client crash was captured."
+        );
+      } catch {
+        setLastClientError("A client crash was captured.");
+      }
     }
   }, []);
 
@@ -162,6 +206,16 @@ const App: React.FC = () => {
     if (!trackedQuestKey) return;
     window.localStorage.setItem(TRACKED_QUEST_STORAGE_KEY, trackedQuestKey);
   }, [trackedQuestKey]);
+
+  useEffect(() => {
+    const persistedItems = workspaceItems.filter(
+      (item) => item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID
+    );
+    window.localStorage.setItem(
+      WORKSPACE_STORAGE_KEY,
+      JSON.stringify(persistedItems)
+    );
+  }, [workspaceItems]);
 
   useEffect(() => {
     if (!errorMessage) return;
@@ -236,7 +290,11 @@ const App: React.FC = () => {
     return items.find((item) => item.id === itemId);
   }
 
-  function addItemToWorkspace(itemId: number, position?: { x: number; y: number }) {
+  function addItemToWorkspace(
+    itemId: number,
+    position?: { x: number; y: number },
+    options?: { isNewDiscovery?: boolean }
+  ) {
     const item = findItemById(itemId);
     if (!item) return;
     const anchorPosition =
@@ -259,6 +317,7 @@ const App: React.FC = () => {
         nodeId: makeWorkspaceNodeId(),
         itemId,
         position: { x: nextPosition.x, y: nextPosition.y },
+        isNewDiscovery: options?.isNewDiscovery ?? false,
       },
     ]);
   }
@@ -292,9 +351,13 @@ const App: React.FC = () => {
     nodeIds: string[],
     options?: { selectionLayout?: SelectionCombineLayout | null }
   ): Promise<boolean> {
-    if (isCombining) return false;
     const uniqueNodeIds = Array.from(new Set(nodeIds));
     if (uniqueNodeIds.length < 2) return false;
+    if (uniqueNodeIds.some((nodeId) => combiningNodeIds.includes(nodeId))) {
+      showError("One or more selected items are already combining.", null);
+      return false;
+    }
+    let operationCombiningIds: string[] = uniqueNodeIds;
 
     const selectedNodes = uniqueNodeIds
       .map((nodeId) => workspaceItems.find((n) => n.nodeId === nodeId))
@@ -398,10 +461,9 @@ const App: React.FC = () => {
     });
 
     try {
-      setIsCombining(true);
       const selectionLayout = options?.selectionLayout ?? null;
       const placeholderNodeId = selectionLayout?.placeholderNodeId ?? null;
-      const combiningIds = placeholderNodeId
+      operationCombiningIds = placeholderNodeId
         ? [...uniqueNodeIds, placeholderNodeId]
         : uniqueNodeIds;
 
@@ -424,7 +486,9 @@ const App: React.FC = () => {
         });
       }
 
-      setCombiningNodeIds(combiningIds);
+      setCombiningNodeIds((prev) =>
+        Array.from(new Set([...prev, ...operationCombiningIds]))
+      );
       const recipe = await combineElements(inputNames, {
         crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
@@ -449,6 +513,7 @@ const App: React.FC = () => {
         if (exists) return prev;
         return [...prev, recipe.resultElement!];
       });
+      const isNewDiscovery = !items.some((el) => el.id === recipe.resultElement!.id);
       setLibraryRefreshToken((prev) => prev + 1);
       console.log("[combine] item added", recipe.resultElement);
 
@@ -459,6 +524,7 @@ const App: React.FC = () => {
               ? {
                   ...node,
                   itemId: recipe.resultElement!.id,
+                  isNewDiscovery,
                 }
               : node
           )
@@ -484,6 +550,7 @@ const App: React.FC = () => {
               nodeId: makeWorkspaceNodeId(),
               itemId: recipe.resultElement!.id,
               position: center,
+              isNewDiscovery,
             },
           ];
         });
@@ -504,8 +571,9 @@ const App: React.FC = () => {
       );
       return false;
     } finally {
-      setIsCombining(false);
-      setCombiningNodeIds(null);
+      setCombiningNodeIds((prev) =>
+        prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
+      );
       console.log("[combine] finished");
     }
   }
@@ -524,6 +592,22 @@ const App: React.FC = () => {
             type="button"
             className="icon-button"
             onClick={() => setErrorMessage(null)}
+            aria-label="Dismiss"
+          >
+            ×
+          </button>
+        </div>
+      )}
+      {lastClientError && (
+        <div className="toast">
+          <span className="toast-text">{lastClientError}</span>
+          <button
+            type="button"
+            className="icon-button"
+            onClick={() => {
+              setLastClientError(null);
+              window.localStorage.removeItem(LAST_CLIENT_ERROR_STORAGE_KEY);
+            }}
             aria-label="Dismiss"
           >
             ×

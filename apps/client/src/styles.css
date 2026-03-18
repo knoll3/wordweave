@@ -985,6 +985,38 @@ body {
   justify-content: center;
 }
 
+.graph-node-label {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+  justify-content: center;
+  overflow: visible;
+}
+
+.graph-node-label-text {
+  display: inline-flex;
+  align-items: center;
+}
+
+.graph-node-new-discovery-badge {
+  position: absolute;
+  right: -12px;
+  bottom: -10px;
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  line-height: 1;
+  color: #fef3c7;
+  background: rgba(251, 191, 36, 0.96);
+  box-shadow: 0 0 0 1px rgba(120, 53, 15, 0.26);
+  pointer-events: none;
+}
+
 .graph-result-placeholder-label {
   width: 100%;
   display: inline-flex;
@@ -1560,15 +1592,28 @@ body {
 @media (max-width: 960px) {
   .app-root {
     flex-direction: column;
+    max-height: none;
+    overflow: auto;
   }
 
   .sidebar {
     width: 100%;
-    flex-direction: row;
-    gap: 16px;
+    flex-direction: column;
+    gap: 12px;
+    max-height: 45dvh;
+    overflow: auto;
   }
 
   .sidebar-section {
-    flex: 1;
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+
+  .library-section {
+    min-height: 280px;
+  }
+
+  .main-area {
+    min-height: 55dvh;
   }
 }

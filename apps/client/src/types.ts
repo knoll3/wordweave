@@ -125,6 +125,7 @@ export interface WorkspaceItem {
   nodeId: string;
   itemId: number;
   position: { x: number; y: number };
+  isNewDiscovery?: boolean;
 }
 
 export interface SelectionCombineLayout {

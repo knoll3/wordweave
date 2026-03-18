@@ -38,7 +38,7 @@ import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 interface Props {
   items: Item[];
   workspaceItems: WorkspaceItem[];
-  onWorkspaceItemsChange: (items: WorkspaceItem[]) => void;
+  onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
   onClearWorkspace: () => void;
@@ -93,6 +93,7 @@ interface MarqueeSelection {
 const LONG_PRESS_MS = 550;
 const MOVE_THRESHOLD_PX = 10;
 const NODE_DRAG_THRESHOLD_PX = 12;
+const DOUBLE_CLICK_DUPLICATE_OFFSET_PX = 10;
 
 function FlowCanvas({
   items,
@@ -136,6 +137,7 @@ function FlowCanvas({
   const [selectionCombinePlaceholderId, setSelectionCombinePlaceholderId] = useState<
     string | null
   >(null);
+  const workspaceItemsRef = useRef(workspaceItems);
   const selectionMoveDragRef = useRef<{
     pointerId: number;
     startFlowPoint: { x: number; y: number };
@@ -191,6 +193,10 @@ function FlowCanvas({
   }, [items]);
 
   useEffect(() => {
+    workspaceItemsRef.current = workspaceItems;
+  }, [workspaceItems]);
+
+  useEffect(() => {
     const workspaceNodeIds = new Set(workspaceItems.map((item) => item.nodeId));
     setSelectedNodeIds((prev) => prev.filter((id) => workspaceNodeIds.has(id)));
     setSelectionCombinePlaceholderId((prev) =>
@@ -199,20 +205,28 @@ function FlowCanvas({
   }, [workspaceItems]);
 
   useEffect(() => {
-    if (selectionCombineAwaitingStart && combiningNodeIds?.length) {
+    if (
+      selectionCombineAwaitingStart &&
+      selectionCombinePlaceholderId &&
+      workspaceItems.some((item) => item.nodeId === selectionCombinePlaceholderId)
+    ) {
       setSelectionCombineAwaitingStart(false);
       setSelectionCombineActive(true);
     }
-  }, [combiningNodeIds, selectionCombineAwaitingStart]);
+  }, [selectionCombineAwaitingStart, selectionCombinePlaceholderId, workspaceItems]);
 
   useEffect(() => {
-    if (selectionCombineActive && !combiningNodeIds?.length) {
+    if (
+      selectionCombineActive &&
+      selectionCombinePlaceholderId &&
+      !workspaceItems.some((item) => item.nodeId === selectionCombinePlaceholderId)
+    ) {
       setSelectionCombineActive(false);
       setSelectionCombineAwaitingStart(false);
       setSelectionCombinePlaceholderId(null);
       setSelectedNodeIds([]);
     }
-  }, [combiningNodeIds, selectionCombineActive]);
+  }, [selectionCombineActive, selectionCombinePlaceholderId, workspaceItems]);
 
   const selectionMode = selectedNodeIds.length > 0;
   const hasMultiSelection = selectedNodeIds.length >= 2;
@@ -253,7 +267,9 @@ function FlowCanvas({
 
       return nodeIds
         .map((nodeId) => {
-          const workspaceNode = workspaceItems.find((item) => item.nodeId === nodeId);
+          const workspaceNode = workspaceItemsRef.current.find(
+            (item) => item.nodeId === nodeId
+          );
           const item = workspaceNode ? itemById.get(workspaceNode.itemId) : null;
           const icon = item?.icon || item?.name.charAt(0).toUpperCase() || "•";
           const name = item?.name ?? "";
@@ -308,7 +324,7 @@ function FlowCanvas({
           } => !!node
         );
     },
-    [itemById, reactFlow, workspaceItems]
+    [itemById, reactFlow]
   );
 
   const selectionBoundsVisual = useMemo(() => {
@@ -356,19 +372,20 @@ function FlowCanvas({
     const gapY = 10;
     const placeholderWidth = 132;
     const placeholderHeight = 34;
-
     const flowNodes = selectedNodeIds
       .map((nodeId) => {
         const node = reactFlow.getNode(nodeId);
         if (!node) return null;
+        const width = node.width ?? 110;
+        const height = node.height ?? 34;
         return {
           nodeId,
-          width: node.width ?? 110,
-          height: node.height ?? 34,
+          width,
+          height,
           left: node.position.x,
           top: node.position.y,
-          right: node.position.x + (node.width ?? 110),
-          bottom: node.position.y + (node.height ?? 34),
+          right: node.position.x + width,
+          bottom: node.position.y + height,
         };
       })
       .filter(
@@ -664,42 +681,6 @@ function FlowCanvas({
     onAddItemToWorkspace(WORD_COMBINE_ITEM_ID);
   }, [onAddItemToWorkspace, wordCombineUnlocked]);
 
-  const handleSelectionMovePointerDown = useCallback(
-    (event: React.PointerEvent<HTMLButtonElement>) => {
-      if (!reactFlow || selectedNodeIds.length === 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-
-      const startFlowPoint = reactFlow.screenToFlowPosition({
-        x: event.clientX,
-        y: event.clientY,
-      });
-      const initialPositions = selectedNodeIds
-        .map((nodeId) => {
-          const workspaceNode = workspaceItems.find((item) => item.nodeId === nodeId);
-          return workspaceNode
-            ? { nodeId, position: workspaceNode.position }
-            : null;
-        })
-        .filter(
-          (
-            value
-          ): value is { nodeId: string; position: { x: number; y: number } } => !!value
-        );
-
-      selectionMoveDragRef.current = {
-        pointerId: event.pointerId,
-        startFlowPoint,
-        initialPositions,
-      };
-
-      window.addEventListener("pointermove", handleSelectionMovePointerMove);
-      window.addEventListener("pointerup", handleSelectionMovePointerUp);
-      window.addEventListener("pointercancel", handleSelectionMovePointerUp);
-    },
-    [reactFlow, selectedNodeIds, workspaceItems]
-  );
-
   const handleSelectionMovePointerMove = useCallback((event: PointerEvent) => {
     const dragState = selectionMoveDragRef.current;
     if (!dragState || !reactFlow) return;
@@ -711,8 +692,8 @@ function FlowCanvas({
       x: currentFlowPoint.x - dragState.startFlowPoint.x,
       y: currentFlowPoint.y - dragState.startFlowPoint.y,
     };
-    onWorkspaceItemsChange(
-      workspaceItems.map((item) => {
+    onWorkspaceItemsChange((prev) =>
+      prev.map((item) => {
         const initial = dragState.initialPositions.find(
           (entry) => entry.nodeId === item.nodeId
         );
@@ -727,7 +708,7 @@ function FlowCanvas({
           : item;
       })
     );
-  }, [onWorkspaceItemsChange, reactFlow, workspaceItems]);
+  }, [onWorkspaceItemsChange, reactFlow]);
 
   const handleSelectionMovePointerUp = useCallback((event: PointerEvent) => {
     if (
@@ -749,6 +730,45 @@ function FlowCanvas({
       window.removeEventListener("pointercancel", handleSelectionMovePointerUp);
     };
   }, [handleSelectionMovePointerMove, handleSelectionMovePointerUp]);
+
+  const handleSelectionMovePointerDown = useCallback(
+    (event: React.PointerEvent<HTMLButtonElement>) => {
+      if (!reactFlow || selectedNodeIds.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture?.(event.pointerId);
+
+      const startFlowPoint = reactFlow.screenToFlowPosition({
+        x: event.clientX,
+        y: event.clientY,
+      });
+      const initialPositions = selectedNodeIds
+        .map((nodeId) => {
+          const workspaceNode = workspaceItemsRef.current.find(
+            (item) => item.nodeId === nodeId
+          );
+          return workspaceNode
+            ? { nodeId, position: workspaceNode.position }
+            : null;
+        })
+        .filter(
+          (
+            value
+          ): value is { nodeId: string; position: { x: number; y: number } } => !!value
+        );
+
+      selectionMoveDragRef.current = {
+        pointerId: event.pointerId,
+        startFlowPoint,
+        initialPositions,
+      };
+
+      window.addEventListener("pointermove", handleSelectionMovePointerMove);
+      window.addEventListener("pointerup", handleSelectionMovePointerUp);
+      window.addEventListener("pointercancel", handleSelectionMovePointerUp);
+    },
+    [handleSelectionMovePointerMove, handleSelectionMovePointerUp, reactFlow, selectedNodeIds]
+  );
 
   const startMarqueeSelectionAtPoint = useCallback(
     (clientX: number, clientY: number) => {
@@ -884,6 +904,7 @@ function FlowCanvas({
         const isCombiningNode = !!combiningNodeIds?.includes(workspaceItem.nodeId);
         const shouldPulseCombineNode = isCombiningNode;
         const isSelected = selectedNodeIds.includes(workspaceItem.nodeId);
+        const isNewDiscovery = workspaceItem.isNewDiscovery === true;
         const isSelectionCombineNode =
           selectionCombineActive ||
           (selectionCombineAwaitingStart &&
@@ -901,20 +922,33 @@ function FlowCanvas({
                 <span className="graph-result-placeholder-spinner" />
               </span>
             ) : (
-              `${icon} ${item.name}`
+              <span className="graph-node-label">
+                <span className="graph-node-label-text">{`${icon} ${item.name}`}</span>
+                {isNewDiscovery ? (
+                  <span
+                    className="graph-node-new-discovery-badge"
+                    aria-label="New discovery"
+                    title="New discovery"
+                  >
+                    ✦
+                  </span>
+                ) : null}
+              </span>
             ),
           },
           type: "default",
+          draggable: !isCombiningNode && !isResultPlaceholder,
           className: `${shouldPulseCombineNode ? "node-combining" : ""}${
             isResultPlaceholder ? " graph-result-placeholder-node" : ""
           }`.trim(),
           zIndex: isDragging ? 1000 : isSelected ? 20 : 1,
           style: {
-            borderRadius: 999,
+            borderRadius: 4,
             padding: "6px 12px",
             fontSize: 11,
             minWidth: isResultPlaceholder ? 132 : undefined,
             minHeight: isResultPlaceholder ? 34 : undefined,
+            overflow: "visible",
             background: isSelected
               ? isCreativeItem
                 ? "rgba(168,85,247,0.42)"
@@ -1049,8 +1083,8 @@ function FlowCanvas({
 
   const onNodeDrag: NodeDragHandler = (_event, draggedNode) => {
     setDraggingNodeId(draggedNode.id);
-    onWorkspaceItemsChange(
-      workspaceItems.map((item) =>
+    onWorkspaceItemsChange((prev) =>
+      prev.map((item) =>
         item.nodeId === draggedNode.id
           ? { ...item, position: draggedNode.position }
           : item
@@ -1081,8 +1115,8 @@ function FlowCanvas({
       }
     }
 
-    onWorkspaceItemsChange(
-      workspaceItems.map((item) =>
+    onWorkspaceItemsChange((prev) =>
+      prev.map((item) =>
         item.nodeId === draggedNode.id
           ? { ...item, position: draggedNode.position }
           : item
@@ -1099,8 +1133,6 @@ function FlowCanvas({
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (combiningNodeIds?.length) return;
-
     const target = event.target as HTMLElement | null;
     const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
 
@@ -1110,8 +1142,6 @@ function FlowCanvas({
   };
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (combiningNodeIds?.length) return;
-
     const target = event.target as HTMLElement | null;
     const nodeEl = target?.closest?.(".react-flow__node") as HTMLElement | null;
     const nodeId = nodeEl?.getAttribute("data-id") ?? null;
@@ -1278,8 +1308,8 @@ function FlowCanvas({
         }}
         onNodeDoubleClick={(_event, node) => {
           onDuplicateWorkspaceItem(node.id, {
-            x: node.position.x + 28,
-            y: node.position.y + 28,
+            x: node.position.x + DOUBLE_CLICK_DUPLICATE_OFFSET_PX,
+            y: node.position.y + DOUBLE_CLICK_DUPLICATE_OFFSET_PX,
           });
         }}
       >
