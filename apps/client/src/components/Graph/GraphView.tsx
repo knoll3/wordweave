@@ -94,6 +94,7 @@ const LONG_PRESS_MS = 550;
 const MOVE_THRESHOLD_PX = 10;
 const NODE_DRAG_THRESHOLD_PX = 12;
 const DOUBLE_CLICK_DUPLICATE_OFFSET_PX = 10;
+const COMBINE_TARGET_SLOP_PX = 16;
 
 function FlowCanvas({
   items,
@@ -798,8 +799,8 @@ function FlowCanvas({
     return overlapWidth * overlapHeight;
   };
 
-  const getHoverTargetNodeId = useCallback(
-    (draggedNodeId: string) => {
+  const getDropTargetNodeId = useCallback(
+    (draggedNodeId: string, pointer?: { x: number; y: number }) => {
       if (!wrapperRef.current) return null;
 
       const draggedEl = wrapperRef.current.querySelector(
@@ -808,75 +809,56 @@ function FlowCanvas({
       if (!draggedEl) return null;
 
       const draggedRect = draggedEl.getBoundingClientRect();
+      const draggedBox = {
+        x: draggedRect.left,
+        y: draggedRect.top,
+        width: draggedRect.width,
+        height: draggedRect.height,
+      };
+
       const candidateEls = Array.from(
         wrapperRef.current.querySelectorAll(".react-flow__node[data-id]")
       ) as HTMLElement[];
 
-      const overlaps = candidateEls
+      const candidates = candidateEls
         .map((nodeEl) => {
           const nodeId = nodeEl.getAttribute("data-id");
           if (!nodeId || nodeId === draggedNodeId) return null;
 
           const rect = nodeEl.getBoundingClientRect();
-          const area = overlapArea(
-            {
-              x: draggedRect.left,
-              y: draggedRect.top,
-              width: draggedRect.width,
-              height: draggedRect.height,
-            },
-            {
-              x: rect.left,
-              y: rect.top,
-              width: rect.width,
-              height: rect.height,
-            }
-          );
+          const expandedBox = {
+            x: rect.left - COMBINE_TARGET_SLOP_PX,
+            y: rect.top - COMBINE_TARGET_SLOP_PX,
+            width: rect.width + COMBINE_TARGET_SLOP_PX * 2,
+            height: rect.height + COMBINE_TARGET_SLOP_PX * 2,
+          };
+          const area = overlapArea(draggedBox, expandedBox);
+          const pointerInside = pointer
+            ? pointer.x >= expandedBox.x &&
+              pointer.x <= expandedBox.x + expandedBox.width &&
+              pointer.y >= expandedBox.y &&
+              pointer.y <= expandedBox.y + expandedBox.height
+            : false;
 
-          return area > 0 ? { nodeId, area } : null;
+          if (!pointerInside && area <= 0) return null;
+
+          return { nodeId, area, pointerInside };
         })
         .filter(
-          (entry): entry is { nodeId: string; area: number } => !!entry
+          (
+            entry
+          ): entry is { nodeId: string; area: number; pointerInside: boolean } => !!entry
         )
-        .sort((a, b) => b.area - a.area);
+        .sort((a, b) => {
+          if (a.pointerInside !== b.pointerInside) {
+            return a.pointerInside ? -1 : 1;
+          }
+          return b.area - a.area;
+        });
 
-      return overlaps[0]?.nodeId ?? null;
+      return candidates[0]?.nodeId ?? null;
     },
     []
-  );
-
-  const getOverlapsForDraggedNode = useCallback(
-    (draggedNode: Node) => {
-      if (!reactFlow) return [];
-      const width = draggedNode.width;
-      const height = draggedNode.height;
-      const absolutePosition =
-        draggedNode.positionAbsolute ?? draggedNode.position;
-      if (!width || !height) return [];
-
-      const draggedRect = {
-        x: absolutePosition.x,
-        y: absolutePosition.y,
-        width,
-        height,
-      };
-
-      return reactFlow
-        .getIntersectingNodes(draggedRect)
-        .filter((node) => node.id !== draggedNode.id)
-        .map((node) => ({
-          node,
-          area: overlapArea(draggedRect, {
-            x: node.positionAbsolute?.x ?? node.position.x,
-            y: node.positionAbsolute?.y ?? node.position.y,
-            width: node.width ?? 0,
-            height: node.height ?? 0,
-          }),
-        }))
-        .filter((entry) => entry.area > 0)
-        .sort((a, b) => b.area - a.area);
-    },
-    [reactFlow]
   );
 
   const nodes: Node[] = useMemo(() => {
@@ -1094,7 +1076,7 @@ function FlowCanvas({
     // Use live DOM overlap for hover state. It is more reliable mid-drag than
     // React Flow's internal node geometry, which can lag during movement.
     requestAnimationFrame(() => {
-      setHoverTargetNodeId(getHoverTargetNodeId(draggedNode.id));
+      setHoverTargetNodeId(getDropTargetNodeId(draggedNode.id));
     });
   };
 
@@ -1123,13 +1105,20 @@ function FlowCanvas({
       )
     );
 
-    const overlaps = getOverlapsForDraggedNode(draggedNode);
+    const dropTargetNodeId =
+      "clientX" in event && "clientY" in event
+        ? getDropTargetNodeId(draggedNode.id, {
+            x: event.clientX,
+            y: event.clientY,
+          })
+        : getDropTargetNodeId(draggedNode.id);
 
     setDraggingNodeId(null);
     setHoverTargetNodeId(null);
 
-    if (!overlaps.length) return;
-    onCombineWorkspaceItems(draggedNode.id, overlaps[0].node.id);
+    if (!dropTargetNodeId) return;
+    setSelectedNodeIds([]);
+    onCombineWorkspaceItems(draggedNode.id, dropTargetNodeId);
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -1531,9 +1520,15 @@ function FlowCanvas({
               setSelectionCombinePlaceholderId(layout.placeholderNodeId);
               setSelectionCombineAwaitingStart(true);
               const started = await onCombineWorkspaceSelection(layout);
-              if (!started) {
+              if (started) {
+                setSelectionCombineAwaitingStart(false);
+                setSelectionCombineActive(false);
+                setSelectionCombinePlaceholderId(null);
+                setSelectedNodeIds([]);
+              } else {
                 setSelectionCombineAwaitingStart(false);
                 setSelectionCombinePlaceholderId(null);
+                setSelectedNodeIds(layout.nodeIds);
               }
             }}
           >

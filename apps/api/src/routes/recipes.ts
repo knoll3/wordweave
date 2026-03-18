@@ -13,7 +13,6 @@ import {
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
-import { getUnlockedAutoPromptKeyForInputs } from "../unlocks";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -354,22 +353,13 @@ router.post("/combine", async (req, res) => {
 
   try {
     const db = await getDb();
-    const autoPromptKey =
-      activeModeCount === 0
-        ? getUnlockedAutoPromptKeyForInputs(
-            db,
-            normalizedInputs.map((input) => input.normalized)
-          )
-        : null;
-
-    const effectiveCreative = creative || autoPromptKey === "creative";
-    const effectiveSubtractive = subtractive || autoPromptKey === "split";
-    const effectiveOpposite = opposite || autoPromptKey === "opposite";
-    const effectivePopCulture = popCulture || autoPromptKey === "pop_culture";
-    const effectiveCrafting = crafting || autoPromptKey === "craft";
-    const effectiveEvolve = evolve || autoPromptKey === "evolve";
-    const effectiveWordCombine =
-      wordCombine || autoPromptKey === "word_combine";
+    const effectiveCreative = creative;
+    const effectiveSubtractive = subtractive;
+    const effectiveOpposite = opposite;
+    const effectivePopCulture = popCulture;
+    const effectiveCrafting = crafting;
+    const effectiveEvolve = evolve;
+    const effectiveWordCombine = wordCombine;
 
     const recipeInputKey = effectiveCreative
       ? `creative|${inputKey}`
@@ -391,7 +381,6 @@ router.post("/combine", async (req, res) => {
 
     console.log("[api][combine] resolved mode", {
       inputKey,
-      autoPromptKey,
       creative: effectiveCreative,
       subtractive: effectiveSubtractive,
       opposite: effectiveOpposite,

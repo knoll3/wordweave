@@ -18,7 +18,6 @@ type UnlockDefinition = {
   summary: string;
   acceptedWords: string[];
   similarityThreshold: number;
-  autoPromptEligible?: boolean;
 };
 
 type DiscoveredRow = {
@@ -56,7 +55,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "dream",
     ],
     similarityThreshold: 0.82,
-    autoPromptEligible: true,
   },
   {
     key: "split",
@@ -83,7 +81,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "detach",
     ],
     similarityThreshold: 0.84,
-    autoPromptEligible: true,
   },
   {
     key: "opposite",
@@ -105,7 +102,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "flip",
     ],
     similarityThreshold: 0.84,
-    autoPromptEligible: true,
   },
   {
     key: "random_tools",
@@ -159,7 +155,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "assembly",
     ],
     similarityThreshold: 0.82,
-    autoPromptEligible: true,
   },
   {
     key: "evolve",
@@ -189,7 +184,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "ascend",
     ],
     similarityThreshold: 0.82,
-    autoPromptEligible: true,
   },
   {
     key: "pop_culture",
@@ -219,7 +213,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "entertainment",
     ],
     similarityThreshold: 0.82,
-    autoPromptEligible: true,
   },
   {
     key: "word_combine",
@@ -244,7 +237,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
       "term",
     ],
     similarityThreshold: 0.83,
-    autoPromptEligible: true,
   },
 ];
 
@@ -517,20 +509,4 @@ export function isKnownUnlockKey(value: string): value is UnlockKey {
 
 export function getUnlockDefinitions() {
   return UNLOCK_DEFINITIONS;
-}
-
-export function getUnlockedAutoPromptKeyForInputs(
-  db: Database,
-  inputs: string[]
-): UnlockKey | null {
-  const normalizedInputs = new Set(inputs.map((value) => normalize(value)));
-  for (const definition of UNLOCK_DEFINITIONS) {
-    if (!definition.autoPromptEligible || !isUnlocked(db, definition.key)) continue;
-    if (
-      definition.acceptedWords.some((word) => normalizedInputs.has(normalize(word)))
-    ) {
-      return definition.key;
-    }
-  }
-  return null;
 }

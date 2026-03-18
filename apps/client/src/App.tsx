@@ -125,7 +125,7 @@ const App: React.FC = () => {
     x: number;
     y: number;
   } | null>(null);
-  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1-nano");
+  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
