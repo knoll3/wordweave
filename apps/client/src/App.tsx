@@ -114,9 +114,43 @@ const FEATURE_QUESTS: Array<{
   },
 ];
 
+const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const storedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
+  if (!storedWorkspace) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(storedWorkspace);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(
+      (item): item is WorkspaceItem =>
+        !!item &&
+        typeof item.nodeId === "string" &&
+        typeof item.itemId === "number" &&
+        item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID &&
+        !!item.position &&
+        typeof item.position.x === "number" &&
+        typeof item.position.y === "number"
+    );
+  } catch (err) {
+    console.warn("Failed to restore workspace items", err);
+    return [];
+  }
+};
+
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
-  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
+  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(
+    loadStoredWorkspaceItems
+  );
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -144,30 +178,6 @@ const App: React.FC = () => {
     ) {
       setTrackedQuestKey(storedTrackedQuest);
     }
-
-    const storedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (storedWorkspace) {
-      try {
-        const parsed = JSON.parse(storedWorkspace);
-        if (Array.isArray(parsed)) {
-          setWorkspaceItems(
-            parsed.filter(
-              (item): item is WorkspaceItem =>
-                !!item &&
-                typeof item.nodeId === "string" &&
-                typeof item.itemId === "number" &&
-                item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID &&
-                !!item.position &&
-                typeof item.position.x === "number" &&
-                typeof item.position.y === "number"
-            )
-          );
-        }
-      } catch (err) {
-        console.warn("Failed to restore workspace items", err);
-      }
-    }
-
   }, []);
 
   useEffect(() => {
@@ -187,14 +197,16 @@ const App: React.FC = () => {
   }, [trackedQuestKey]);
 
   useEffect(() => {
-    const persistedItems = workspaceItems.filter(
-      (item) => item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID
-    );
+    if (combiningNodeIds.length > 0) return;
+    if (workspaceItems.some((item) => item.itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID)) {
+      return;
+    }
+
     window.localStorage.setItem(
       WORKSPACE_STORAGE_KEY,
-      JSON.stringify(persistedItems)
+      JSON.stringify(workspaceItems)
     );
-  }, [workspaceItems]);
+  }, [combiningNodeIds, workspaceItems]);
 
   useEffect(() => {
     if (!errorMessage) return;

@@ -63,6 +63,7 @@ type PanState = {
   startClientY: number;
   startCameraX: number;
   startCameraY: number;
+  moved: boolean;
 };
 
 type SelectionDragState = {
@@ -113,6 +114,7 @@ const GRID_CELL_GAP_X = 18;
 const GRID_CELL_GAP_Y = 16;
 const SELECTION_PADDING = 14;
 const PLACEHOLDER_WIDTH = 120;
+const PAN_DRAG_THRESHOLD = 4;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -277,6 +279,27 @@ function GraphView({
     refreshSelectionOverlay();
   };
 
+  const frameWorkspaceItems = (
+    app: Application,
+    itemsToFrame: WorkspaceItem[]
+  ) => {
+    const anchorItem = itemsToFrame[itemsToFrame.length - 1];
+    if (!anchorItem) {
+      cameraRef.current = {
+        x: app.renderer.width / 2 - INITIAL_WORLD_CENTER.x,
+        y: app.renderer.height / 2 - INITIAL_WORLD_CENTER.y,
+        zoom: 1,
+      };
+      return;
+    }
+
+    cameraRef.current = {
+      x: app.renderer.width / 2 - (anchorItem.position.x + PLACEHOLDER_WIDTH / 2),
+      y: app.renderer.height / 2 - (anchorItem.position.y + CARD_HEIGHT / 2),
+      zoom: 1,
+    };
+  };
+
   const pixiPointerToWorld = (event: FederatedPointerEvent) => {
     const camera = cameraRef.current;
     return {
@@ -404,27 +427,34 @@ function GraphView({
     setSelectionOverlayRect(null);
   };
 
-  const getSelectionWorldBounds = (layout: SelectionCombineLayout) => {
-    const involvedNodeIds = new Set([
-      ...layout.nodeIds,
-      layout.placeholderNodeId,
-    ]);
-    const entries = Array.from(involvedNodeIds).map((nodeId) => {
-      const position =
-        nodeId === layout.placeholderNodeId
-          ? layout.placeholderPosition
-          : layout.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
-      const width =
-        nodeId === layout.placeholderNodeId
-          ? Math.max(
-              ...layout.nodeIds.map(
-                (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
-              ),
-              180
-            )
-          : itemViewsRef.current.get(nodeId)?.width ?? 0;
-      return position ? { ...position, width } : null;
-    }).filter(Boolean) as Array<{ x: number; y: number; width: number }>;
+  const getSelectionWorldBounds = (
+    nodeIds: string[],
+    layout?: SelectionCombineLayout | null
+  ) => {
+    const involvedNodeIds = new Set(nodeIds);
+    if (layout) {
+      involvedNodeIds.add(layout.placeholderNodeId);
+    }
+    const entries = Array.from(involvedNodeIds)
+      .map((nodeId) => {
+        const layoutPosition =
+          layout?.placeholderNodeId === nodeId
+            ? layout.placeholderPosition
+            : layout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
+        const liveView = itemViewsRef.current.get(nodeId);
+        const position = layoutPosition ?? (liveView ? getViewTopLeftPosition(liveView) : null);
+        const width =
+          layout?.placeholderNodeId === nodeId
+            ? Math.max(
+                ...nodeIds.map(
+                  (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
+                ),
+                PLACEHOLDER_WIDTH
+              )
+            : liveView?.width ?? 0;
+        return position ? { ...position, width } : null;
+      })
+      .filter(Boolean) as Array<{ x: number; y: number; width: number }>;
 
     if (entries.length === 0) return null;
 
@@ -444,13 +474,17 @@ function GraphView({
   };
 
   const refreshSelectionOverlay = () => {
+    const currentSelectedNodeIds = selectedNodeIdsRef.current;
     const currentSelectionLayout = selectionLayoutRef.current;
-    if (!currentSelectionLayout) {
+    if (currentSelectedNodeIds.length === 0) {
       setSelectionOverlayRect(null);
       return;
     }
 
-    const worldBounds = getSelectionWorldBounds(currentSelectionLayout);
+    const worldBounds = getSelectionWorldBounds(
+      currentSelectedNodeIds,
+      currentSelectionLayout
+    );
     if (!worldBounds) {
       setSelectionOverlayRect(null);
       return;
@@ -925,6 +959,7 @@ function GraphView({
         startClientY: event.nativeEvent.clientY,
         startCameraX: cameraRef.current.x,
         startCameraY: cameraRef.current.y,
+        moved: false,
       };
     };
 
@@ -952,8 +987,13 @@ function GraphView({
 
       const panState = panStateRef.current;
       if (!panState || panState.pointerId !== event.pointerId) return;
-      cameraRef.current.x = panState.startCameraX + (event.clientX - panState.startClientX);
-      cameraRef.current.y = panState.startCameraY + (event.clientY - panState.startClientY);
+      const deltaX = event.clientX - panState.startClientX;
+      const deltaY = event.clientY - panState.startClientY;
+      if (!panState.moved && Math.hypot(deltaX, deltaY) >= PAN_DRAG_THRESHOLD) {
+        panState.moved = true;
+      }
+      cameraRef.current.x = panState.startCameraX + deltaX;
+      cameraRef.current.y = panState.startCameraY + deltaY;
       applyCamera();
     };
 
@@ -998,9 +1038,9 @@ function GraphView({
           })
           .map((item) => item.nodeId);
 
-        const nextLayout = buildSelectionLayout(selectedIds);
-        if (nextLayout) {
-          applySelectionLayout(nextLayout);
+        if (selectedIds.length >= 2) {
+          setSelectedNodeIds(selectedIds);
+          setSelectionLayout(null);
         } else {
           clearSelection();
         }
@@ -1018,6 +1058,12 @@ function GraphView({
           view.container.alpha = 1;
           view.container.cursor = "grab";
           applyViewState(view, "default", 1);
+          const hostRect = host.getBoundingClientRect();
+          const releasedOutsideWorkspace =
+            event.clientX < hostRect.left ||
+            event.clientX > hostRect.right ||
+            event.clientY < hostRect.top ||
+            event.clientY > hostRect.bottom;
           const topLeftPosition = getViewTopLeftPosition(view);
           const nextPosition = {
             x: Math.round(topLeftPosition.x),
@@ -1032,6 +1078,12 @@ function GraphView({
                 y: (nextPosition.y + getViewTopLeftPosition(dropTargetView).y) / 2,
               }
             : undefined;
+          if (releasedOutsideWorkspace) {
+            onWorkspaceItemsChangeRef.current((prev) =>
+              prev.filter((item) => item.nodeId !== dragState.nodeId)
+            );
+            return;
+          }
           onWorkspaceItemsChangeRef.current((prev) =>
             prev.map((item) =>
               item.nodeId === dragState.nodeId
@@ -1051,6 +1103,9 @@ function GraphView({
 
       const panState = panStateRef.current;
       if (panState && panState.pointerId === event.pointerId) {
+        if (!panState.moved && selectedNodeIdsRef.current.length > 0) {
+          clearSelection();
+        }
         panStateRef.current = null;
       }
     };
@@ -1130,11 +1185,7 @@ function GraphView({
       gridRef.current = grid;
       worldRef.current = world;
 
-      cameraRef.current = {
-        x: app.renderer.width / 2 - INITIAL_WORLD_CENTER.x,
-        y: app.renderer.height / 2 - INITIAL_WORLD_CENTER.y,
-        zoom: 1,
-      };
+      frameWorkspaceItems(app, workspaceItems);
 
       drawBackground();
       drawGrid();
@@ -1278,7 +1329,7 @@ function GraphView({
           }}
         />
       ) : null}
-      {selectionOverlayRect && selectionLayout ? (
+      {selectionOverlayRect && selectedNodeIds.length >= 2 ? (
         <div
           className="graph-selection-overlay"
           style={{
@@ -1291,7 +1342,12 @@ function GraphView({
           <button
             type="button"
             className="button primary graph-selection-combine-button"
-            onClick={() => onCombineWorkspaceSelectionRef.current(selectionLayout)}
+            onClick={() => {
+              const nextLayout = buildSelectionLayout(selectedNodeIdsRef.current);
+              if (!nextLayout) return;
+              applySelectionLayout(nextLayout);
+              onCombineWorkspaceSelectionRef.current(nextLayout);
+            }}
             disabled={isSelectionCombining}
           >
             {isSelectionCombining ? "Combining..." : "Combine"}
