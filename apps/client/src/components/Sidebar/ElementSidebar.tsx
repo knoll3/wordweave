@@ -129,12 +129,15 @@ const ElementSidebar: React.FC<Props> = ({
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
   const latestRequestIdRef = useRef(0);
   const latestSemanticRequestIdRef = useRef(0);
+  const elementListRef = useRef<HTMLDivElement | null>(null);
+  const pendingScrollRestoreRef = useRef<number | null>(null);
 
   useEffect(() => {
     void loadLibraryItems();
   }, []);
 
   useEffect(() => {
+    pendingScrollRestoreRef.current = elementListRef.current?.scrollTop ?? 0;
     void loadLibraryItems();
   }, [refreshToken]);
 
@@ -247,6 +250,20 @@ const ElementSidebar: React.FC<Props> = ({
       a.name.localeCompare(b.name, "en", { sensitivity: "base" })
     );
   }, [libraryItems, lexicalSearchItems, search, semanticItems, sortBy]);
+
+  useEffect(() => {
+    if (pendingScrollRestoreRef.current == null) return;
+    if (!elementListRef.current) return;
+
+    const nextScrollTop = pendingScrollRestoreRef.current;
+    const rafId = window.requestAnimationFrame(() => {
+      if (!elementListRef.current) return;
+      elementListRef.current.scrollTop = nextScrollTop;
+      pendingScrollRestoreRef.current = null;
+    });
+
+    return () => window.cancelAnimationFrame(rafId);
+  }, [displayedItems]);
 
   function handleSearchChange(value: string) {
     setSearch(value);
@@ -369,6 +386,7 @@ const ElementSidebar: React.FC<Props> = ({
               items={displayedItems}
               onAddToWorkspace={onAddItemToWorkspace}
               pendingLabel={isSearchAwaitingMore ? "Searching more results…" : null}
+              listRef={elementListRef}
             />
           </div>
         )}

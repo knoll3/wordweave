@@ -8,6 +8,7 @@ import React, {
 import ReactFlow, {
   Background,
   Node,
+  NodeProps,
   NodeDragHandler,
   ReactFlowInstance,
   ReactFlowProvider,
@@ -90,11 +91,57 @@ interface MarqueeSelection {
   currentY: number;
 }
 
+interface WorkspaceNodeData {
+  icon: string;
+  name: string;
+  isNewDiscovery: boolean;
+  isResultPlaceholder: boolean;
+}
+
 const LONG_PRESS_MS = 550;
 const MOVE_THRESHOLD_PX = 10;
 const NODE_DRAG_THRESHOLD_PX = 12;
 const DOUBLE_CLICK_DUPLICATE_OFFSET_PX = 10;
 const COMBINE_TARGET_SLOP_PX = 16;
+const GRAPH_DEBUG = true;
+
+function debugGraph(message: string, payload?: Record<string, unknown>) {
+  if (!GRAPH_DEBUG) return;
+  try {
+    console.log(`[graph-debug][view] ${message} ${JSON.stringify(payload ?? {})}`);
+  } catch {
+    console.log(`[graph-debug][view] ${message}`, payload ?? {});
+  }
+}
+
+const WorkspaceNode: React.FC<NodeProps<WorkspaceNodeData>> = ({ data }) => {
+  if (data.isResultPlaceholder) {
+    return (
+      <span className="graph-result-placeholder-label" aria-hidden="true">
+        <span className="graph-result-placeholder-spinner" />
+      </span>
+    );
+  }
+
+  return (
+    <span className="graph-node-label">
+      <span className="graph-node-label-text">{`${data.icon} ${data.name}`}</span>
+      {data.isNewDiscovery ? (
+        <span
+          className="graph-node-new-discovery-badge"
+          aria-label="New discovery"
+          title="New discovery"
+        >
+          ✦
+        </span>
+      ) : null}
+    </span>
+  );
+};
+
+const nodeTypes = {
+  workspace: WorkspaceNode,
+};
 
 function FlowCanvas({
   items,
@@ -171,12 +218,24 @@ function FlowCanvas({
   }, [publishViewportCenter]);
 
   useEffect(() => {
-    if (!wrapperRef.current) return;
-    const observer = new ResizeObserver(() => {
-      publishViewportCenter();
-    });
-    observer.observe(wrapperRef.current);
-    return () => observer.disconnect();
+    let frameId = 0;
+    const handleResize = () => {
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+      frameId = window.requestAnimationFrame(() => {
+        publishViewportCenter();
+        frameId = 0;
+      });
+    };
+
+    window.addEventListener("resize", handleResize);
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      if (frameId) {
+        window.cancelAnimationFrame(frameId);
+      }
+    };
   }, [publishViewportCenter]);
 
   const itemById = useMemo(() => {
@@ -861,11 +920,19 @@ function FlowCanvas({
     []
   );
 
-  const nodes: Node[] = useMemo(() => {
-    return workspaceItems
+  const nodes: Node<WorkspaceNodeData>[] = useMemo(() => {
+    const missingItemWorkspaceNodes: Array<{ nodeId: string; itemId: number }> = [];
+
+    const nextNodes = workspaceItems
       .map((workspaceItem) => {
         const item = itemById.get(workspaceItem.itemId);
-        if (!item) return null;
+        if (!item) {
+          missingItemWorkspaceNodes.push({
+            nodeId: workspaceItem.nodeId,
+            itemId: workspaceItem.itemId,
+          });
+          return null;
+        }
         const isCraftItem = workspaceItem.itemId === CRAFT_ITEM_ID;
         const isCreativeItem = workspaceItem.itemId === CREATIVE_ITEM_ID;
         const isEvolveItem = workspaceItem.itemId === EVOLVE_ITEM_ID;
@@ -899,26 +966,12 @@ function FlowCanvas({
           id: workspaceItem.nodeId,
           position: workspaceItem.position,
           data: {
-            label: isResultPlaceholder ? (
-              <span className="graph-result-placeholder-label" aria-hidden="true">
-                <span className="graph-result-placeholder-spinner" />
-              </span>
-            ) : (
-              <span className="graph-node-label">
-                <span className="graph-node-label-text">{`${icon} ${item.name}`}</span>
-                {isNewDiscovery ? (
-                  <span
-                    className="graph-node-new-discovery-badge"
-                    aria-label="New discovery"
-                    title="New discovery"
-                  >
-                    ✦
-                  </span>
-                ) : null}
-              </span>
-            ),
+            icon,
+            name: item.name,
+            isNewDiscovery,
+            isResultPlaceholder,
           },
-          type: "default",
+          type: "workspace",
           draggable: !isCombiningNode && !isResultPlaceholder,
           className: `${shouldPulseCombineNode ? "node-combining" : ""}${
             isResultPlaceholder ? " graph-result-placeholder-node" : ""
@@ -1048,9 +1101,22 @@ function FlowCanvas({
               ? "transform 220ms ease, opacity 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease"
               : "opacity 180ms ease, box-shadow 180ms ease, background 180ms ease, border-color 180ms ease",
           },
-        } satisfies Node;
+        } satisfies Node<WorkspaceNodeData>;
       })
-      .filter(Boolean) as Node[];
+      .filter(Boolean) as Node<WorkspaceNodeData>[];
+
+    debugGraph("nodes-derived", {
+      workspaceCount: workspaceItems.length,
+      renderedNodeCount: nextNodes.length,
+      missingItemWorkspaceNodes,
+      combiningCount: combiningNodeIds?.length ?? 0,
+      selectedCount: selectedNodeIds.length,
+      selectionCombineActive,
+      selectionCombineAwaitingStart,
+      selectionCombinePlaceholderId,
+    });
+
+    return nextNodes;
   }, [
     combiningNodeIds,
     draggingNodeId,
@@ -1062,6 +1128,176 @@ function FlowCanvas({
     selectionCombinePlaceholderId,
     workspaceItems,
   ]);
+
+  useEffect(() => {
+    if (!wrapperRef.current) return;
+
+    const logDomState = (reason: string) => {
+      const wrapper = wrapperRef.current;
+      if (!wrapper) return;
+
+      const wrapperStyle = window.getComputedStyle(wrapper);
+      const reactFlowRoot = wrapper.querySelector(".react-flow") as HTMLElement | null;
+      const viewportEl = wrapper.querySelector(".react-flow__viewport") as HTMLElement | null;
+      const rendererEl = wrapper.querySelector(".react-flow__renderer") as HTMLElement | null;
+      const nodesEl = wrapper.querySelector(".react-flow__nodes") as HTMLElement | null;
+      const nodeEls = Array.from(
+        wrapper.querySelectorAll(".react-flow__node[data-id]")
+      ) as HTMLElement[];
+      const sampleNode = nodeEls[0] ?? null;
+      const resultNode =
+        nodeEls.find((nodeEl) => !workspaceItemsRef.current.some((item) => item.nodeId === nodeEl.dataset.id)) ??
+        nodeEls[nodeEls.length - 1] ??
+        null;
+      const sampleNodeStyle = sampleNode ? window.getComputedStyle(sampleNode) : null;
+      const resultNodeStyle = resultNode ? window.getComputedStyle(resultNode) : null;
+      const viewportStyle = viewportEl ? window.getComputedStyle(viewportEl) : null;
+      const rendererStyle = rendererEl ? window.getComputedStyle(rendererEl) : null;
+      const nodesStyle = nodesEl ? window.getComputedStyle(nodesEl) : null;
+      const wrapperRect = wrapper.getBoundingClientRect();
+      const visibleNodeCount = nodeEls.filter((nodeEl) => {
+        const rect = nodeEl.getBoundingClientRect();
+        return (
+          rect.right >= wrapperRect.left &&
+          rect.left <= wrapperRect.right &&
+          rect.bottom >= wrapperRect.top &&
+          rect.top <= wrapperRect.bottom
+        );
+      }).length;
+      const offscreenNodeIds = nodeEls
+        .filter((nodeEl) => {
+          const rect = nodeEl.getBoundingClientRect();
+          return (
+            rect.right < wrapperRect.left ||
+            rect.left > wrapperRect.right ||
+            rect.bottom < wrapperRect.top ||
+            rect.top > wrapperRect.bottom
+          );
+        })
+        .map((nodeEl) => nodeEl.dataset.id ?? "");
+      const hiddenOpacityNodeIds = nodeEls
+        .filter((nodeEl) => Number(window.getComputedStyle(nodeEl).opacity) < 0.05)
+        .map((nodeEl) => nodeEl.dataset.id ?? "");
+      const viewport = reactFlow?.getViewport?.() ?? null;
+      const workspaceNodePositions = workspaceItemsRef.current.map((item) => ({
+        nodeId: item.nodeId,
+        x: Number(item.position.x.toFixed(1)),
+        y: Number(item.position.y.toFixed(1)),
+      }));
+      const sampleNodeRect = sampleNode?.getBoundingClientRect() ?? null;
+      const resultNodeRect = resultNode?.getBoundingClientRect() ?? null;
+      const sampleNodeCenter =
+        sampleNodeRect && sampleNodeRect.width > 0 && sampleNodeRect.height > 0
+          ? {
+              x: sampleNodeRect.left + sampleNodeRect.width / 2,
+              y: sampleNodeRect.top + sampleNodeRect.height / 2,
+            }
+          : null;
+      const resultNodeCenter =
+        resultNodeRect && resultNodeRect.width > 0 && resultNodeRect.height > 0
+          ? {
+              x: resultNodeRect.left + resultNodeRect.width / 2,
+              y: resultNodeRect.top + resultNodeRect.height / 2,
+            }
+          : null;
+      const sampleCoverEl = sampleNodeCenter
+        ? document.elementFromPoint(sampleNodeCenter.x, sampleNodeCenter.y)
+        : null;
+      const resultCoverEl = resultNodeCenter
+        ? document.elementFromPoint(resultNodeCenter.x, resultNodeCenter.y)
+        : null;
+      const describeElement = (element: Element | null) => {
+        if (!element) return null;
+        const htmlEl = element as HTMLElement;
+        return {
+          tag: element.tagName,
+          className: htmlEl.className || null,
+          dataId: htmlEl.dataset?.id ?? null,
+        };
+      };
+
+      debugGraph("dom-state", {
+        reason,
+        workspaceCount: workspaceItemsRef.current.length,
+        domNodeCount: nodeEls.length,
+        visibleNodeCount,
+        offscreenNodeIds,
+        hiddenOpacityNodeIds,
+        viewportX: viewport?.x ?? null,
+        viewportY: viewport?.y ?? null,
+        viewportZoom: viewport?.zoom ?? null,
+        wrapperOpacity: wrapperStyle.opacity,
+        wrapperVisibility: wrapperStyle.visibility,
+        wrapperLeft: Number(wrapperRect.left.toFixed(1)),
+        wrapperTop: Number(wrapperRect.top.toFixed(1)),
+        wrapperWidth: Number(wrapperRect.width.toFixed(1)),
+        wrapperHeight: Number(wrapperRect.height.toFixed(1)),
+        reactFlowExists: !!reactFlowRoot,
+        viewportExists: !!viewportEl,
+        rendererExists: !!rendererEl,
+        nodesLayerExists: !!nodesEl,
+        viewportTransform: viewportEl?.style.transform ?? null,
+        viewportOpacity: viewportStyle?.opacity ?? null,
+        viewportVisibility: viewportStyle?.visibility ?? null,
+        rendererOpacity: rendererStyle?.opacity ?? null,
+        rendererVisibility: rendererStyle?.visibility ?? null,
+        nodesOpacity: nodesStyle?.opacity ?? null,
+        nodesVisibility: nodesStyle?.visibility ?? null,
+        sampleNodeId: sampleNode?.dataset.id ?? null,
+        sampleNodeOpacity: sampleNodeStyle?.opacity ?? null,
+        sampleNodeVisibility: sampleNodeStyle?.visibility ?? null,
+        sampleNodeDisplay: sampleNodeStyle?.display ?? null,
+        sampleNodeTransform: sampleNode?.style.transform ?? null,
+        sampleNodeBackground: sampleNodeStyle?.background ?? null,
+        sampleNodeBorder: sampleNodeStyle?.border ?? null,
+        sampleNodeColor: sampleNodeStyle?.color ?? null,
+        sampleNodeLeft: sampleNodeRect ? Number(sampleNodeRect.left.toFixed(1)) : null,
+        sampleNodeTop: sampleNodeRect ? Number(sampleNodeRect.top.toFixed(1)) : null,
+        sampleNodeWidth: sampleNodeRect ? Number(sampleNodeRect.width.toFixed(1)) : null,
+        sampleNodeHeight: sampleNodeRect ? Number(sampleNodeRect.height.toFixed(1)) : null,
+        sampleNodeCenterX: sampleNodeCenter ? Number(sampleNodeCenter.x.toFixed(1)) : null,
+        sampleNodeCenterY: sampleNodeCenter ? Number(sampleNodeCenter.y.toFixed(1)) : null,
+        sampleNodeCover: describeElement(sampleCoverEl),
+        resultNodeId: resultNode?.dataset.id ?? null,
+        resultNodeOpacity: resultNodeStyle?.opacity ?? null,
+        resultNodeVisibility: resultNodeStyle?.visibility ?? null,
+        resultNodeDisplay: resultNodeStyle?.display ?? null,
+        resultNodeTransform: resultNode?.style.transform ?? null,
+        resultNodeBackground: resultNodeStyle?.background ?? null,
+        resultNodeBorder: resultNodeStyle?.border ?? null,
+        resultNodeColor: resultNodeStyle?.color ?? null,
+        resultNodeLeft: resultNodeRect ? Number(resultNodeRect.left.toFixed(1)) : null,
+        resultNodeTop: resultNodeRect ? Number(resultNodeRect.top.toFixed(1)) : null,
+        resultNodeWidth: resultNodeRect ? Number(resultNodeRect.width.toFixed(1)) : null,
+        resultNodeHeight: resultNodeRect ? Number(resultNodeRect.height.toFixed(1)) : null,
+        resultNodeCenterX: resultNodeCenter ? Number(resultNodeCenter.x.toFixed(1)) : null,
+        resultNodeCenterY: resultNodeCenter ? Number(resultNodeCenter.y.toFixed(1)) : null,
+        resultNodeCover: describeElement(resultCoverEl),
+        workspaceNodePositions,
+      });
+    };
+
+    logDomState("effect-start");
+    const timeoutId = window.setTimeout(() => logDomState("effect-timeout"), 0);
+    const rafId = window.requestAnimationFrame(() => logDomState("effect-raf"));
+
+    const observer = new MutationObserver(() => {
+      logDomState("mutation");
+    });
+
+    observer.observe(wrapperRef.current, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ["class", "style"],
+    });
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      window.cancelAnimationFrame(rafId);
+      observer.disconnect();
+    };
+  }, [nodes, viewportVersion]);
 
   const onNodeDrag: NodeDragHandler = (_event, draggedNode) => {
     setDraggingNodeId(draggedNode.id);
@@ -1261,6 +1497,7 @@ function FlowCanvas({
       <ReactFlow
         nodes={nodes}
         edges={[]}
+        nodeTypes={nodeTypes}
         proOptions={{ hideAttribution: true }}
         zoomOnScroll={true}
         zoomOnDoubleClick={false}
@@ -1272,6 +1509,10 @@ function FlowCanvas({
         nodesConnectable={false}
         onInit={setReactFlow}
         onMove={() => {
+          const viewport = reactFlow?.getViewport?.() ?? null;
+          debugGraph("onMove", {
+            viewport,
+          });
           publishViewportCenter();
           setViewportVersion((prev) => prev + 1);
         }}

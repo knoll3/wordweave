@@ -5,12 +5,14 @@ interface Props {
   items: Item[];
   onAddToWorkspace: (item: Item) => void;
   pendingLabel?: string | null;
+  listRef?: React.Ref<HTMLDivElement>;
 }
 
 const ElementList: React.FC<Props> = ({
   items,
   onAddToWorkspace,
   pendingLabel = null,
+  listRef,
 }) => {
   if (!items.length && !pendingLabel) {
     return (
@@ -21,7 +23,7 @@ const ElementList: React.FC<Props> = ({
   }
 
   return (
-    <div className="element-list">
+    <div ref={listRef} className="element-list">
       {items.map((item) => {
         return (
           <button
