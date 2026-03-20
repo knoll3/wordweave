@@ -85,13 +85,18 @@ type ItemView = {
   background: Graphics;
   label: Text;
   badge: Text | null;
+  itemId: number;
+  width: number;
+  targetScale: number;
 };
+
+type ItemVisualState = "default" | "highlight";
 
 const INITIAL_WORLD_CENTER = { x: 260, y: 180 };
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.25;
 const ZOOM_STEP = 0.12;
-const CARD_HEIGHT = 54;
+const CARD_HEIGHT = 46;
 const CARD_MIN_WIDTH = 180;
 const CARD_MAX_WIDTH = 320;
 const CARD_HORIZONTAL_PADDING = 18;
@@ -99,6 +104,7 @@ const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
+const SCALE_EASING = 0.22;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -117,6 +123,24 @@ function getNodeTint(itemId: number) {
   return 0x94a3b8;
 }
 
+function drawItemCard(
+  background: Graphics,
+  width: number,
+  itemId: number,
+  state: ItemVisualState
+) {
+  const isHighlighted = state === "highlight";
+  background.clear();
+  background
+    .roundRect(0, 0, width, CARD_HEIGHT, CARD_RADIUS)
+    .fill({ color: isHighlighted ? 0x132033 : 0x0f172a, alpha: 1 })
+    .stroke({
+      width: 1.5,
+      color: getNodeTint(itemId),
+      alpha: isHighlighted ? 0.5 : 0.42,
+    });
+}
+
 function GraphView({
   items,
   workspaceItems,
@@ -133,6 +157,7 @@ function GraphView({
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
   const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });
   const dragStateRef = useRef<DragState | null>(null);
+  const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const resizeFrameRef = useRef<number>(0);
   const itemByIdRef = useRef<Map<number, Item>>(new Map());
@@ -227,6 +252,72 @@ function GraphView({
     applyCamera();
   };
 
+  const applyViewState = (view: ItemView, state: ItemVisualState, scale = 1) => {
+    drawItemCard(view.background, view.width, view.itemId, state);
+    view.targetScale = scale;
+  };
+
+  const clearHoverTarget = () => {
+    const hoverTargetNodeId = hoverTargetNodeIdRef.current;
+    if (!hoverTargetNodeId) return;
+    const hoverView = itemViewsRef.current.get(hoverTargetNodeId);
+    if (hoverView) {
+      applyViewState(hoverView, "default", 1);
+    }
+    hoverTargetNodeIdRef.current = null;
+  };
+
+  const rectanglesOverlap = (
+    a: { x: number; y: number; width: number; height: number },
+    b: { x: number; y: number; width: number; height: number }
+  ) =>
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y;
+
+  const updateHoverTarget = (draggedNodeId: string) => {
+    const world = worldRef.current;
+    const draggedView = itemViewsRef.current.get(draggedNodeId);
+    if (!world || !draggedView) return;
+
+    const draggedBounds = {
+      x: draggedView.container.x,
+      y: draggedView.container.y,
+      width: draggedView.width,
+      height: CARD_HEIGHT,
+    };
+
+    const hoveredCandidates = Array.from(itemViewsRef.current.entries())
+      .filter(([nodeId]) => nodeId !== draggedNodeId)
+      .map(([nodeId, view]) => ({
+        nodeId,
+        view,
+        zIndex: world.getChildIndex(view.container),
+      }))
+      .filter(({ view }) =>
+        rectanglesOverlap(draggedBounds, {
+          x: view.container.x,
+          y: view.container.y,
+          width: view.width,
+          height: CARD_HEIGHT,
+        })
+      )
+      .sort((a, b) => b.zIndex - a.zIndex);
+
+    const nextHoverTargetNodeId = hoveredCandidates[0]?.nodeId ?? null;
+    if (nextHoverTargetNodeId === hoverTargetNodeIdRef.current) return;
+
+    clearHoverTarget();
+
+    if (!nextHoverTargetNodeId) return;
+
+    const nextHoverView = itemViewsRef.current.get(nextHoverTargetNodeId);
+    if (!nextHoverView) return;
+    applyViewState(nextHoverView, "highlight", 1.04);
+    hoverTargetNodeIdRef.current = nextHoverTargetNodeId;
+  };
+
   const createItemView = (workspaceItem: WorkspaceItem, item: Item): ItemView => {
     const container = new Container();
     container.eventMode = "static";
@@ -260,12 +351,7 @@ function GraphView({
       label.width +
       (badge ? badge.width + 12 : 0);
     const cardWidth = clamp(contentWidth, CARD_MIN_WIDTH, CARD_MAX_WIDTH);
-    const tint = getNodeTint(item.id);
-
-    background
-      .roundRect(0, 0, cardWidth, CARD_HEIGHT, CARD_RADIUS)
-      .fill({ color: 0x0f172a, alpha: 1 })
-      .stroke({ width: 1.5, color: tint, alpha: 0.42 });
+    drawItemCard(background, cardWidth, item.id, "default");
 
     label.x = CARD_HORIZONTAL_PADDING;
     label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
@@ -300,9 +386,18 @@ function GraphView({
       };
       container.cursor = "grabbing";
       container.alpha = 1;
+      drawItemCard(background, cardWidth, item.id, "highlight");
     });
 
-    return { container, background, label, badge };
+    return {
+      container,
+      background,
+      label,
+      badge,
+      itemId: item.id,
+      width: cardWidth,
+      targetScale: 1,
+    };
   };
 
   const syncScene = (nextWorkspaceItems: WorkspaceItem[]) => {
@@ -359,6 +454,7 @@ function GraphView({
             worldPosition.x - dragState.offsetX,
             worldPosition.y - dragState.offsetY
           );
+          updateHoverTarget(dragState.nodeId);
         }
         return;
       }
@@ -375,9 +471,11 @@ function GraphView({
       if (dragState && dragState.pointerId === event.pointerId) {
         const view = itemViewsRef.current.get(dragState.nodeId);
         dragStateRef.current = null;
+        clearHoverTarget();
         if (view) {
           view.container.alpha = 1;
           view.container.cursor = "grab";
+          applyViewState(view, "default", 1);
           const nextPosition = {
             x: Math.round(view.container.x),
             y: Math.round(view.container.y),
@@ -475,6 +573,17 @@ function GraphView({
       drawGrid();
       applyCamera();
       syncScene(workspaceItems);
+      app.ticker.add(() => {
+        itemViewsRef.current.forEach((view) => {
+          const currentScale = view.container.scale.x;
+          const nextScale =
+            currentScale + (view.targetScale - currentScale) * SCALE_EASING;
+          const settled =
+            Math.abs(view.targetScale - nextScale) < 0.001;
+          const appliedScale = settled ? view.targetScale : nextScale;
+          view.container.scale.set(appliedScale);
+        });
+      });
 
       window.addEventListener("pointermove", handlePointerMove);
       window.addEventListener("pointerup", handlePointerUp);
@@ -507,6 +616,7 @@ function GraphView({
       worldRef.current = null;
       backgroundRef.current = null;
       dragStateRef.current = null;
+      hoverTargetNodeIdRef.current = null;
       panStateRef.current = null;
     };
   }, []);
