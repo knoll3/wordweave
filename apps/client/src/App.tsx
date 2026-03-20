@@ -119,7 +119,6 @@ const App: React.FC = () => {
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [libraryRefreshToken, setLibraryRefreshToken] = useState(0);
   const [viewportCenter, setViewportCenter] = useState<{
     x: number;
     y: number;
@@ -488,7 +487,6 @@ const App: React.FC = () => {
         return [...prev, recipe.resultElement!];
       });
       const isNewDiscovery = !items.some((el) => el.id === recipe.resultElement!.id);
-      setLibraryRefreshToken((prev) => prev + 1);
       console.log("[combine] item added", recipe.resultElement);
 
       if (selectionLayout) {
@@ -634,9 +632,9 @@ const App: React.FC = () => {
       <div className="app-root">
         <aside className="sidebar">
           <ElementSidebar
+            items={items}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
             onLibraryReset={handleLibraryReset}
-            refreshToken={libraryRefreshToken}
             onItemsLoaded={setItems}
             randomUnlocked={isFeatureUnlocked("random_tools")}
           />

@@ -10,9 +10,9 @@ import {
 } from "../../lib/api";
 
 interface Props {
+  items: Item[];
   onAddItemToWorkspace: (item: Item) => void;
   onLibraryReset?: () => void;
-  refreshToken?: number;
   onItemsLoaded?: (items: Item[]) => void;
   randomUnlocked?: boolean;
 }
@@ -108,14 +108,13 @@ function getCorrectedQuery(query: string, items: Item[]) {
 }
 
 const ElementSidebar: React.FC<Props> = ({
+  items,
   onAddItemToWorkspace,
   onLibraryReset,
-  refreshToken = 0,
   onItemsLoaded,
   randomUnlocked = false,
 }) => {
   const [search, setSearch] = useState("");
-  const [libraryItems, setLibraryItems] = useState<Item[]>([]);
   const [semanticItems, setSemanticItems] = useState<Item[]>([]);
   const [loadingItems, setLoadingItems] = useState(false);
   const [semanticPending, setSemanticPending] = useState(false);
@@ -136,14 +135,9 @@ const ElementSidebar: React.FC<Props> = ({
     void loadLibraryItems();
   }, []);
 
-  useEffect(() => {
-    pendingScrollRestoreRef.current = elementListRef.current?.scrollTop ?? 0;
-    void loadLibraryItems();
-  }, [refreshToken]);
-
   const correctedSearchQuery = useMemo(
-    () => getCorrectedQuery(search, libraryItems),
-    [libraryItems, search]
+    () => getCorrectedQuery(search, items),
+    [items, search]
   );
 
   useEffect(() => {
@@ -170,7 +164,6 @@ const ElementSidebar: React.FC<Props> = ({
       setLibraryLoadError(null);
       const data = await fetchItems();
       if (requestId !== latestRequestIdRef.current) return;
-      setLibraryItems(data);
       onItemsLoaded?.(data);
     } catch (err) {
       console.error("Failed to load items", err);
@@ -206,9 +199,9 @@ const ElementSidebar: React.FC<Props> = ({
   const lexicalSearchItems = useMemo(() => {
     const trimmed = search.trim().toLowerCase();
     const corrected = correctedSearchQuery?.trim().toLowerCase() ?? "";
-    if (!trimmed) return libraryItems;
+    if (!trimmed) return items;
 
-    const scored = libraryItems
+    const scored = items
       .map((item) => {
         const rawScore = lexicalScore(trimmed, item.name);
         const correctedScore = corrected ? lexicalScore(corrected, item.name) - 0.15 : 0;
@@ -226,7 +219,7 @@ const ElementSidebar: React.FC<Props> = ({
       });
 
     return scored.map((entry) => entry.item);
-  }, [correctedSearchQuery, libraryItems, search]);
+  }, [correctedSearchQuery, items, search]);
 
   const displayedItems = useMemo(() => {
     if (search.trim()) {
@@ -244,12 +237,12 @@ const ElementSidebar: React.FC<Props> = ({
 
     if (sortBy === "time") {
       // Keep API order (created_at ASC) so newest items stay toward the end.
-      return libraryItems;
+      return items;
     }
-    return [...libraryItems].sort((a, b) =>
+    return [...items].sort((a, b) =>
       a.name.localeCompare(b.name, "en", { sensitivity: "base" })
     );
-  }, [libraryItems, lexicalSearchItems, search, semanticItems, sortBy]);
+  }, [items, lexicalSearchItems, search, semanticItems, sortBy]);
 
   useEffect(() => {
     if (pendingScrollRestoreRef.current == null) return;
@@ -315,9 +308,9 @@ const ElementSidebar: React.FC<Props> = ({
   }
 
   function handleAddRandomItems() {
-    if (!libraryItems.length) return;
+    if (!items.length) return;
 
-    const pool = [...libraryItems];
+    const pool = [...items];
     for (let i = pool.length - 1; i > 0; i -= 1) {
       const j = Math.floor(Math.random() * (i + 1));
       [pool[i], pool[j]] = [pool[j], pool[i]];
@@ -343,7 +336,7 @@ const ElementSidebar: React.FC<Props> = ({
             type="button"
             className="button secondary random-items-button"
             onClick={handleAddRandomItems}
-            disabled={loadingItems || libraryItems.length === 0}
+            disabled={loadingItems || items.length === 0}
             title="Add random library items to the workspace"
             aria-label="Add random library items to the workspace"
           >

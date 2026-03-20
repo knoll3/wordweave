@@ -91,14 +91,21 @@ const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
-const SCALE_EASING = 0.14;
-const CONTENT_ALPHA_EASING = 0.18;
+const SCALE_STEP = 0.075;
+const CONTENT_ALPHA_STEP = 0.11;
 const COMBINING_CONTENT_ALPHA = 0.5;
 const SPAWN_SCALE = 0.18;
 const SHRINK_SCALE = 0.18;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function moveToward(current: number, target: number, step: number) {
+  if (Math.abs(target - current) <= step) {
+    return target;
+  }
+  return current + Math.sign(target - current) * step;
 }
 
 function getNodeTint(itemId: number) {
@@ -652,19 +659,18 @@ function GraphView({
       app.ticker.add(() => {
         itemViewsRef.current.forEach((view) => {
           const currentScale = view.container.scale.x;
-          const nextScale =
-            currentScale + (view.targetScale - currentScale) * SCALE_EASING;
-          const settled =
-            Math.abs(view.targetScale - nextScale) < 0.001;
-          const appliedScale = settled ? view.targetScale : nextScale;
+          const appliedScale = moveToward(
+            currentScale,
+            view.targetScale,
+            SCALE_STEP
+          );
           view.container.scale.set(appliedScale);
 
-          const nextContentAlpha =
-            view.contentAlpha +
-            (view.targetContentAlpha - view.contentAlpha) * CONTENT_ALPHA_EASING;
-          const alphaSettled =
-            Math.abs(view.targetContentAlpha - nextContentAlpha) < 0.01;
-          view.contentAlpha = alphaSettled ? view.targetContentAlpha : nextContentAlpha;
+          view.contentAlpha = moveToward(
+            view.contentAlpha,
+            view.targetContentAlpha,
+            CONTENT_ALPHA_STEP
+          );
           view.container.alpha = view.contentAlpha;
 
           if (
