@@ -95,6 +95,7 @@ const CARD_HEIGHT = 54;
 const CARD_MIN_WIDTH = 180;
 const CARD_MAX_WIDTH = 320;
 const CARD_HORIZONTAL_PADDING = 18;
+const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
@@ -104,16 +105,16 @@ function clamp(value: number, min: number, max: number) {
 }
 
 function getNodeTint(itemId: number) {
-  if (itemId === CREATIVE_ITEM_ID) return 0x7c3aed;
-  if (itemId === EVOLVE_ITEM_ID) return 0xbe185d;
-  if (itemId === CRAFT_ITEM_ID) return 0xb45309;
-  if (itemId === POP_CULTURE_ITEM_ID) return 0xb45309;
-  if (itemId === SPLIT_ITEM_ID) return 0xea580c;
-  if (itemId === OPPOSITE_ITEM_ID) return 0x2563eb;
-  if (itemId === RANDOMIZE_ITEM_ID) return 0x059669;
-  if (itemId === WORD_COMBINE_ITEM_ID) return 0x7e22ce;
-  if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x334155;
-  return 0x4f46e5;
+  if (itemId === CREATIVE_ITEM_ID) return 0xa78bfa;
+  if (itemId === EVOLVE_ITEM_ID) return 0xf472b6;
+  if (itemId === CRAFT_ITEM_ID) return 0xf59e0b;
+  if (itemId === POP_CULTURE_ITEM_ID) return 0xfacc15;
+  if (itemId === SPLIT_ITEM_ID) return 0xfb923c;
+  if (itemId === OPPOSITE_ITEM_ID) return 0x93c5fd;
+  if (itemId === RANDOMIZE_ITEM_ID) return 0x6ee7b7;
+  if (itemId === WORD_COMBINE_ITEM_ID) return 0xd8b4fe;
+  if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x64748b;
+  return 0x94a3b8;
 }
 
 function GraphView({
@@ -237,7 +238,7 @@ function GraphView({
       style: {
         fill: 0xe5e7eb,
         fontFamily: "Trebuchet MS, Verdana, sans-serif",
-        fontSize: 14,
+        fontSize: 17,
         fontWeight: "600",
       },
     });
@@ -262,9 +263,9 @@ function GraphView({
     const tint = getNodeTint(item.id);
 
     background
-      .roundRect(0, 0, cardWidth, CARD_HEIGHT, 16)
-      .fill({ color: 0x0f172a, alpha: 0.98 })
-      .stroke({ width: 2, color: tint, alpha: 0.72 });
+      .roundRect(0, 0, cardWidth, CARD_HEIGHT, CARD_RADIUS)
+      .fill({ color: 0x0f172a, alpha: 1 })
+      .stroke({ width: 1.5, color: tint, alpha: 0.42 });
 
     label.x = CARD_HORIZONTAL_PADDING;
     label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
@@ -287,6 +288,10 @@ function GraphView({
         event.nativeEvent.clientX,
         event.nativeEvent.clientY
       );
+      const world = worldRef.current;
+      if (world) {
+        world.addChild(container);
+      }
       dragStateRef.current = {
         nodeId: workspaceItem.nodeId,
         pointerId: event.pointerId,
@@ -294,7 +299,7 @@ function GraphView({
         offsetY: pointerPosition.y - container.y,
       };
       container.cursor = "grabbing";
-      container.alpha = 0.92;
+      container.alpha = 1;
     });
 
     return { container, background, label, badge };
