@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from "react";
 import {
   Application,
   Container,
+  FederatedPointerEvent,
   Graphics,
   Rectangle,
   Text,
@@ -67,11 +68,13 @@ type ItemView = {
   nodeId: string;
   container: Container;
   background: Graphics;
+  icon: Text;
   label: Text;
   badge: Text | null;
   itemId: number;
   width: number;
   targetScale: number;
+  scaleStep: number;
   contentAlpha: number;
   targetContentAlpha: number;
   destroyWhenSettled: boolean;
@@ -83,15 +86,14 @@ const INITIAL_WORLD_CENTER = { x: 260, y: 180 };
 const MIN_ZOOM = 0.45;
 const MAX_ZOOM = 2.25;
 const ZOOM_STEP = 0.12;
-const CARD_HEIGHT = 46;
-const CARD_MIN_WIDTH = 180;
-const CARD_MAX_WIDTH = 320;
+const CARD_HEIGHT = 42;
 const CARD_HORIZONTAL_PADDING = 18;
 const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
-const SCALE_STEP = 0.075;
+const HOVER_SCALE_STEP = 0.012;
+const COMBINE_SCALE_STEP = 0.075;
 const CONTENT_ALPHA_STEP = 0.11;
 const COMBINING_CONTENT_ALPHA = 0.5;
 const SPAWN_SCALE = 0.18;
@@ -219,6 +221,14 @@ function GraphView({
     updateViewportCenter();
   };
 
+  const pixiPointerToWorld = (event: FederatedPointerEvent) => {
+    const camera = cameraRef.current;
+    return {
+      x: (event.global.x - camera.x) / camera.zoom,
+      y: (event.global.y - camera.y) / camera.zoom,
+    };
+  };
+
   const screenToWorld = (clientX: number, clientY: number) => {
     const app = appRef.current;
     const element = app?.canvas as HTMLCanvasElement | undefined;
@@ -242,6 +252,7 @@ function GraphView({
       .rect(0, 0, app.renderer.width, app.renderer.height)
       .fill({ color: 0x000000, alpha: 0.001 });
     background.hitArea = new Rectangle(0, 0, app.renderer.width, app.renderer.height);
+    app.stage.hitArea = new Rectangle(0, 0, app.renderer.width, app.renderer.height);
   };
 
   const drawGrid = () => {
@@ -272,6 +283,7 @@ function GraphView({
   const applyViewState = (view: ItemView, state: ItemVisualState, scale = 1) => {
     drawItemCard(view.background, view.width, view.itemId, state);
     view.targetScale = scale;
+    view.scaleStep = scale === 1 || scale === 1.04 ? HOVER_SCALE_STEP : COMBINE_SCALE_STEP;
   };
 
   const setViewContentAlpha = (view: ItemView, alpha: number) => {
@@ -342,7 +354,18 @@ function GraphView({
     container.eventMode = "static";
     container.cursor = "grab";
 
-    const labelValue = `${item.icon || "•"} ${item.name}`;
+    const icon = new Text({
+      text: item.icon || "•",
+      style: {
+        fill: 0xe5e7eb,
+        fontFamily: "Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif",
+        fontSize: 20,
+        fontWeight: "600",
+        wordWrap: false,
+        breakWords: false,
+      },
+    });
+    const labelValue = item.name;
     const label = new Text({
       text: labelValue,
       style: {
@@ -350,6 +373,8 @@ function GraphView({
         fontFamily: "Trebuchet MS, Verdana, sans-serif",
         fontSize: 17,
         fontWeight: "600",
+        wordWrap: false,
+        breakWords: false,
       },
     });
     const badge = workspaceItem.isNewDiscovery
@@ -367,12 +392,17 @@ function GraphView({
     const background = new Graphics();
     const contentWidth =
       CARD_HORIZONTAL_PADDING * 2 +
+      icon.width +
+      10 +
       label.width +
       (badge ? badge.width + 12 : 0);
-    const cardWidth = clamp(contentWidth, CARD_MIN_WIDTH, CARD_MAX_WIDTH);
+    const cardWidth = contentWidth;
     drawItemCard(background, cardWidth, item.id, "default");
 
-    label.x = CARD_HORIZONTAL_PADDING;
+    icon.x = CARD_HORIZONTAL_PADDING;
+    icon.y = Math.round((CARD_HEIGHT - icon.height) / 2) - 1;
+
+    label.x = icon.x + icon.width + 10;
     label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
 
     if (badge) {
@@ -381,6 +411,7 @@ function GraphView({
     }
 
     container.addChild(background);
+    container.addChild(icon);
     container.addChild(label);
     if (badge) {
       container.addChild(badge);
@@ -389,10 +420,7 @@ function GraphView({
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
     container.on("pointerdown", (event) => {
       event.stopPropagation();
-      const pointerPosition = screenToWorld(
-        event.nativeEvent.clientX,
-        event.nativeEvent.clientY
-      );
+      const pointerPosition = pixiPointerToWorld(event);
       const world = worldRef.current;
       if (world) {
         world.addChild(container);
@@ -400,11 +428,13 @@ function GraphView({
       const topLeftPosition = getViewTopLeftPosition({
         container,
         background,
+        icon,
         label,
         badge,
         itemId: item.id,
         width: cardWidth,
         targetScale: 1,
+        scaleStep: HOVER_SCALE_STEP,
         contentAlpha: 1,
         targetContentAlpha: 1,
         destroyWhenSettled: false,
@@ -425,11 +455,13 @@ function GraphView({
       nodeId: workspaceItem.nodeId,
       container,
       background,
+      icon,
       label,
       badge,
       itemId: item.id,
       width: cardWidth,
       targetScale: 1,
+      scaleStep: HOVER_SCALE_STEP,
       contentAlpha: 1,
       targetContentAlpha: 1,
       destroyWhenSettled: false,
@@ -478,6 +510,7 @@ function GraphView({
         if (removedCombiningNodeIds.length > 0 && addedNodeIds.includes(workspaceItem.nodeId)) {
           view.container.scale.set(SPAWN_SCALE);
           view.targetScale = 1;
+          view.scaleStep = COMBINE_SCALE_STEP;
           view.contentAlpha = 0;
           view.targetContentAlpha = 1;
         }
@@ -509,10 +542,10 @@ function GraphView({
       });
     };
 
-    const handlePointerMove = (event: PointerEvent) => {
+    const handleStagePointerMove = (event: FederatedPointerEvent) => {
       const dragState = dragStateRef.current;
       if (dragState && dragState.pointerId === event.pointerId) {
-        const worldPosition = screenToWorld(event.clientX, event.clientY);
+        const worldPosition = pixiPointerToWorld(event);
         const view = itemViewsRef.current.get(dragState.nodeId);
         if (view) {
           setViewTopLeftPosition(view, {
@@ -521,9 +554,24 @@ function GraphView({
           });
           updateHoverTarget(dragState.nodeId);
         }
+      }
+    };
+
+    const handleStagePointerDown = (event: FederatedPointerEvent) => {
+      if (dragStateRef.current) return;
+      if (event.target !== appRef.current?.stage && event.target !== backgroundRef.current) {
         return;
       }
+      panStateRef.current = {
+        pointerId: event.pointerId,
+        startClientX: event.nativeEvent.clientX,
+        startClientY: event.nativeEvent.clientY,
+        startCameraX: cameraRef.current.x,
+        startCameraY: cameraRef.current.y,
+      };
+    };
 
+    const handleWindowPointerMove = (event: PointerEvent) => {
       const panState = panStateRef.current;
       if (!panState || panState.pointerId !== event.pointerId) return;
       cameraRef.current.x = panState.startCameraX + (event.clientX - panState.startClientX);
@@ -619,20 +667,11 @@ function GraphView({
 
       appRef.current = app;
       host.appendChild(app.canvas);
+      app.stage.eventMode = "static";
 
       const background = new Graphics();
       background.eventMode = "static";
       background.cursor = "grab";
-      background.on("pointerdown", (event) => {
-        if (dragStateRef.current) return;
-        panStateRef.current = {
-          pointerId: event.pointerId,
-          startClientX: event.nativeEvent.clientX,
-          startClientY: event.nativeEvent.clientY,
-          startCameraX: cameraRef.current.x,
-          startCameraY: cameraRef.current.y,
-        };
-      });
       backgroundRef.current = background;
       app.stage.addChild(background);
 
@@ -662,7 +701,7 @@ function GraphView({
           const appliedScale = moveToward(
             currentScale,
             view.targetScale,
-            SCALE_STEP
+            view.scaleStep
           );
           view.container.scale.set(appliedScale);
 
@@ -684,7 +723,9 @@ function GraphView({
         });
       });
 
-      window.addEventListener("pointermove", handlePointerMove);
+      app.stage.on("pointerdown", handleStagePointerDown);
+      app.stage.on("globalpointermove", handleStagePointerMove);
+      window.addEventListener("pointermove", handleWindowPointerMove);
       window.addEventListener("pointerup", handlePointerUp);
       window.addEventListener("pointercancel", handlePointerUp);
       app.canvas.addEventListener("wheel", handleWheel, { passive: false });
@@ -695,7 +736,7 @@ function GraphView({
 
     return () => {
       cancelled = true;
-      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
       const app = appRef.current;
@@ -704,6 +745,8 @@ function GraphView({
         resizeFrameRef.current = 0;
       }
       if (app) {
+        app.stage.off("pointerdown", handleStagePointerDown);
+        app.stage.off("globalpointermove", handleStagePointerMove);
         app.canvas.removeEventListener("wheel", handleWheel);
         app.destroy(true, { children: true });
       }
