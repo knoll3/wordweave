@@ -55,7 +55,8 @@ interface Props {
   onCombineWorkspaceSelection: (layout: SelectionCombineLayout) => Promise<boolean>;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
-    targetNodeId: string
+    targetNodeId: string,
+    resultCenter?: { x: number; y: number }
   ) => void;
 }
 
@@ -81,6 +82,7 @@ type PanState = {
 };
 
 type ItemView = {
+  nodeId: string;
   container: Container;
   background: Graphics;
   label: Text;
@@ -88,6 +90,9 @@ type ItemView = {
   itemId: number;
   width: number;
   targetScale: number;
+  contentAlpha: number;
+  targetContentAlpha: number;
+  destroyWhenSettled: boolean;
 };
 
 type ItemVisualState = "default" | "highlight";
@@ -104,7 +109,11 @@ const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
-const SCALE_EASING = 0.22;
+const SCALE_EASING = 0.14;
+const CONTENT_ALPHA_EASING = 0.18;
+const COMBINING_CONTENT_ALPHA = 0.5;
+const SPAWN_SCALE = 0.18;
+const SHRINK_SCALE = 0.18;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -141,12 +150,25 @@ function drawItemCard(
     });
 }
 
+function setViewTopLeftPosition(view: ItemView, position: { x: number; y: number }) {
+  view.container.position.set(position.x + view.width / 2, position.y + CARD_HEIGHT / 2);
+}
+
+function getViewTopLeftPosition(view: ItemView) {
+  return {
+    x: view.container.x - view.width / 2,
+    y: view.container.y - CARD_HEIGHT / 2,
+  };
+}
+
 function GraphView({
   items,
   workspaceItems,
   onWorkspaceItemsChange,
   onViewportCenterChange,
+  combiningNodeIds,
   onClearWorkspace,
+  onCombineWorkspaceItems,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -160,9 +182,14 @@ function GraphView({
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const resizeFrameRef = useRef<number>(0);
+  const workspaceItemsRef = useRef(workspaceItems);
+  const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
+  const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
+  const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
   const itemByIdRef = useRef<Map<number, Item>>(new Map());
   const onWorkspaceItemsChangeRef = useRef(onWorkspaceItemsChange);
   const onViewportCenterChangeRef = useRef(onViewportCenterChange);
+  const onCombineWorkspaceItemsRef = useRef(onCombineWorkspaceItems);
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -179,8 +206,11 @@ function GraphView({
   }, [items]);
 
   itemByIdRef.current = itemById;
+  workspaceItemsRef.current = workspaceItems;
+  combiningNodeIdsRef.current = combiningNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
   onViewportCenterChangeRef.current = onViewportCenterChange;
+  onCombineWorkspaceItemsRef.current = onCombineWorkspaceItems;
 
   const updateViewportCenter = () => {
     const app = appRef.current;
@@ -257,6 +287,10 @@ function GraphView({
     view.targetScale = scale;
   };
 
+  const setViewContentAlpha = (view: ItemView, alpha: number) => {
+    view.targetContentAlpha = alpha;
+  };
+
   const clearHoverTarget = () => {
     const hoverTargetNodeId = hoverTargetNodeIdRef.current;
     if (!hoverTargetNodeId) return;
@@ -282,8 +316,7 @@ function GraphView({
     if (!world || !draggedView) return;
 
     const draggedBounds = {
-      x: draggedView.container.x,
-      y: draggedView.container.y,
+      ...getViewTopLeftPosition(draggedView),
       width: draggedView.width,
       height: CARD_HEIGHT,
     };
@@ -297,8 +330,7 @@ function GraphView({
       }))
       .filter(({ view }) =>
         rectanglesOverlap(draggedBounds, {
-          x: view.container.x,
-          y: view.container.y,
+          ...getViewTopLeftPosition(view),
           width: view.width,
           height: CARD_HEIGHT,
         })
@@ -367,7 +399,7 @@ function GraphView({
       container.addChild(badge);
     }
 
-    container.position.set(workspaceItem.position.x, workspaceItem.position.y);
+    container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
     container.on("pointerdown", (event) => {
       event.stopPropagation();
       const pointerPosition = screenToWorld(
@@ -378,18 +410,32 @@ function GraphView({
       if (world) {
         world.addChild(container);
       }
+      const topLeftPosition = getViewTopLeftPosition({
+        container,
+        background,
+        label,
+        badge,
+        itemId: item.id,
+        width: cardWidth,
+        targetScale: 1,
+        contentAlpha: 1,
+        targetContentAlpha: 1,
+        destroyWhenSettled: false,
+        nodeId: workspaceItem.nodeId,
+      });
       dragStateRef.current = {
         nodeId: workspaceItem.nodeId,
         pointerId: event.pointerId,
-        offsetX: pointerPosition.x - container.x,
-        offsetY: pointerPosition.y - container.y,
+        offsetX: pointerPosition.x - topLeftPosition.x,
+        offsetY: pointerPosition.y - topLeftPosition.y,
       };
       container.cursor = "grabbing";
       container.alpha = 1;
       drawItemCard(background, cardWidth, item.id, "highlight");
     });
 
-    return {
+    const view = {
+      nodeId: workspaceItem.nodeId,
       container,
       background,
       label,
@@ -397,7 +443,12 @@ function GraphView({
       itemId: item.id,
       width: cardWidth,
       targetScale: 1,
+      contentAlpha: 1,
+      targetContentAlpha: 1,
+      destroyWhenSettled: false,
     };
+    setViewTopLeftPosition(view, workspaceItem.position);
+    return view;
   };
 
   const syncScene = (nextWorkspaceItems: WorkspaceItem[]) => {
@@ -405,10 +456,25 @@ function GraphView({
     if (!world) return;
 
     const existingViews = itemViewsRef.current;
+    const previousNodeIds = previousWorkspaceNodeIdsRef.current;
+    const previousCombiningNodeIds = previousCombiningNodeIdsRef.current;
     const nextNodeIds = new Set(nextWorkspaceItems.map((item) => item.nodeId));
+    const addedNodeIds = nextWorkspaceItems
+      .map((item) => item.nodeId)
+      .filter((nodeId) => !previousNodeIds.includes(nodeId));
+    const removedNodeIds = previousNodeIds.filter((nodeId) => !nextNodeIds.has(nodeId));
+    const removedCombiningNodeIds = removedNodeIds.filter((nodeId) =>
+      previousCombiningNodeIds.includes(nodeId)
+    );
 
     existingViews.forEach((view, nodeId) => {
       if (nextNodeIds.has(nodeId)) return;
+      if (removedCombiningNodeIds.includes(nodeId)) {
+        applyViewState(view, "default", SHRINK_SCALE);
+        setViewContentAlpha(view, 0);
+        view.destroyWhenSettled = true;
+        return;
+      }
       view.container.destroy({ children: true });
       existingViews.delete(nodeId);
     });
@@ -422,12 +488,24 @@ function GraphView({
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
+        if (removedCombiningNodeIds.length > 0 && addedNodeIds.includes(workspaceItem.nodeId)) {
+          view.container.scale.set(SPAWN_SCALE);
+          view.targetScale = 1;
+          view.contentAlpha = 0;
+          view.targetContentAlpha = 1;
+        }
       }
 
       if (dragStateRef.current?.nodeId !== workspaceItem.nodeId) {
-        view.container.position.set(workspaceItem.position.x, workspaceItem.position.y);
+        setViewTopLeftPosition(view, workspaceItem.position);
       }
+      view.destroyWhenSettled = false;
+      const isCombining = (combiningNodeIds ?? []).includes(workspaceItem.nodeId);
+      setViewContentAlpha(view, isCombining ? COMBINING_CONTENT_ALPHA : 1);
     });
+
+    previousWorkspaceNodeIdsRef.current = nextWorkspaceItems.map((item) => item.nodeId);
+    previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
   };
 
   useEffect(() => {
@@ -450,10 +528,10 @@ function GraphView({
         const worldPosition = screenToWorld(event.clientX, event.clientY);
         const view = itemViewsRef.current.get(dragState.nodeId);
         if (view) {
-          view.container.position.set(
-            worldPosition.x - dragState.offsetX,
-            worldPosition.y - dragState.offsetY
-          );
+          setViewTopLeftPosition(view, {
+            x: worldPosition.x - dragState.offsetX,
+            y: worldPosition.y - dragState.offsetY,
+          });
           updateHoverTarget(dragState.nodeId);
         }
         return;
@@ -470,16 +548,27 @@ function GraphView({
       const dragState = dragStateRef.current;
       if (dragState && dragState.pointerId === event.pointerId) {
         const view = itemViewsRef.current.get(dragState.nodeId);
+        const dropTargetNodeId = hoverTargetNodeIdRef.current;
         dragStateRef.current = null;
         clearHoverTarget();
         if (view) {
           view.container.alpha = 1;
           view.container.cursor = "grab";
           applyViewState(view, "default", 1);
+          const topLeftPosition = getViewTopLeftPosition(view);
           const nextPosition = {
-            x: Math.round(view.container.x),
-            y: Math.round(view.container.y),
+            x: Math.round(topLeftPosition.x),
+            y: Math.round(topLeftPosition.y),
           };
+          const dropTargetView = dropTargetNodeId
+            ? itemViewsRef.current.get(dropTargetNodeId)
+            : null;
+          const resultCenter = dropTargetView
+            ? {
+                x: (nextPosition.x + getViewTopLeftPosition(dropTargetView).x) / 2,
+                y: (nextPosition.y + getViewTopLeftPosition(dropTargetView).y) / 2,
+              }
+            : undefined;
           onWorkspaceItemsChangeRef.current((prev) =>
             prev.map((item) =>
               item.nodeId === dragState.nodeId
@@ -487,6 +576,13 @@ function GraphView({
                 : item
             )
           );
+          if (dropTargetNodeId && dropTargetNodeId !== dragState.nodeId) {
+            onCombineWorkspaceItemsRef.current(
+              dragState.nodeId,
+              dropTargetNodeId,
+              resultCenter
+            );
+          }
         }
       }
 
@@ -582,6 +678,23 @@ function GraphView({
             Math.abs(view.targetScale - nextScale) < 0.001;
           const appliedScale = settled ? view.targetScale : nextScale;
           view.container.scale.set(appliedScale);
+
+          const nextContentAlpha =
+            view.contentAlpha +
+            (view.targetContentAlpha - view.contentAlpha) * CONTENT_ALPHA_EASING;
+          const alphaSettled =
+            Math.abs(view.targetContentAlpha - nextContentAlpha) < 0.01;
+          view.contentAlpha = alphaSettled ? view.targetContentAlpha : nextContentAlpha;
+          view.container.alpha = view.contentAlpha;
+
+          if (
+            view.destroyWhenSettled &&
+            Math.abs(view.container.scale.x - view.targetScale) < 0.001 &&
+            Math.abs(view.contentAlpha - view.targetContentAlpha) < 0.01
+          ) {
+            view.container.destroy({ children: true });
+            itemViewsRef.current.delete(view.nodeId);
+          }
         });
       });
 
@@ -623,7 +736,7 @@ function GraphView({
 
   useEffect(() => {
     syncScene(workspaceItems);
-  }, [itemById, workspaceItems]);
+  }, [combiningNodeIds, itemById, workspaceItems]);
 
   return (
     <div ref={hostRef} className="graph-pixi-host">

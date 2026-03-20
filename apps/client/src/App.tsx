@@ -329,7 +329,10 @@ const App: React.FC = () => {
 
   async function combineWorkspaceNodeIds(
     nodeIds: string[],
-    options?: { selectionLayout?: SelectionCombineLayout | null }
+    options?: {
+      selectionLayout?: SelectionCombineLayout | null;
+      resultCenter?: { x: number; y: number } | null;
+    }
   ): Promise<boolean> {
     const uniqueNodeIds = Array.from(new Set(nodeIds));
     if (uniqueNodeIds.length < 2) return false;
@@ -513,17 +516,21 @@ const App: React.FC = () => {
           })
         );
       } else {
-        const centerSum = selectedNodes.reduce(
-          (acc, node) => ({
-            x: acc.x + node.position.x,
-            y: acc.y + node.position.y,
-          }),
-          { x: 0, y: 0 }
-        );
-        const center = {
-          x: centerSum.x / selectedNodes.length,
-          y: centerSum.y / selectedNodes.length,
-        };
+        const center =
+          options?.resultCenter ??
+          (() => {
+            const centerSum = selectedNodes.reduce(
+              (acc, node) => ({
+                x: acc.x + node.position.x,
+                y: acc.y + node.position.y,
+              }),
+              { x: 0, y: 0 }
+            );
+            return {
+              x: centerSum.x / selectedNodes.length,
+              y: centerSum.y / selectedNodes.length,
+            };
+          })();
 
         setWorkspaceItems((prev) => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
@@ -561,9 +568,15 @@ const App: React.FC = () => {
     }
   }
 
-  async function combineWorkspaceItems(sourceNodeId: string, targetNodeId: string) {
+  async function combineWorkspaceItems(
+    sourceNodeId: string,
+    targetNodeId: string,
+    resultCenter?: { x: number; y: number }
+  ) {
     if (sourceNodeId === targetNodeId) return;
-    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId]);
+    await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
+      resultCenter: resultCenter ?? null,
+    });
   }
 
   return (
