@@ -35,19 +35,11 @@ import {
   markUnlockIntroSeen,
 } from "./lib/api";
 
-const GRAPH_DEBUG = true;
-
-function debugGraph(message: string, payload?: Record<string, unknown>) {
-  if (!GRAPH_DEBUG) return;
-  console.log(`[graph-debug][app] ${message}`, payload ?? {});
-}
-
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
-const LAST_CLIENT_ERROR_STORAGE_KEY = "wordweave.last-client-error";
 const TOAST_DURATION_MS = 3500;
 
 const FEATURE_QUESTS: Array<{
@@ -137,7 +129,6 @@ const App: React.FC = () => {
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
   const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
-  const [lastClientError, setLastClientError] = useState<string | null>(null);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -178,24 +169,6 @@ const App: React.FC = () => {
       }
     }
 
-    const storedClientError = window.localStorage.getItem(
-      LAST_CLIENT_ERROR_STORAGE_KEY
-    );
-    if (storedClientError) {
-      try {
-        const parsed = JSON.parse(storedClientError) as {
-          message?: string;
-          capturedAt?: string;
-        };
-        setLastClientError(
-          parsed.capturedAt
-            ? `Client crash captured at ${parsed.capturedAt}: ${parsed.message ?? "Unknown error"}`
-            : parsed.message ?? "A client crash was captured."
-        );
-      } catch {
-        setLastClientError("A client crash was captured.");
-      }
-    }
   }, []);
 
   useEffect(() => {
@@ -317,15 +290,6 @@ const App: React.FC = () => {
           x: anchorPosition.x + (Math.random() - 0.5) * 160,
           y: anchorPosition.y + (Math.random() - 0.5) * 120,
         };
-
-    debugGraph("addItemToWorkspace", {
-      itemId,
-      explicitPosition: position ?? null,
-      viewportCenter,
-      nextPosition,
-      workspaceCountBefore: workspaceItems.length,
-      libraryItemKnown: !!findItemById(itemId),
-    });
 
     setWorkspaceItems((prev) => [
       ...prev,
@@ -476,18 +440,6 @@ const App: React.FC = () => {
       randomize: hasRandomizeCatalyst,
       wordCombine: hasWordCombineCatalyst,
     });
-    debugGraph("combine-start", {
-      nodeIds: uniqueNodeIds,
-      workspaceCount: workspaceItems.length,
-      itemsCount: items.length,
-      combiningNodeIds,
-      selectionLayout: options?.selectionLayout
-        ? {
-            nodeCount: options.selectionLayout.nodeIds.length,
-            placeholderNodeId: options.selectionLayout.placeholderNodeId,
-          }
-        : null,
-    });
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
@@ -530,12 +482,6 @@ const App: React.FC = () => {
         model: selectedModel,
       });
       console.log("[combine] recipe received", recipe);
-      debugGraph("combine-response", {
-        recipeId: recipe.recipeId,
-        resultElementId: recipe.resultElement?.id ?? null,
-        resultElementName: recipe.resultElement?.name ?? null,
-        itemsCountBeforeResultInsert: items.length,
-      });
 
       if (!recipe.resultElement) {
         console.warn("[combine] missing resultElement in response", recipe);
@@ -545,12 +491,6 @@ const App: React.FC = () => {
 
       setItems((prev) => {
         const exists = prev.some((el) => el.id === recipe.resultElement!.id);
-        debugGraph("setItems-after-combine", {
-          resultElementId: recipe.resultElement!.id,
-          resultAlreadyKnown: exists,
-          itemsCountBefore: prev.length,
-          itemsCountAfter: exists ? prev.length : prev.length + 1,
-        });
         if (exists) return prev;
         return [...prev, recipe.resultElement!];
       });
@@ -587,13 +527,6 @@ const App: React.FC = () => {
 
         setWorkspaceItems((prev) => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
-          debugGraph("setWorkspaceItems-after-combine", {
-            removedNodeIds: uniqueNodeIds,
-            workspaceCountBefore: prev.length,
-            workspaceCountAfter: withoutInputs.length + 1,
-            resultCenter: center,
-            resultElementId: recipe.resultElement!.id,
-          });
           return [
             ...withoutInputs,
             {
@@ -624,27 +557,9 @@ const App: React.FC = () => {
       setCombiningNodeIds((prev) =>
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
-      debugGraph("combine-finished", {
-        operationCombiningIds,
-      });
       console.log("[combine] finished");
     }
   }
-
-  useEffect(() => {
-    const missingWorkspaceItemIds = workspaceItems
-      .filter((workspaceItem) => !findItemById(workspaceItem.itemId))
-      .map((workspaceItem) => ({
-        nodeId: workspaceItem.nodeId,
-        itemId: workspaceItem.itemId,
-      }));
-
-    debugGraph("workspace-items-updated", {
-      workspaceCount: workspaceItems.length,
-      itemsCount: items.length,
-      missingWorkspaceItemIds,
-    });
-  }, [items, workspaceItems]);
 
   async function combineWorkspaceItems(sourceNodeId: string, targetNodeId: string) {
     if (sourceNodeId === targetNodeId) return;
@@ -660,22 +575,6 @@ const App: React.FC = () => {
             type="button"
             className="icon-button"
             onClick={() => setErrorMessage(null)}
-            aria-label="Dismiss"
-          >
-            ×
-          </button>
-        </div>
-      )}
-      {lastClientError && (
-        <div className="toast">
-          <span className="toast-text">{lastClientError}</span>
-          <button
-            type="button"
-            className="icon-button"
-            onClick={() => {
-              setLastClientError(null);
-              window.localStorage.removeItem(LAST_CLIENT_ERROR_STORAGE_KEY);
-            }}
             aria-label="Dismiss"
           >
             ×
@@ -746,7 +645,7 @@ const App: React.FC = () => {
               <h2 className="section-title">Crafting workspace</h2>
               <div className="graph-header-actions">
                 <p className="section-help">
-                  Drag items onto each other in the workspace to combine.
+                  Click library items to add them, then pan, zoom, and move them around.
                 </p>
                 <a className="button graph-link-button" href="/cache">
                   View Cache
