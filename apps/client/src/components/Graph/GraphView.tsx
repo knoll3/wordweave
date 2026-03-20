@@ -6,6 +6,8 @@ import {
   Graphics,
   Rectangle,
   Text,
+  Texture,
+  TilingSprite,
 } from "pixi.js";
 import {
   COMBINE_RESULT_PLACEHOLDER_ITEM,
@@ -102,7 +104,6 @@ const CARD_HORIZONTAL_PADDING = 18;
 const CARD_RADIUS = 10;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
-const GRID_EXTENT = 4800;
 const HOVER_SCALE_STEP = 0.012;
 const COMBINE_SCALE_STEP = 0.075;
 const POSITION_STEP = 26;
@@ -190,7 +191,8 @@ function GraphView({
   const appRef = useRef<Application | null>(null);
   const viewportRef = useRef<Container | null>(null);
   const worldRef = useRef<Container | null>(null);
-  const gridRef = useRef<Graphics | null>(null);
+  const gridRef = useRef<TilingSprite | null>(null);
+  const gridTextureRef = useRef<Texture | null>(null);
   const backgroundRef = useRef<Graphics | null>(null);
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
   const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });
@@ -271,10 +273,15 @@ function GraphView({
 
   const applyCamera = () => {
     const viewport = viewportRef.current;
+    const grid = gridRef.current;
     if (!viewport) return;
     const camera = cameraRef.current;
     viewport.position.set(camera.x, camera.y);
     viewport.scale.set(camera.zoom);
+    if (grid) {
+      grid.tilePosition.set(camera.x, camera.y);
+      grid.tileScale.set(camera.zoom);
+    }
     updateViewportCenter();
     refreshSelectionOverlay();
   };
@@ -344,19 +351,11 @@ function GraphView({
   };
 
   const drawGrid = () => {
+    const app = appRef.current;
     const grid = gridRef.current;
-    if (!grid) return;
-
-    grid.clear();
-    grid
-      .rect(-GRID_EXTENT, -GRID_EXTENT, GRID_EXTENT * 2, GRID_EXTENT * 2)
-      .fill({ color: 0x020617, alpha: 0.001 });
-
-    for (let x = -GRID_EXTENT; x <= GRID_EXTENT; x += GRID_SPACING) {
-      for (let y = -GRID_EXTENT; y <= GRID_EXTENT; y += GRID_SPACING) {
-        grid.circle(x, y, GRID_RADIUS).fill({ color: 0x94a3b8, alpha: 0.14 });
-      }
-    }
+    if (!app || !grid) return;
+    grid.width = app.renderer.width;
+    grid.height = app.renderer.height;
   };
 
   const resizeApp = () => {
@@ -1175,10 +1174,27 @@ function GraphView({
       backgroundRef.current = background;
       app.stage.addChild(background);
 
+      const gridPattern = new Graphics();
+      gridPattern
+        .rect(0, 0, GRID_SPACING, GRID_SPACING)
+        .fill({ color: 0x020617, alpha: 0.001 });
+      gridPattern
+        .circle(GRID_SPACING / 2, GRID_SPACING / 2, GRID_RADIUS)
+        .fill({ color: 0x94a3b8, alpha: 0.14 });
+      const gridTexture = app.renderer.generateTexture(gridPattern);
+      gridPattern.destroy();
+      gridTextureRef.current = gridTexture;
+
+      const grid = new TilingSprite({
+        texture: gridTexture,
+        width: app.renderer.width,
+        height: app.renderer.height,
+      });
+      grid.eventMode = "none";
+      app.stage.addChild(grid);
+
       const viewport = new Container();
-      const grid = new Graphics();
       const world = new Container();
-      viewport.addChild(grid);
       viewport.addChild(world);
       app.stage.addChild(viewport);
       viewportRef.current = viewport;
@@ -1259,6 +1275,8 @@ function GraphView({
       appRef.current = null;
       viewportRef.current = null;
       gridRef.current = null;
+      gridTextureRef.current?.destroy(true);
+      gridTextureRef.current = null;
       worldRef.current = null;
       backgroundRef.current = null;
       dragStateRef.current = null;
