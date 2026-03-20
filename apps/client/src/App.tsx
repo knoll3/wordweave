@@ -420,18 +420,6 @@ const App: React.FC = () => {
     }
 
     const inputNames = actualInputItems.map((item) => item.name);
-    console.log("[combine] combine selected nodes", {
-      nodeIds: uniqueNodeIds,
-      inputs: inputNames,
-      crafting: hasCraftCatalyst,
-      creative: hasCreativeCatalyst,
-      evolve: hasEvolveCatalyst,
-      popCulture: hasPopCultureCatalyst,
-      subtractive: hasSplitCatalyst,
-      opposite: hasOppositeCatalyst,
-      randomize: hasRandomizeCatalyst,
-      wordCombine: hasWordCombineCatalyst,
-    });
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
@@ -473,10 +461,8 @@ const App: React.FC = () => {
         wordCombine: hasWordCombineCatalyst,
         model: selectedModel,
       });
-      console.log("[combine] recipe received", recipe);
 
       if (!recipe.resultElement) {
-        console.warn("[combine] missing resultElement in response", recipe);
         showError("Combine returned no result item.", null);
         return false;
       }
@@ -487,7 +473,6 @@ const App: React.FC = () => {
         return [...prev, recipe.resultElement!];
       });
       const isNewDiscovery = !items.some((el) => el.id === recipe.resultElement!.id);
-      console.log("[combine] item added", recipe.resultElement);
 
       if (selectionLayout) {
         setWorkspaceItems((prev) =>
@@ -535,7 +520,6 @@ const App: React.FC = () => {
       }
       return true;
     } catch (err) {
-      console.error("[combine] failed", err);
       if (options?.selectionLayout) {
         setWorkspaceItems((prev) =>
           prev.filter((node) => node.nodeId !== options.selectionLayout!.placeholderNodeId)
@@ -552,7 +536,6 @@ const App: React.FC = () => {
       setCombiningNodeIds((prev) =>
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
-      console.log("[combine] finished");
     }
   }
 
@@ -564,6 +547,12 @@ const App: React.FC = () => {
     if (sourceNodeId === targetNodeId) return;
     await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
       resultCenter: resultCenter ?? null,
+    });
+  }
+
+  async function combineWorkspaceSelection(selectionLayout: SelectionCombineLayout) {
+    await combineWorkspaceNodeIds(selectionLayout.nodeIds, {
+      selectionLayout,
     });
   }
 
@@ -708,6 +697,7 @@ const App: React.FC = () => {
                 combiningNodeIds={combiningNodeIds}
                 onClearWorkspace={clearWorkspaceItems}
                 onCombineWorkspaceItems={combineWorkspaceItems}
+                onCombineWorkspaceSelection={combineWorkspaceSelection}
               />
             </div>
           </section>

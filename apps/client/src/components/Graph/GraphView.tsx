@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Application,
   Container,
@@ -27,7 +27,7 @@ import {
   WORD_COMBINE_ITEM,
   WORD_COMBINE_ITEM_ID,
 } from "../../types";
-import type { Item, WorkspaceItem } from "../../types";
+import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 
 interface Props {
   items: Item[];
@@ -41,6 +41,7 @@ interface Props {
     targetNodeId: string,
     resultCenter?: { x: number; y: number }
   ) => void;
+  onCombineWorkspaceSelection: (selectionLayout: SelectionCombineLayout) => void;
 }
 
 type CameraState = {
@@ -64,15 +65,24 @@ type PanState = {
   startCameraY: number;
 };
 
+type SelectionDragState = {
+  pointerId: number | null;
+  startScreenX: number;
+  startScreenY: number;
+};
+
 type ItemView = {
   nodeId: string;
   container: Container;
   background: Graphics;
+  loader: Graphics | null;
   icon: Text;
   label: Text;
   badge: Text | null;
   itemId: number;
   width: number;
+  targetX: number;
+  targetY: number;
   targetScale: number;
   scaleStep: number;
   contentAlpha: number;
@@ -94,10 +104,15 @@ const GRID_RADIUS = 1.15;
 const GRID_EXTENT = 4800;
 const HOVER_SCALE_STEP = 0.012;
 const COMBINE_SCALE_STEP = 0.075;
+const POSITION_STEP = 26;
 const CONTENT_ALPHA_STEP = 0.11;
 const COMBINING_CONTENT_ALPHA = 0.5;
 const SPAWN_SCALE = 0.18;
 const SHRINK_SCALE = 0.18;
+const GRID_CELL_GAP_X = 18;
+const GRID_CELL_GAP_Y = 16;
+const SELECTION_PADDING = 14;
+const PLACEHOLDER_WIDTH = 120;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -143,6 +158,13 @@ function drawItemCard(
 
 function setViewTopLeftPosition(view: ItemView, position: { x: number; y: number }) {
   view.container.position.set(position.x + view.width / 2, position.y + CARD_HEIGHT / 2);
+  view.targetX = view.container.x;
+  view.targetY = view.container.y;
+}
+
+function setViewTargetTopLeftPosition(view: ItemView, position: { x: number; y: number }) {
+  view.targetX = position.x + view.width / 2;
+  view.targetY = position.y + CARD_HEIGHT / 2;
 }
 
 function getViewTopLeftPosition(view: ItemView) {
@@ -160,6 +182,7 @@ function GraphView({
   combiningNodeIds,
   onClearWorkspace,
   onCombineWorkspaceItems,
+  onCombineWorkspaceSelection,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -172,14 +195,41 @@ function GraphView({
   const dragStateRef = useRef<DragState | null>(null);
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
+  const selectionDragRef = useRef<SelectionDragState | null>(null);
   const resizeFrameRef = useRef<number>(0);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
+  const workspaceItemsRef = useRef<WorkspaceItem[]>(workspaceItems);
   const itemByIdRef = useRef<Map<number, Item>>(new Map());
   const onWorkspaceItemsChangeRef = useRef(onWorkspaceItemsChange);
   const onViewportCenterChangeRef = useRef(onViewportCenterChange);
   const onCombineWorkspaceItemsRef = useRef(onCombineWorkspaceItems);
+  const onCombineWorkspaceSelectionRef = useRef(onCombineWorkspaceSelection);
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectionDragRect, setSelectionDragRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const selectionDragRectRef = useRef<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
+  const [selectionLayout, setSelectionLayout] = useState<SelectionCombineLayout | null>(null);
+  const [selectionOverlayRect, setSelectionOverlayRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const selectionModeRef = useRef(false);
+  const selectedNodeIdsRef = useRef<string[]>([]);
+  const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -196,10 +246,15 @@ function GraphView({
   }, [items]);
 
   itemByIdRef.current = itemById;
+  workspaceItemsRef.current = workspaceItems;
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
   onViewportCenterChangeRef.current = onViewportCenterChange;
   onCombineWorkspaceItemsRef.current = onCombineWorkspaceItems;
+  onCombineWorkspaceSelectionRef.current = onCombineWorkspaceSelection;
+  selectionModeRef.current = isSelectionMode;
+  selectedNodeIdsRef.current = selectedNodeIds;
+  selectionLayoutRef.current = selectionLayout;
 
   const updateViewportCenter = () => {
     const app = appRef.current;
@@ -219,6 +274,7 @@ function GraphView({
     viewport.position.set(camera.x, camera.y);
     viewport.scale.set(camera.zoom);
     updateViewportCenter();
+    refreshSelectionOverlay();
   };
 
   const pixiPointerToWorld = (event: FederatedPointerEvent) => {
@@ -229,17 +285,26 @@ function GraphView({
     };
   };
 
-  const screenToWorld = (clientX: number, clientY: number) => {
-    const app = appRef.current;
-    const element = app?.canvas as HTMLCanvasElement | undefined;
+  const screenPointToWorld = (screenX: number, screenY: number) => {
     const camera = cameraRef.current;
-    if (!app || !element) return { x: 0, y: 0 };
-    const rect = element.getBoundingClientRect();
-    const screenX = clientX - rect.left;
-    const screenY = clientY - rect.top;
     return {
       x: (screenX - camera.x) / camera.zoom,
       y: (screenY - camera.y) / camera.zoom,
+    };
+  };
+
+  const worldRectToScreenRect = (rect: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  }) => {
+    const camera = cameraRef.current;
+    return {
+      left: rect.x * camera.zoom + camera.x,
+      top: rect.y * camera.zoom + camera.y,
+      width: rect.width * camera.zoom,
+      height: rect.height * camera.zoom,
     };
   };
 
@@ -283,7 +348,13 @@ function GraphView({
   const applyViewState = (view: ItemView, state: ItemVisualState, scale = 1) => {
     drawItemCard(view.background, view.width, view.itemId, state);
     view.targetScale = scale;
-    view.scaleStep = scale === 1 || scale === 1.04 ? HOVER_SCALE_STEP : COMBINE_SCALE_STEP;
+    const isHoverScale = scale === 1 || scale === 1.04;
+    const isSettledNearFullSize =
+      view.container.scale.x >= 0.98 && view.targetScale >= 0.98;
+    view.scaleStep =
+      isHoverScale && isSettledNearFullSize
+        ? HOVER_SCALE_STEP
+        : COMBINE_SCALE_STEP;
   };
 
   const setViewContentAlpha = (view: ItemView, alpha: number) => {
@@ -295,9 +366,235 @@ function GraphView({
     if (!hoverTargetNodeId) return;
     const hoverView = itemViewsRef.current.get(hoverTargetNodeId);
     if (hoverView) {
-      applyViewState(hoverView, "default", 1);
+      applyViewState(
+        hoverView,
+        selectedNodeIdsRef.current.includes(hoverTargetNodeId) ? "highlight" : "default",
+        1
+      );
     }
     hoverTargetNodeIdRef.current = null;
+  };
+
+  const clearSelection = () => {
+    setSelectedNodeIds([]);
+    setSelectionLayout(null);
+    setSelectionOverlayRect(null);
+  };
+
+  const beginSelectionDrag = (
+    pointerId: number | null,
+    screenX: number,
+    screenY: number
+  ) => {
+    selectionDragRef.current = {
+      pointerId,
+      startScreenX: screenX,
+      startScreenY: screenY,
+    };
+    const nextRect = {
+      left: screenX,
+      top: screenY,
+      width: 0,
+      height: 0,
+    };
+    setSelectionDragRect(nextRect);
+    selectionDragRectRef.current = nextRect;
+    setSelectedNodeIds([]);
+    setSelectionLayout(null);
+    setSelectionOverlayRect(null);
+  };
+
+  const getSelectionWorldBounds = (layout: SelectionCombineLayout) => {
+    const involvedNodeIds = new Set([
+      ...layout.nodeIds,
+      layout.placeholderNodeId,
+    ]);
+    const entries = Array.from(involvedNodeIds).map((nodeId) => {
+      const position =
+        nodeId === layout.placeholderNodeId
+          ? layout.placeholderPosition
+          : layout.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
+      const width =
+        nodeId === layout.placeholderNodeId
+          ? Math.max(
+              ...layout.nodeIds.map(
+                (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
+              ),
+              180
+            )
+          : itemViewsRef.current.get(nodeId)?.width ?? 0;
+      return position ? { ...position, width } : null;
+    }).filter(Boolean) as Array<{ x: number; y: number; width: number }>;
+
+    if (entries.length === 0) return null;
+
+    const left = Math.min(...entries.map((entry) => entry.x)) - SELECTION_PADDING;
+    const top = Math.min(...entries.map((entry) => entry.y)) - SELECTION_PADDING;
+    const right =
+      Math.max(...entries.map((entry) => entry.x + entry.width)) + SELECTION_PADDING;
+    const bottom =
+      Math.max(...entries.map((entry) => entry.y + CARD_HEIGHT)) + SELECTION_PADDING;
+
+    return {
+      x: left,
+      y: top,
+      width: right - left,
+      height: bottom - top,
+    };
+  };
+
+  const refreshSelectionOverlay = () => {
+    const currentSelectionLayout = selectionLayoutRef.current;
+    if (!currentSelectionLayout) {
+      setSelectionOverlayRect(null);
+      return;
+    }
+
+    const worldBounds = getSelectionWorldBounds(currentSelectionLayout);
+    if (!worldBounds) {
+      setSelectionOverlayRect(null);
+      return;
+    }
+
+    setSelectionOverlayRect(worldRectToScreenRect(worldBounds));
+  };
+
+  const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
+    if (nodeIds.length < 2) return null;
+
+    const selectedViews = nodeIds
+      .map((nodeId) => {
+        const view = itemViewsRef.current.get(nodeId);
+        return view ? { nodeId, view } : null;
+      })
+      .filter(Boolean) as Array<{ nodeId: string; view: ItemView }>;
+
+    if (selectedViews.length < 2) return null;
+
+    const bounds = selectedViews.reduce(
+      (acc, entry) => {
+        const position = getViewTopLeftPosition(entry.view);
+        return {
+          left: Math.min(acc.left, position.x),
+          top: Math.min(acc.top, position.y),
+          right: Math.max(acc.right, position.x + entry.view.width),
+          bottom: Math.max(acc.bottom, position.y + CARD_HEIGHT),
+          totalWidth: acc.totalWidth + entry.view.width,
+        };
+      },
+      {
+        left: Number.POSITIVE_INFINITY,
+        top: Number.POSITIVE_INFINITY,
+        right: Number.NEGATIVE_INFINITY,
+        bottom: Number.NEGATIVE_INFINITY,
+        totalWidth: 0,
+      }
+    );
+
+    const orderedNodeIds = [...selectedViews]
+      .sort((a, b) => {
+        const aPosition = getViewTopLeftPosition(a.view);
+        const bPosition = getViewTopLeftPosition(b.view);
+        if (aPosition.y !== bPosition.y) return aPosition.y - bPosition.y;
+        return aPosition.x - bPosition.x;
+      })
+      .map((entry) => entry.nodeId);
+
+    const placeholderWidth = Math.max(
+      PLACEHOLDER_WIDTH,
+      Math.round(bounds.totalWidth / selectedViews.length)
+    );
+    const itemsForLayout = [
+      ...orderedNodeIds.map((nodeId) => ({
+        nodeId,
+        width: itemViewsRef.current.get(nodeId)?.width ?? 0,
+        isPlaceholder: false,
+      })),
+      {
+        nodeId: `workspace-selection-placeholder-${Date.now()}`,
+        width: placeholderWidth,
+        isPlaceholder: true,
+      },
+    ];
+
+    const selectionWidth = bounds.right - bounds.left;
+    const averageWidth = bounds.totalWidth / selectedViews.length;
+    const targetRowWidth = Math.max(
+      selectionWidth,
+      Math.round(Math.sqrt(itemsForLayout.length) * averageWidth)
+    );
+
+    const rows: Array<Array<(typeof itemsForLayout)[number]>> = [];
+    let currentRow: Array<(typeof itemsForLayout)[number]> = [];
+    let currentRowWidth = 0;
+
+    itemsForLayout.forEach((entry) => {
+      const nextWidth = currentRow.length === 0 ? entry.width : currentRowWidth + GRID_CELL_GAP_X + entry.width;
+      if (currentRow.length > 0 && nextWidth > targetRowWidth) {
+        rows.push(currentRow);
+        currentRow = [entry];
+        currentRowWidth = entry.width;
+        return;
+      }
+      currentRow.push(entry);
+      currentRowWidth = nextWidth;
+    });
+    if (currentRow.length > 0) {
+      rows.push(currentRow);
+    }
+
+    const gridHeight = rows.length * CARD_HEIGHT + (rows.length - 1) * GRID_CELL_GAP_Y;
+    const currentCenterY = (bounds.top + bounds.bottom) / 2;
+    const startX = Math.round(bounds.left);
+    const startY = Math.round(currentCenterY - gridHeight / 2);
+    const nodePositions: SelectionCombineLayout["nodePositions"] = [];
+    let placeholderPosition = { x: startX, y: startY };
+
+    rows.forEach((row, rowIndex) => {
+      let rowX = startX;
+      const rowY = startY + rowIndex * (CARD_HEIGHT + GRID_CELL_GAP_Y);
+      row.forEach((entry) => {
+        if (entry.isPlaceholder) {
+          placeholderPosition = { x: Math.round(rowX), y: Math.round(rowY) };
+        } else {
+          nodePositions.push({
+            nodeId: entry.nodeId,
+            position: {
+              x: Math.round(rowX),
+              y: Math.round(rowY),
+            },
+          });
+        }
+        rowX += entry.width + GRID_CELL_GAP_X;
+      });
+    });
+
+    const placeholderNodeId = itemsForLayout[itemsForLayout.length - 1].nodeId;
+
+    return {
+      nodeIds: orderedNodeIds,
+      nodePositions,
+      placeholderNodeId,
+      placeholderPosition,
+    };
+  };
+
+  const applySelectionLayout = (nextLayout: SelectionCombineLayout | null) => {
+    if (!nextLayout) {
+      clearSelection();
+      return;
+    }
+
+    onWorkspaceItemsChangeRef.current((prev) =>
+      prev.map((item) => {
+        const nextPosition = nextLayout.nodePositions.find(
+          (entry) => entry.nodeId === item.nodeId
+        )?.position;
+        return nextPosition ? { ...item, position: nextPosition } : item;
+      })
+    );
+    setSelectedNodeIds(nextLayout.nodeIds);
+    setSelectionLayout(nextLayout);
   };
 
   const rectanglesOverlap = (
@@ -353,9 +650,10 @@ function GraphView({
     const container = new Container();
     container.eventMode = "static";
     container.cursor = "grab";
+    const isPlaceholder = item.id === COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
 
     const icon = new Text({
-      text: item.icon || "•",
+      text: isPlaceholder ? "" : item.icon || "•",
       style: {
         fill: 0xe5e7eb,
         fontFamily: "Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif",
@@ -365,7 +663,7 @@ function GraphView({
         breakWords: false,
       },
     });
-    const labelValue = item.name;
+    const labelValue = isPlaceholder ? "" : item.name;
     const label = new Text({
       text: labelValue,
       style: {
@@ -377,6 +675,7 @@ function GraphView({
         breakWords: false,
       },
     });
+    const loader = isPlaceholder ? new Graphics() : null;
     const badge = workspaceItem.isNewDiscovery
       ? new Text({
           text: "✦",
@@ -390,12 +689,18 @@ function GraphView({
       : null;
 
     const background = new Graphics();
-    const contentWidth =
-      CARD_HORIZONTAL_PADDING * 2 +
-      icon.width +
-      10 +
-      label.width +
-      (badge ? badge.width + 12 : 0);
+    if (loader) {
+      loader
+        .arc(0, 0, 7, 0.2 * Math.PI, 1.7 * Math.PI)
+        .stroke({ width: 3, color: 0xe5e7eb, alpha: 0.95 });
+    }
+    const contentWidth = isPlaceholder
+      ? PLACEHOLDER_WIDTH
+      : CARD_HORIZONTAL_PADDING * 2 +
+        icon.width +
+        10 +
+        label.width +
+        (badge ? badge.width + 12 : 0);
     const cardWidth = contentWidth;
     drawItemCard(background, cardWidth, item.id, "default");
 
@@ -405,21 +710,36 @@ function GraphView({
     label.x = icon.x + icon.width + 10;
     label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
 
+    if (loader) {
+      loader.x = Math.round(cardWidth / 2);
+      loader.y = Math.round(CARD_HEIGHT / 2);
+    }
+
     if (badge) {
       badge.x = cardWidth - CARD_HORIZONTAL_PADDING - badge.width;
       badge.y = Math.round((CARD_HEIGHT - badge.height) / 2) - 1;
     }
 
     container.addChild(background);
-    container.addChild(icon);
-    container.addChild(label);
+    if (loader) {
+      container.addChild(loader);
+    } else {
+      container.addChild(icon);
+      container.addChild(label);
+    }
     if (badge) {
       container.addChild(badge);
     }
 
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
     container.on("pointerdown", (event) => {
+      if (selectionModeRef.current) {
+        return;
+      }
       event.stopPropagation();
+      if (selectedNodeIdsRef.current.length > 0) {
+        clearSelection();
+      }
       const pointerPosition = pixiPointerToWorld(event);
       const world = worldRef.current;
       if (world) {
@@ -428,11 +748,14 @@ function GraphView({
       const topLeftPosition = getViewTopLeftPosition({
         container,
         background,
+        loader,
         icon,
         label,
         badge,
         itemId: item.id,
         width: cardWidth,
+        targetX: container.x,
+        targetY: container.y,
         targetScale: 1,
         scaleStep: HOVER_SCALE_STEP,
         contentAlpha: 1,
@@ -455,11 +778,14 @@ function GraphView({
       nodeId: workspaceItem.nodeId,
       container,
       background,
+      loader,
       icon,
       label,
       badge,
       itemId: item.id,
       width: cardWidth,
+      targetX: 0,
+      targetY: 0,
       targetScale: 1,
       scaleStep: HOVER_SCALE_STEP,
       contentAlpha: 1,
@@ -503,6 +829,25 @@ function GraphView({
       if (!item) return;
 
       let view = existingViews.get(workspaceItem.nodeId);
+      if (
+        view &&
+        (view.itemId !== item.id || Boolean(view.badge) !== Boolean(workspaceItem.isNewDiscovery))
+      ) {
+        const currentPosition = getViewTopLeftPosition(view);
+        const currentScale = view.container.scale.x;
+        const currentAlpha = view.contentAlpha;
+        view.container.destroy({ children: true });
+        existingViews.delete(workspaceItem.nodeId);
+        view = createItemView(workspaceItem, item);
+        setViewTopLeftPosition(view, currentPosition);
+        view.container.scale.set(currentScale);
+        view.targetScale = currentScale;
+        view.contentAlpha = currentAlpha;
+        view.targetContentAlpha = currentAlpha;
+        view.container.alpha = currentAlpha;
+        existingViews.set(workspaceItem.nodeId, view);
+        world.addChild(view.container);
+      }
       if (!view) {
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
@@ -517,15 +862,23 @@ function GraphView({
       }
 
       if (dragStateRef.current?.nodeId !== workspaceItem.nodeId) {
-        setViewTopLeftPosition(view, workspaceItem.position);
+        setViewTargetTopLeftPosition(view, workspaceItem.position);
       }
       view.destroyWhenSettled = false;
       const isCombining = (combiningNodeIds ?? []).includes(workspaceItem.nodeId);
       setViewContentAlpha(view, isCombining ? COMBINING_CONTENT_ALPHA : 1);
+      if (hoverTargetNodeIdRef.current !== workspaceItem.nodeId) {
+        applyViewState(
+          view,
+          selectedNodeIdsRef.current.includes(workspaceItem.nodeId) ? "highlight" : "default",
+          view.targetScale === 1.04 ? 1.04 : 1
+        );
+      }
     });
 
     previousWorkspaceNodeIdsRef.current = nextWorkspaceItems.map((item) => item.nodeId);
     previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
+    refreshSelectionOverlay();
   };
 
   useEffect(() => {
@@ -559,6 +912,10 @@ function GraphView({
 
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
       if (dragStateRef.current) return;
+      if (selectionModeRef.current) {
+        beginSelectionDrag(event.pointerId, event.global.x, event.global.y);
+        return;
+      }
       if (event.target !== appRef.current?.stage && event.target !== backgroundRef.current) {
         return;
       }
@@ -572,6 +929,27 @@ function GraphView({
     };
 
     const handleWindowPointerMove = (event: PointerEvent) => {
+      const selectionDrag = selectionDragRef.current;
+      if (
+        selectionDrag &&
+        (selectionDrag.pointerId === null || selectionDrag.pointerId === event.pointerId)
+      ) {
+        const rect = host.getBoundingClientRect();
+        const screenX = event.clientX - rect.left;
+        const screenY = event.clientY - rect.top;
+        const left = Math.min(selectionDrag.startScreenX, screenX);
+        const top = Math.min(selectionDrag.startScreenY, screenY);
+        const nextRect = {
+          left,
+          top,
+          width: Math.abs(screenX - selectionDrag.startScreenX),
+          height: Math.abs(screenY - selectionDrag.startScreenY),
+        };
+        setSelectionDragRect(nextRect);
+        selectionDragRectRef.current = nextRect;
+        return;
+      }
+
       const panState = panStateRef.current;
       if (!panState || panState.pointerId !== event.pointerId) return;
       cameraRef.current.x = panState.startCameraX + (event.clientX - panState.startClientX);
@@ -580,6 +958,56 @@ function GraphView({
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      const selectionDrag = selectionDragRef.current;
+      if (
+        selectionDrag &&
+        (selectionDrag.pointerId === null || selectionDrag.pointerId === event.pointerId)
+      ) {
+        selectionDragRef.current = null;
+        const finalRect = selectionDragRectRef.current;
+        setSelectionDragRect(null);
+        selectionDragRectRef.current = null;
+        if (!finalRect || finalRect.width < 6 || finalRect.height < 6) {
+          setIsSelectionMode(false);
+          return;
+        }
+
+        const topLeft = screenPointToWorld(finalRect.left, finalRect.top);
+        const bottomRight = screenPointToWorld(
+          finalRect.left + finalRect.width,
+          finalRect.top + finalRect.height
+        );
+        const worldRect = {
+          left: Math.min(topLeft.x, bottomRight.x),
+          top: Math.min(topLeft.y, bottomRight.y),
+          right: Math.max(topLeft.x, bottomRight.x),
+          bottom: Math.max(topLeft.y, bottomRight.y),
+        };
+
+        const selectedIds = workspaceItemsRef.current
+          .filter((item) => {
+            const view = itemViewsRef.current.get(item.nodeId);
+            if (!view) return false;
+            const position = getViewTopLeftPosition(view);
+            return (
+              position.x >= worldRect.left &&
+              position.y >= worldRect.top &&
+              position.x + view.width <= worldRect.right &&
+              position.y + CARD_HEIGHT <= worldRect.bottom
+            );
+          })
+          .map((item) => item.nodeId);
+
+        const nextLayout = buildSelectionLayout(selectedIds);
+        if (nextLayout) {
+          applySelectionLayout(nextLayout);
+        } else {
+          clearSelection();
+        }
+        setIsSelectionMode(false);
+        return;
+      }
+
       const dragState = dragStateRef.current;
       if (dragState && dragState.pointerId === event.pointerId) {
         const view = itemViewsRef.current.get(dragState.nodeId);
@@ -650,6 +1078,23 @@ function GraphView({
       applyCamera();
     };
 
+    const handleCanvasMouseDownCapture = (event: MouseEvent) => {
+      if (event.detail !== 2) return;
+      if (dragStateRef.current || selectionModeRef.current) return;
+      const rect = host.getBoundingClientRect();
+      const screenX = event.clientX - rect.left;
+      const screenY = event.clientY - rect.top;
+      selectionDragRef.current = null;
+      selectionDragRectRef.current = null;
+      setSelectionDragRect(null);
+      clearSelection();
+      setIsSelectionMode(true);
+      beginSelectionDrag(null, screenX, screenY);
+      panStateRef.current = null;
+      event.preventDefault();
+      event.stopPropagation();
+    };
+
     const init = async () => {
       const app = new Application();
       await app.init({
@@ -697,6 +1142,12 @@ function GraphView({
       syncScene(workspaceItems);
       app.ticker.add(() => {
         itemViewsRef.current.forEach((view) => {
+          view.container.x = moveToward(view.container.x, view.targetX, POSITION_STEP);
+          view.container.y = moveToward(view.container.y, view.targetY, POSITION_STEP);
+          if (view.loader) {
+            view.loader.rotation += 0.18;
+          }
+
           const currentScale = view.container.scale.x;
           const appliedScale = moveToward(
             currentScale,
@@ -725,6 +1176,7 @@ function GraphView({
 
       app.stage.on("pointerdown", handleStagePointerDown);
       app.stage.on("globalpointermove", handleStagePointerMove);
+      app.canvas.addEventListener("mousedown", handleCanvasMouseDownCapture, true);
       window.addEventListener("pointermove", handleWindowPointerMove);
       window.addEventListener("pointerup", handlePointerUp);
       window.addEventListener("pointercancel", handlePointerUp);
@@ -747,6 +1199,7 @@ function GraphView({
       if (app) {
         app.stage.off("pointerdown", handleStagePointerDown);
         app.stage.off("globalpointermove", handleStagePointerMove);
+        app.canvas.removeEventListener("mousedown", handleCanvasMouseDownCapture, true);
         app.canvas.removeEventListener("wheel", handleWheel);
         app.destroy(true, { children: true });
       }
@@ -760,12 +1213,31 @@ function GraphView({
       dragStateRef.current = null;
       hoverTargetNodeIdRef.current = null;
       panStateRef.current = null;
+      selectionDragRef.current = null;
+      selectionDragRectRef.current = null;
     };
   }, []);
 
   useEffect(() => {
     syncScene(workspaceItems);
-  }, [combiningNodeIds, itemById, workspaceItems]);
+  }, [combiningNodeIds, itemById, selectedNodeIds, workspaceItems]);
+
+  useEffect(() => {
+    refreshSelectionOverlay();
+  }, [selectionLayout]);
+
+  useEffect(() => {
+    if (!selectionLayout) return;
+    const stillCombining = [selectionLayout.placeholderNodeId, ...selectionLayout.nodeIds].some(
+      (nodeId) => (combiningNodeIds ?? []).includes(nodeId)
+    );
+    if (!stillCombining && workspaceItems.some((item) => item.nodeId === selectionLayout.placeholderNodeId)) {
+      clearSelection();
+    }
+  }, [combiningNodeIds, selectionLayout, workspaceItems]);
+
+  const isSelectionCombining =
+    selectionLayout?.nodeIds.some((nodeId) => (combiningNodeIds ?? []).includes(nodeId)) ?? false;
 
   return (
     <div ref={hostRef} className="graph-pixi-host">
@@ -774,9 +1246,58 @@ function GraphView({
           Click items in the library to place them into the workspace.
         </div>
       ) : null}
-      <div className="graph-workspace-hint" aria-hidden="true">
-        Drag to move items. Drag empty space to pan. Use the mouse wheel to zoom.
-      </div>
+      <button
+        type="button"
+        className={`button ${isSelectionMode || selectedNodeIds.length > 0 ? "primary" : "secondary"} graph-selection-button`}
+        aria-label={
+          isSelectionMode
+            ? "Cancel selection mode"
+            : selectedNodeIds.length > 0
+              ? "Clear selection"
+              : "Enter selection mode"
+        }
+        onClick={() => {
+          if (isSelectionMode || selectedNodeIds.length > 0) {
+            setIsSelectionMode(false);
+            clearSelection();
+            return;
+          }
+          setIsSelectionMode(true);
+        }}
+      >
+        <span aria-hidden="true">{isSelectionMode ? "×" : "⬚"}</span>
+      </button>
+      {selectionDragRect ? (
+        <div
+          className="graph-selection-drag-box"
+          style={{
+            left: selectionDragRect.left,
+            top: selectionDragRect.top,
+            width: selectionDragRect.width,
+            height: selectionDragRect.height,
+          }}
+        />
+      ) : null}
+      {selectionOverlayRect && selectionLayout ? (
+        <div
+          className="graph-selection-overlay"
+          style={{
+            left: selectionOverlayRect.left,
+            top: selectionOverlayRect.top,
+            width: selectionOverlayRect.width,
+            height: selectionOverlayRect.height,
+          }}
+        >
+          <button
+            type="button"
+            className="button primary graph-selection-combine-button"
+            onClick={() => onCombineWorkspaceSelectionRef.current(selectionLayout)}
+            disabled={isSelectionCombining}
+          >
+            {isSelectionCombining ? "Combining..." : "Combine"}
+          </button>
+        </div>
+      ) : null}
       {workspaceItems.length > 0 ? (
         <button
           type="button"
