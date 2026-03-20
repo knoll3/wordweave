@@ -309,16 +309,6 @@ const App: React.FC = () => {
     addItemToWorkspace(item.id);
   }
 
-  function duplicateWorkspaceItem(nodeId: string, position?: { x: number; y: number }) {
-    const source = workspaceItems.find((item) => item.nodeId === nodeId);
-    if (!source) return;
-    addItemToWorkspace(source.itemId, position);
-  }
-
-  function removeWorkspaceItem(nodeId: string) {
-    setWorkspaceItems((prev) => prev.filter((item) => item.nodeId !== nodeId));
-  }
-
   function clearWorkspaceItems() {
     setWorkspaceItems([]);
   }
@@ -719,22 +709,6 @@ const App: React.FC = () => {
                 onViewportCenterChange={setViewportCenter}
                 combiningNodeIds={combiningNodeIds}
                 onClearWorkspace={clearWorkspaceItems}
-                onRemoveWorkspaceItem={removeWorkspaceItem}
-                onDuplicateWorkspaceItem={duplicateWorkspaceItem}
-                onAddItemToWorkspace={addItemToWorkspace}
-                craftUnlocked={isFeatureUnlocked("craft")}
-                creativeUnlocked={isFeatureUnlocked("creative")}
-                evolveUnlocked={isFeatureUnlocked("evolve")}
-                popCultureUnlocked={isFeatureUnlocked("pop_culture")}
-                splitUnlocked={isFeatureUnlocked("split")}
-                oppositeUnlocked={isFeatureUnlocked("opposite")}
-                randomizeUnlocked={isFeatureUnlocked("random_tools")}
-                wordCombineUnlocked={isFeatureUnlocked("word_combine")}
-                onCombineWorkspaceSelection={(layout) =>
-                  combineWorkspaceNodeIds(layout.nodeIds, {
-                    selectionLayout: layout,
-                  })
-                }
                 onCombineWorkspaceItems={combineWorkspaceItems}
               />
             </div>

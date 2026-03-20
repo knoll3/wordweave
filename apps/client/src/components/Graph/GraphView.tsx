@@ -26,7 +26,7 @@ import {
   WORD_COMBINE_ITEM,
   WORD_COMBINE_ITEM_ID,
 } from "../../types";
-import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
+import type { Item, WorkspaceItem } from "../../types";
 
 interface Props {
   items: Item[];
@@ -35,24 +35,6 @@ interface Props {
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
   onClearWorkspace: () => void;
-  onRemoveWorkspaceItem: (nodeId: string) => void;
-  onDuplicateWorkspaceItem: (
-    nodeId: string,
-    position: { x: number; y: number }
-  ) => void;
-  onAddItemToWorkspace: (
-    itemId: number,
-    position?: { x: number; y: number }
-  ) => void;
-  craftUnlocked: boolean;
-  creativeUnlocked: boolean;
-  evolveUnlocked: boolean;
-  popCultureUnlocked: boolean;
-  splitUnlocked: boolean;
-  oppositeUnlocked: boolean;
-  randomizeUnlocked: boolean;
-  wordCombineUnlocked: boolean;
-  onCombineWorkspaceSelection: (layout: SelectionCombineLayout) => Promise<boolean>;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
     targetNodeId: string,
@@ -182,7 +164,6 @@ function GraphView({
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const resizeFrameRef = useRef<number>(0);
-  const workspaceItemsRef = useRef(workspaceItems);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
@@ -206,7 +187,6 @@ function GraphView({
   }, [items]);
 
   itemByIdRef.current = itemById;
-  workspaceItemsRef.current = workspaceItems;
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
   onViewportCenterChangeRef.current = onViewportCenterChange;

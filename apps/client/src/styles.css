@@ -378,26 +378,6 @@ body {
   pointer-events: none;
 }
 
-.react-flow__handle {
-  display: none !important;
-}
-
-.react-flow__node.node-combining {
-  animation: node-combine-pulse 1.2s ease-in-out infinite;
-}
-
-@keyframes node-combine-pulse {
-  0% {
-    opacity: 0.3;
-  }
-  50% {
-    opacity: 0.7;
-  }
-  100% {
-    opacity: 0.3;
-  }
-}
-
 .graph-clear-button {
   position: absolute;
   right: 12px;
