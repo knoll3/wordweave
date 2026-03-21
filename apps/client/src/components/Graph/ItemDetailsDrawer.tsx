@@ -30,7 +30,7 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   },
   [SPLIT_ITEM_ID]: {
     description:
-      "Treats the inputs like a subtraction problem. It first looks for inverse-combination logic, asking what ingredient, source concept, or remaining part would make sense if one idea were removed from another.",
+      "Treats the inputs as something to split apart. It looks for the single most meaningful part, component, constituent element, or resulting piece that would plausibly appear if the item were divided, broken down, separated, or split into its underlying parts.",
     example: "Example: Sandcastle + Split + Sand -> Castle",
   },
   [OPPOSITE_ITEM_ID]: {

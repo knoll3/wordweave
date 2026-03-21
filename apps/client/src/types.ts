@@ -111,6 +111,7 @@ export interface Recipe {
   candidates: RecipeCandidate[];
   chosenCandidateId: number | null;
   resultElement?: Item;
+  resultElements?: Item[];
 }
 
 export interface RecentRecipe {
@@ -236,6 +237,7 @@ export interface FeatureUnlockStatus {
   key: UnlockKey;
   title: string;
   summary: string;
+  exampleWords: string[];
   unlocked: boolean;
   introPending: boolean;
   unlockedAt: string | null;

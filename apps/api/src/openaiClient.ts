@@ -3,10 +3,11 @@ import {
   craftLlmResultSchema,
   llmResultSchema,
   recipeBatchSchema,
+  splitLlmResultSchema,
   targetQuestSelectionSchema,
 } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
-import type { TargetQuestSelection } from "./validation";
+import type { SplitLlmResult, TargetQuestSelection } from "./validation";
 
 export type OpenAiModel =
   | "gpt-5-mini"
@@ -85,28 +86,43 @@ Inputs:
 `.trim();
 
 const SUBTRACTIVE_PROMPT = `
-You are the subtraction engine for a sandbox discovery game.
+You are the split engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to infer the single most plausible missing ingredient when one concept is removed from another.
+The player provides several nouns as input. Your job is to answer the question: what is the single most plausible result if this were split apart?
 
-First, think in terms of inverse crafting. Determine whether one input can be understood as a result that includes another input, and return the most plausible ingredient that would remain or be required after removing the other concept.
+Think in terms of separating, breaking, dividing, or splitting something into one meaningful resulting part. The split can be physical, structural, conceptual in a concrete way, or linguistic if the input naturally behaves like something that can be split into a real recognized part.
 
-Prefer reverse-combination logic over abstract semantic subtraction. The result should feel like a plausible ingredient or source concept, not a synonym, residue, or adjacent concept.
+It can also refer to one of the core components, constituent parts, or underlying building blocks that make up the item.
 
-If no strong inverse-crafting interpretation exists, fall back to conceptual subtraction and return the most plausible concrete concept that remains.
+If the input naturally breaks into two dominant outputs, return both. This includes not only compound terms or merged concepts, but also real things that decompose, divide, separate, or split into two primary constituent results.
+
+Focus on the result of the split itself, not on abstract opposites or loose semantic subtraction.
+
+Prefer a real, recognizable component, ingredient, part, constituent element, or resulting concept that would plausibly appear when the input is split.
 
 Rules:
 - Return exactly one result.
+- If the split naturally produces two equally meaningful primary outputs, you may return two results instead of one.
 - Keep the result short and noun-like.
 - Do not return explanations, descriptions, sentences.
 - Favor a concrete concept that people would recognize in the real world.
+- Favor the most meaningful single result of the split over a vague fragment or residue.
 - The result should be something real, not an invented term.
 
-Return ONLY valid JSON in this format:
+Return ONLY valid JSON in one of these formats:
 
 {
   "name": "result name",
   "icon": "emoji"
+}
+
+or
+
+{
+  "results": [
+    { "name": "first result", "icon": "emoji" },
+    { "name": "second result", "icon": "emoji" }
+  ]
 }
 
 Inputs:
@@ -449,7 +465,7 @@ export async function generateResult(
     evolve?: boolean;
     model?: OpenAiModel;
   }
-): Promise<{ name: string; icon: string }> {
+): Promise<{ name: string; icon: string } | { results: Array<{ name: string; icon: string }> }> {
   const openai = getOpenAI();
   const model = options?.model ?? DEFAULT_MODEL_NAME;
 
@@ -544,6 +560,16 @@ export async function generateResult(
     return craftResult.data;
   }
 
+  if (options?.subtractive) {
+    const splitResult = splitLlmResultSchema.safeParse(parsed);
+    if (!splitResult.success) {
+      console.error("[openai] split response failed schema validation", parsed);
+      throw new Error("OpenAI split response failed validation");
+    }
+    console.log("[openai] parsed split result", splitResult.data);
+    return normalizeSplitResult(splitResult.data);
+  }
+
   const result = llmResultSchema.safeParse(parsed);
   if (!result.success) {
     console.error("[openai] response failed schema validation", parsed);
@@ -553,6 +579,35 @@ export async function generateResult(
   console.log("[openai] parsed result", result.data);
 
   return result.data;
+}
+
+function normalizeSplitResult(
+  value: SplitLlmResult
+): { name: string; icon: string } | { results: Array<{ name: string; icon: string }> } {
+  if ("results" in value) {
+    const normalizedResults = value.results
+      .map((entry) => ({
+        name: entry.name.trim(),
+        icon: entry.icon,
+      }))
+      .filter((entry, index, array) => {
+        const normalizedName = entry.name.toLowerCase();
+        return (
+          normalizedName.length > 0 &&
+          array.findIndex((candidate) => candidate.name.toLowerCase() === normalizedName) ===
+            index
+        );
+      })
+      .slice(0, 2);
+
+    if (normalizedResults.length === 1) {
+      return normalizedResults[0];
+    }
+
+    return { results: normalizedResults };
+  }
+
+  return value;
 }
 
 export async function generateTargetQuests(params: {

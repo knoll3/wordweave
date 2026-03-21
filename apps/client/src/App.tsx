@@ -881,32 +881,66 @@ const App: React.FC = () => {
         model: selectedModel,
       });
 
-      if (!recipe.resultElement) {
+      const producedItems =
+        recipe.resultElements && recipe.resultElements.length > 0
+          ? recipe.resultElements
+          : recipe.resultElement
+            ? [recipe.resultElement]
+            : [];
+
+      if (producedItems.length === 0) {
         showError("Combine returned no result item.", null);
         return false;
       }
 
       setItems((prev) => {
-        const exists = prev.some((el) => el.id === recipe.resultElement!.id);
-        if (exists) return prev;
-        return [...prev, recipe.resultElement!];
+        const next = [...prev];
+        for (const producedItem of producedItems) {
+          if (!next.some((el) => el.id === producedItem.id)) {
+            next.push(producedItem);
+          }
+        }
+        return next;
       });
-      const isNewDiscovery = !items.some((el) => el.id === recipe.resultElement!.id);
+      const producedItemsWithDiscovery = producedItems.map((producedItem) => ({
+        item: producedItem,
+        isNewDiscovery: !items.some((el) => el.id === producedItem.id),
+      }));
 
       if (selectionLayout) {
-        setWorkspaceItems((prev) =>
-          prev.map((node) => {
-            const nextNode =
-              node.nodeId === selectionLayout.placeholderNodeId
-                ? {
-                    ...node,
-                    itemId: recipe.resultElement!.id,
-                    isNewDiscovery,
-                  }
-                : node;
-            return nextNode;
-          })
-        );
+        setWorkspaceItems((prev) => {
+          const updated = prev.map((node) =>
+            node.nodeId === selectionLayout.placeholderNodeId
+              ? {
+                  ...node,
+                  itemId: producedItemsWithDiscovery[0].item.id,
+                  isNewDiscovery: producedItemsWithDiscovery[0].isNewDiscovery,
+                }
+              : node
+          );
+          if (producedItemsWithDiscovery.length === 1) {
+            return updated;
+          }
+
+          const placeholderNode = updated.find(
+            (node) => node.nodeId === selectionLayout.placeholderNodeId
+          );
+          if (!placeholderNode) {
+            return updated;
+          }
+
+          const extras = producedItemsWithDiscovery.slice(1).map((produced, index) => ({
+            nodeId: makeWorkspaceNodeId(),
+            itemId: produced.item.id,
+            position: {
+              x: placeholderNode.position.x + 124 + index * 110,
+              y: placeholderNode.position.y,
+            },
+            isNewDiscovery: produced.isNewDiscovery,
+          }));
+
+          return [...updated, ...extras];
+        });
       } else {
         const center =
           options?.resultCenter ??
@@ -926,15 +960,17 @@ const App: React.FC = () => {
 
         setWorkspaceItems((prev) => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
-          return [
-            ...withoutInputs,
-            {
-              nodeId: makeWorkspaceNodeId(),
-              itemId: recipe.resultElement!.id,
-              position: center,
-              isNewDiscovery,
+          const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
+          const spawned = producedItemsWithDiscovery.map((produced, index) => ({
+            nodeId: makeWorkspaceNodeId(),
+            itemId: produced.item.id,
+            position: {
+              x: center.x + index * 112 - spawnOffset,
+              y: center.y,
             },
-          ];
+            isNewDiscovery: produced.isNewDiscovery,
+          }));
+          return [...withoutInputs, ...spawned];
         });
       }
       return true;
@@ -1316,6 +1352,9 @@ const App: React.FC = () => {
                         </span>
                       </div>
                       <div className="quest-card-criteria">{unlock.summary}</div>
+                      <div className="quest-card-meta">
+                        Example unlock words: {unlock.exampleWords.join(", ")}
+                      </div>
                       {unlock.sourceItemName ? (
                         <div className="quest-card-meta">
                           Unlocked by discovering <strong>{unlock.sourceItemName}</strong>

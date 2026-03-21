@@ -21,6 +21,7 @@ export interface RecipeDTO {
   candidates: RecipeCandidateDTO[];
   chosenCandidateId: number | null;
   resultElement?: ElementDTO;
+  resultElements?: ElementDTO[];
 }
 
 export interface RecentRecipeDTO {
@@ -94,8 +95,9 @@ export function buildCombineResponse(params: {
   recipeRow: any;
   candidates: any[];
   resultElement?: ElementDTO;
+  resultElements?: ElementDTO[];
 }): RecipeDTO {
-  const { recipeRow, candidates, resultElement } = params;
+  const { recipeRow, candidates, resultElement, resultElements } = params;
 
   const inputs = JSON.parse(recipeRow.input_display_json) as {
     name: string;
@@ -109,6 +111,8 @@ export function buildCombineResponse(params: {
     candidates: candidates.map(mapCandidateRow),
     chosenCandidateId: recipeRow.chosen_candidate_id ?? null,
     resultElement: resultElement ?? undefined,
+    resultElements:
+      resultElements && resultElements.length > 0 ? resultElements : resultElement ? [resultElement] : undefined,
   };
 }
 
@@ -140,6 +144,21 @@ export function getElementById(
     "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
   );
   const row = stmt.getAsObject([id]);
+  stmt.free();
+  if (!row || row.id === undefined) {
+    return undefined;
+  }
+  return mapElementRow(row);
+}
+
+export function getElementByNormalizedName(
+  db: Database,
+  normalizedName: string
+): ElementDTO | undefined {
+  const stmt = db.prepare(
+    "SELECT id, name, normalized_name, icon FROM elements WHERE normalized_name = ?"
+  );
+  const row = stmt.getAsObject([normalizedName]);
   stmt.free();
   if (!row || row.id === undefined) {
     return undefined;

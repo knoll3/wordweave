@@ -480,6 +480,7 @@ export function getFeatureUnlockStatuses(db: Database) {
       key: definition.key,
       title: definition.title,
       summary: definition.summary,
+      exampleWords: definition.acceptedWords.slice(0, 4),
       unlocked: !!row,
       introPending: !!row && row.introShownAt == null,
       unlockedAt: row?.unlockedAt ?? null,

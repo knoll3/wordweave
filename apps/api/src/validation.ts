@@ -32,6 +32,13 @@ export const llmResultSchema = z.object({
   icon: z.string().min(1).max(8),
 });
 
+export const splitLlmResultSchema = z.union([
+  llmResultSchema,
+  z.object({
+    results: z.array(llmResultSchema).min(1).max(2),
+  }),
+]);
+
 export const craftLlmResultSchema = z.union([
   z.object({
     failed: z.literal(true),
@@ -70,6 +77,7 @@ export const recipeBatchSchema = z.object({
 });
 
 export type LlmResult = z.infer<typeof llmResultSchema>;
+export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;
 export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;
 export type TargetQuestSelection = z.infer<typeof targetQuestSelectionSchema>;
