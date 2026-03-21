@@ -1386,13 +1386,6 @@ body.page-scrollable {
   z-index: 8;
 }
 
-.graph-celebration-test-button {
-  position: absolute;
-  right: 12px;
-  bottom: 54px;
-  z-index: 8;
-}
-
 .quest-hub {
   width: 360px;
   max-width: calc(100% - 24px);
@@ -1684,6 +1677,11 @@ body.page-scrollable {
 .quest-card-actions {
   display: flex;
   justify-content: flex-end;
+}
+
+.quest-card-action-note {
+  font-size: 0.76rem;
+  color: var(--text-muted);
 }
 
 .quest-card-actions.quest-card-actions-top {

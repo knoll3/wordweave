@@ -36,7 +36,6 @@ interface Props {
   items: Item[];
   workspaceItems: WorkspaceItem[];
   celebratedNodeId?: string | null;
-  onTriggerCelebrationTest?: (nodeId: string | null) => void;
   onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
@@ -286,7 +285,6 @@ function GraphView({
   items,
   workspaceItems,
   celebratedNodeId = null,
-  onTriggerCelebrationTest,
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
@@ -848,22 +846,6 @@ function GraphView({
     );
     clearSelection();
     setIsSelectionMode(false);
-  };
-
-  const triggerCelebrationTest = () => {
-    const preferredNodeId =
-      selectedNodeIdsRef.current[selectedNodeIdsRef.current.length - 1] ??
-      workspaceItemsRef.current[workspaceItemsRef.current.length - 1]?.nodeId ??
-      null;
-    if (!preferredNodeId) {
-      return;
-    }
-    const view = itemViewsRef.current.get(preferredNodeId);
-    if (!view) {
-      return;
-    }
-    triggerCelebration(view);
-    onTriggerCelebrationTest?.(preferredNodeId);
   };
 
   const updateHoverTarget = (draggedNodeId: string) => {
@@ -1815,15 +1797,6 @@ function GraphView({
             {isSelectionCombining ? "Combining..." : "Combine"}
           </button>
         </div>
-      ) : null}
-      {workspaceItems.length > 0 ? (
-        <button
-          type="button"
-          className="button secondary graph-celebration-test-button"
-          onClick={triggerCelebrationTest}
-        >
-          Test Effect
-        </button>
       ) : null}
       {workspaceItems.length > 0 ? (
         <button

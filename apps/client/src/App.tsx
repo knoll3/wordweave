@@ -1028,9 +1028,6 @@ const App: React.FC = () => {
                 items={items}
                 workspaceItems={workspaceItems}
                 celebratedNodeId={celebratedQuestNodeId}
-                onTriggerCelebrationTest={(nodeId) =>
-                  showQuestCelebration("Quest complete: Test effect", nodeId)
-                }
                 onWorkspaceItemsChange={setWorkspaceItems}
                 onViewportCenterChange={setViewportCenter}
                 combiningNodeIds={combiningNodeIds}
@@ -1183,16 +1180,20 @@ const App: React.FC = () => {
                       </div>
                       <div className="quest-card-criteria">{quest.flavor}</div>
                       <div className="quest-card-actions">
-                        <button
-                          type="button"
-                          className={`button ${isTracked ? "secondary" : "primary"}`}
-                          onClick={() => {
-                            setTrackedTargetQuestKey(quest.normalizedTarget);
-                            setIsQuestDrawerOpen(false);
-                          }}
-                        >
-                          {isTracked ? "Tracking" : "Track"}
-                        </button>
+                        {quest.completed ? (
+                          <span className="quest-card-action-note">Completed</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`button ${isTracked ? "secondary" : "primary"}`}
+                            onClick={() => {
+                              setTrackedTargetQuestKey(quest.normalizedTarget);
+                              setIsQuestDrawerOpen(false);
+                            }}
+                          >
+                            {isTracked ? "Tracking" : "Track"}
+                          </button>
+                        )}
                       </div>
                     </article>
                   );
