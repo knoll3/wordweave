@@ -52,6 +52,19 @@ type TargetQuest = {
   teaser: string;
 };
 
+type DifficultyTier = TargetQuest["difficulty"];
+
+const CATALYST_QUEST_POWER: Record<string, number> = {
+  pop_culture: 3,
+  creative: 2.5,
+  split: 2.25,
+  evolve: 2.25,
+  craft: 1.75,
+  word_combine: 1.5,
+  opposite: 1.25,
+  random_tools: 0.75,
+};
+
 function normalizeTarget(value: string) {
   return value.trim().toLowerCase();
 }
@@ -77,6 +90,69 @@ function sampleVariationThemes() {
     [pool[i], pool[j]] = [pool[j], pool[i]];
   }
   return pool.slice(0, 4);
+}
+
+function loadUnlockedCatalystKeys(db: Database) {
+  const stmt = db.prepare("SELECT feature_key FROM player_unlocks");
+  const keys = new Set<string>();
+  while (stmt.step()) {
+    const row = stmt.getAsObject() as Record<string, unknown>;
+    keys.add(String(row.feature_key));
+  }
+  stmt.free();
+  return keys;
+}
+
+function buildDifficultyPlan(count: number, unlockedCatalystKeys: Set<string>) {
+  const catalystPower = [...unlockedCatalystKeys].reduce(
+    (sum, key) => sum + (CATALYST_QUEST_POWER[key] ?? 0),
+    0
+  );
+
+  let plan: DifficultyTier[];
+  let guidance: string;
+  if (catalystPower >= 7) {
+    plan = ["easy", "medium", "stretch", "stretch"];
+    guidance =
+      "The player has several strong catalysts unlocked, so stretch targets can be more ambitious, more referential, and a little less obvious.";
+  } else if (catalystPower >= 4) {
+    plan = ["easy", "medium", "medium", "stretch"];
+    guidance =
+      "The player has a solid catalyst toolkit, so medium targets can be richer and one stretch target can expect more creative reasoning.";
+  } else if (catalystPower >= 1.5) {
+    plan = ["easy", "easy", "medium", "medium"];
+    guidance =
+      "The player has some useful catalysts unlocked, so keep most targets approachable while introducing a couple of more involved goals.";
+  } else {
+    plan = ["easy", "easy", "easy", "medium"];
+    guidance =
+      "The player has few catalyst tools unlocked, so favor cleaner, more straightforward targets and keep only one target a step above the rest.";
+  }
+
+  return {
+    catalystPower,
+    guidance,
+    plan: plan.slice(0, count),
+  };
+}
+
+function expandDifficultyPlan(
+  basePlan: DifficultyTier[],
+  count: number
+): DifficultyTier[] {
+  if (basePlan.length === 0) {
+    return Array.from({ length: count }, () => "easy");
+  }
+
+  return Array.from({ length: count }, (_, index) => {
+    if (index < basePlan.length) {
+      return basePlan[index];
+    }
+
+    const tailStart = Math.max(basePlan.length - 2, 0);
+    const tail = basePlan.slice(tailStart);
+    return tail[index % tail.length] ?? basePlan[basePlan.length - 1];
+  });
 }
 
 function loadRecentQuestHistory(db: Database, limit: number) {
@@ -245,6 +321,11 @@ router.post("/targets", async (req, res) => {
 
   try {
     const db = await getDb();
+    const unlockedCatalystKeys = loadUnlockedCatalystKeys(db);
+    const difficultyPlan = buildDifficultyPlan(
+      parsedBody.data.count,
+      unlockedCatalystKeys
+    );
     const knownElementNames = loadKnownElementNames(db);
     const recentHistory = loadRecentQuestHistory(db, QUEST_HISTORY_LIMIT);
     const recentTargetNames = recentHistory.map((entry) => entry.target);
@@ -260,11 +341,17 @@ router.post("/targets", async (req, res) => {
     let generatedQuests: TargetQuest[] = [];
 
     for (let attempt = 0; attempt < QUEST_RETRY_LIMIT; attempt += 1) {
+      const requestedDifficulties = expandDifficultyPlan(
+        difficultyPlan.plan,
+        generatedCountPerAttempt
+      );
       const generation = await generateTargetQuests({
         model: QUEST_MODEL,
         count: generatedCountPerAttempt,
         recentTargets: [...promptExclusions],
         variationThemes: sampleVariationThemes(),
+        requestedDifficulties,
+        difficultyGuidance: difficultyPlan.guidance,
       });
 
       responseModel = generation.responseModel;
@@ -321,6 +408,7 @@ router.post("/targets", async (req, res) => {
       model: responseModel,
       retryCount: usageSummaries.length,
       recentExclusionCount: Math.min(recentTargetNames.length, QUEST_PROMPT_HISTORY_LIMIT),
+      catalystPower: Number(difficultyPlan.catalystPower.toFixed(2)),
       cost: aggregateUsageCost(usageSummaries),
       quests: generatedQuests,
     });

@@ -325,6 +325,7 @@ Hard rules:
 - Avoid vague filler terms, generic abstractions, and invented phrases.
 - Do not repeat anything from the recent-targets exclusion list.
 - Keep the list varied.
+- Match the requested difficulty mix closely and return quests in that same order.
 - Do not explain anything outside the JSON.
 
 Return ONLY valid JSON in this format:
@@ -342,6 +343,12 @@ Return ONLY valid JSON in this format:
 
 Requested quest count:
 {{TARGET_QUEST_COUNT}}
+
+Requested difficulty mix, in order:
+{{TARGET_QUEST_DIFFICULTIES}}
+
+Difficulty guidance:
+{{TARGET_QUEST_DIFFICULTY_GUIDANCE}}
 
 Recent targets to avoid:
 {{RECENT_TARGETS}}
@@ -615,6 +622,8 @@ export async function generateTargetQuests(params: {
   count: number;
   recentTargets: string[];
   variationThemes: string[];
+  requestedDifficulties: Array<"easy" | "medium" | "stretch">;
+  difficultyGuidance: string;
 }): Promise<{
   selection: TargetQuestSelection;
   usage: ReturnType<typeof buildUsageCostSummary>;
@@ -624,6 +633,14 @@ export async function generateTargetQuests(params: {
   const model = params.model ?? DEFAULT_MODEL_NAME;
   const prompt = TARGET_QUEST_PROMPT
     .replace("{{TARGET_QUEST_COUNT}}", String(params.count))
+    .replace(
+      "{{TARGET_QUEST_DIFFICULTIES}}",
+      JSON.stringify(params.requestedDifficulties)
+    )
+    .replace(
+      "{{TARGET_QUEST_DIFFICULTY_GUIDANCE}}",
+      params.difficultyGuidance
+    )
     .replace("{{RECENT_TARGETS}}", JSON.stringify(params.recentTargets))
     .replace("{{VARIATION_THEMES}}", JSON.stringify(params.variationThemes));
 

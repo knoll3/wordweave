@@ -59,6 +59,65 @@ const TOAST_DURATION_MS = 3500;
 const ITEM_DRAWER_EXIT_MS = 220;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 
+function normalizeQuestMatchText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\b(the|a|an)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuestMatchText(value: string) {
+  return normalizeQuestMatchText(value)
+    .split(/[\s-]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function matchesQuestTarget(target: string, candidate: Item) {
+  const normalizedTarget = normalizeQuestMatchText(target);
+  const normalizedCandidate = normalizeQuestMatchText(
+    candidate.normalizedName || candidate.name
+  );
+
+  if (!normalizedTarget || !normalizedCandidate) {
+    return false;
+  }
+
+  if (normalizedTarget === normalizedCandidate) {
+    return true;
+  }
+
+  if (
+    normalizedTarget.includes(normalizedCandidate) ||
+    normalizedCandidate.includes(normalizedTarget)
+  ) {
+    return true;
+  }
+
+  const targetTokens = tokenizeQuestMatchText(target);
+  const candidateTokens = tokenizeQuestMatchText(candidate.normalizedName || candidate.name);
+  if (!targetTokens.length || !candidateTokens.length) {
+    return false;
+  }
+
+  const targetTokenSet = new Set(targetTokens);
+  const candidateTokenSet = new Set(candidateTokens);
+  let overlapCount = 0;
+  for (const token of targetTokenSet) {
+    if (candidateTokenSet.has(token)) {
+      overlapCount += 1;
+    }
+  }
+
+  const overlapRatio =
+    overlapCount / Math.max(targetTokenSet.size, candidateTokenSet.size, 1);
+  return overlapRatio >= 0.8;
+}
+
 type QuestCelebrationState = {
   title: string;
   copy: string;
@@ -354,9 +413,7 @@ const App: React.FC = () => {
     () =>
       (targetQuestList?.quests ?? []).map((quest) => ({
         ...quest,
-        completed: items.some(
-          (item) => item.normalizedName === quest.normalizedTarget
-        ),
+        completed: items.some((item) => matchesQuestTarget(quest.target, item)),
       })),
     [items, targetQuestList]
   );
@@ -381,7 +438,7 @@ const App: React.FC = () => {
       return null;
     }
     const trackedItemId =
-      items.find((item) => item.normalizedName === trackedQuest.normalizedTarget)?.id ?? null;
+      items.find((item) => matchesQuestTarget(trackedQuest.target, item))?.id ?? null;
     if (trackedItemId == null) {
       return null;
     }
