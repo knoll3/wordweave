@@ -1,4 +1,5 @@
 import type { Database } from "sql.js";
+import { generateEmbeddings } from "./openaiClient";
 import { ensureSearchIndexForElementIds } from "./search";
 
 type IndexedClusterElement = {
@@ -25,8 +26,13 @@ export interface SemanticCluster {
   summary: string;
   memberCount: number;
   primaryMemberCount: number;
+  isOutlierBucket: boolean;
+  labelSource: "catalog" | "composed" | "fallback";
+  labelConfidence: number;
+  representativeTerms: string[];
   representativeItems: ClusteredElement[];
   members: ClusteredElement[];
+  children?: SemanticCluster[];
 }
 
 export interface SemanticClustersResponse {
@@ -34,16 +40,56 @@ export interface SemanticClustersResponse {
   totalItems: number;
   clusterCount: number;
   maxClusters: number;
+  minClusterSize: number;
   overlapItemCount: number;
   clusters: SemanticCluster[];
 }
 
 const DEFAULT_MAX_CLUSTERS = 10;
+const MIN_CLUSTER_PRIMARY_SIZE = 4;
+const MAX_CLUSTER_PRIMARY_SIZE = 48;
 const TARGET_CLUSTER_SIZE = 12;
 const MAX_SECONDARY_MEMBERSHIPS = 2;
 const SECONDARY_MARGIN = 0.08;
 const SECONDARY_MIN_SIMILARITY = 0.72;
 const MAX_ITERATIONS = 12;
+const MAX_CHILD_CLUSTERS = 6;
+const CHILD_TARGET_CLUSTER_SIZE = 18;
+const LABEL_QUERY_PREFIX = "cluster-label:";
+const CLUSTER_LABEL_CATALOG = [
+  "Animals",
+  "Plants",
+  "People",
+  "Jobs",
+  "Tools",
+  "Machines",
+  "Materials",
+  "Food",
+  "Buildings",
+  "Transportation",
+  "Weather",
+  "Water",
+  "Geography",
+  "Space",
+  "Technology",
+  "Magic",
+  "Myth",
+  "Conflict",
+  "Music",
+  "Art",
+  "Language",
+  "Science",
+  "Fire & Heat",
+  "Sky & Air",
+  "Earth & Stone",
+  "Ocean & Sea Life",
+  "Pop Culture",
+] as const;
+
+type LabelCandidate = {
+  label: string;
+  embedding: number[];
+};
 
 function cosine(left: number[], right: number[]) {
   let dot = 0;
@@ -83,6 +129,17 @@ function chooseClusterCount(itemCount: number, maxClusters: number) {
   return Math.max(
     2,
     Math.min(maxClusters, Math.ceil(itemCount / TARGET_CLUSTER_SIZE))
+  );
+}
+
+function chooseChildClusterCount(itemCount: number) {
+  if (itemCount <= MAX_CLUSTER_PRIMARY_SIZE) {
+    return 0;
+  }
+
+  return Math.max(
+    2,
+    Math.min(MAX_CHILD_CLUSTERS, Math.ceil(itemCount / CHILD_TARGET_CLUSTER_SIZE))
   );
 }
 
@@ -210,84 +267,172 @@ function buildClusterSummary(
   return `Centered on ${topNames.slice(0, -1).join(", ")}, and ${topNames.at(-1)}.`;
 }
 
-export async function buildSemanticClusters(
+function loadCachedPhraseEmbedding(db: Database, queryText: string) {
+  const stmt = db.prepare(
+    `
+    SELECT embedding_json
+    FROM search_query_embeddings
+    WHERE query_text = ?
+    `
+  );
+  const row = stmt.getAsObject([queryText]) as Record<string, unknown>;
+  stmt.free();
+  if (row.embedding_json == null) {
+    return null;
+  }
+  return JSON.parse(String(row.embedding_json)) as number[];
+}
+
+function savePhraseEmbedding(
   db: Database,
-  options?: { maxClusters?: number }
-): Promise<SemanticClustersResponse> {
-  const discoveredRows = loadDiscoveredElements(db);
-  const maxClusters = Math.max(1, Math.min(options?.maxClusters ?? DEFAULT_MAX_CLUSTERS, 10));
-  const itemIds = discoveredRows.map((row) => Number(row.id));
+  queryText: string,
+  model: string,
+  embedding: number[]
+) {
+  const stmt = db.prepare(
+    `
+    INSERT INTO search_query_embeddings (query_text, model, embedding_json, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(query_text) DO UPDATE SET
+      model = excluded.model,
+      embedding_json = excluded.embedding_json,
+      updated_at = CURRENT_TIMESTAMP
+    `
+  );
+  stmt.run([queryText, model, JSON.stringify(embedding)]);
+  stmt.free();
+}
 
-  await ensureSearchIndexForElementIds(db, itemIds);
-  const embeddingsById = loadEmbeddingsByElementId(db, itemIds);
+async function ensureLabelEmbeddings(db: Database) {
+  const missingLabels = CLUSTER_LABEL_CATALOG.filter((label) => {
+    return !loadCachedPhraseEmbedding(db, `${LABEL_QUERY_PREFIX}${label.toLowerCase()}`);
+  });
 
-  const items = discoveredRows
-    .map((row) => {
-      const embedding = embeddingsById.get(Number(row.id));
-      if (!embedding || embedding.length === 0) {
-        return null;
-      }
-      return {
-        id: Number(row.id),
-        name: String(row.name),
-        normalizedName: String(row.normalized_name),
-        icon: row.icon == null ? null : String(row.icon),
-        discoveredAt: String(row.discovered_at),
-        embedding,
-      } satisfies IndexedClusterElement;
-    })
-    .filter(Boolean) as IndexedClusterElement[];
+  if (missingLabels.length === 0) {
+    return;
+  }
 
-  if (items.length === 0) {
+  const response = await generateEmbeddings(
+    missingLabels.map((label) => `Cluster label: ${label}`)
+  );
+
+  response.embeddings.forEach((item, index) => {
+    const label = missingLabels[index];
+    savePhraseEmbedding(
+      db,
+      `${LABEL_QUERY_PREFIX}${label.toLowerCase()}`,
+      response.model,
+      item.embedding
+    );
+  });
+}
+
+function loadLabelCandidates(db: Database): LabelCandidate[] {
+  return CLUSTER_LABEL_CATALOG.map((label) => ({
+    label,
+    embedding:
+      loadCachedPhraseEmbedding(db, `${LABEL_QUERY_PREFIX}${label.toLowerCase()}`) ?? [],
+  })).filter((entry) => entry.embedding.length > 0);
+}
+
+function scoreCatalogLabel(params: {
+  centroid: number[];
+  representativeEmbeddings: number[][];
+  candidate: LabelCandidate;
+}) {
+  const centroidScore = cosine(params.centroid, params.candidate.embedding);
+  const representativeScore =
+    params.representativeEmbeddings.length > 0
+      ? params.representativeEmbeddings.reduce((total, embedding) => {
+          return total + cosine(embedding, params.candidate.embedding);
+        }, 0) / params.representativeEmbeddings.length
+      : 0;
+
+  return centroidScore * 0.65 + representativeScore * 0.35;
+}
+
+function buildComposedLabel(representativeTerms: string[]) {
+  const left = representativeTerms[0] ?? "Misc";
+  const right = representativeTerms[1] ?? "";
+
+  if (!right || left.toLowerCase() === right.toLowerCase()) {
+    return left;
+  }
+
+  return `${left} & ${right}`;
+}
+
+function determineClusterLabel(params: {
+  centroid: number[];
+  representativeMembers: Array<{ item: IndexedClusterElement; similarity: number }>;
+  labelCandidates: LabelCandidate[];
+}) {
+  const representativeTerms = params.representativeMembers
+    .slice(0, 5)
+    .map((entry) => entry.item.name);
+  const representativeEmbeddings = params.representativeMembers
+    .slice(0, 5)
+    .map((entry) => entry.item.embedding);
+
+  const scoredCandidates = params.labelCandidates
+    .map((candidate) => ({
+      label: candidate.label,
+      score: scoreCatalogLabel({
+        centroid: params.centroid,
+        representativeEmbeddings,
+        candidate,
+      }),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  const bestCatalog = scoredCandidates[0];
+  if (bestCatalog && bestCatalog.score >= 0.62) {
     return {
-      generatedAt: new Date().toISOString(),
-      totalItems: 0,
-      clusterCount: 0,
-      maxClusters,
-      overlapItemCount: 0,
-      clusters: [],
+      title: bestCatalog.label,
+      labelSource: "catalog" as const,
+      labelConfidence: Number(bestCatalog.score.toFixed(4)),
+      representativeTerms,
     };
   }
 
-  const clusterCount = chooseClusterCount(items.length, maxClusters);
-  if (clusterCount <= 1) {
-    const clusterMembers = items.map((item) => ({
-      item,
-      similarity: 1,
-    }));
-
+  if (representativeTerms.length >= 2) {
     return {
-      generatedAt: new Date().toISOString(),
-      totalItems: items.length,
-      clusterCount: 1,
-      maxClusters,
-      overlapItemCount: 0,
-      clusters: [
-        {
-          id: "cluster-1",
-          title: buildClusterTitle(clusterMembers),
-          summary: buildClusterSummary(clusterMembers),
-          memberCount: items.length,
-          primaryMemberCount: items.length,
-          representativeItems: items.slice(0, 5).map((item) => ({
-            id: item.id,
-            name: item.name,
-            normalizedName: item.normalizedName,
-            icon: item.icon,
-            membershipStrength: 1,
-            isPrimary: true,
-          })),
-          members: items.map((item) => ({
-            id: item.id,
-            name: item.name,
-            normalizedName: item.normalizedName,
-            icon: item.icon,
-            membershipStrength: 1,
-            isPrimary: true,
-          })),
-        },
-      ],
+      title: buildComposedLabel(representativeTerms),
+      labelSource: "composed" as const,
+      labelConfidence: bestCatalog ? Number(Math.max(0.4, bestCatalog.score).toFixed(4)) : 0.4,
+      representativeTerms,
     };
+  }
+
+  return {
+    title: representativeTerms[0] ?? "Other",
+    labelSource: "fallback" as const,
+    labelConfidence: bestCatalog ? Number(Math.max(0.28, bestCatalog.score).toFixed(4)) : 0.28,
+    representativeTerms,
+  };
+}
+
+function mapClusteredElement(params: {
+  item: IndexedClusterElement;
+  similarity: number;
+  isPrimary: boolean;
+}): ClusteredElement {
+  return {
+    id: params.item.id,
+    name: params.item.name,
+    normalizedName: params.item.normalizedName,
+    icon: params.item.icon,
+    membershipStrength: Number(params.similarity.toFixed(4)),
+    isPrimary: params.isPrimary,
+  };
+}
+
+function clusterItems(
+  items: IndexedClusterElement[],
+  clusterCount: number
+): Array<Array<{ item: IndexedClusterElement; similarity: number }>> {
+  if (items.length === 0 || clusterCount <= 0) {
+    return [];
   }
 
   let centroids = selectInitialCentroids(items, clusterCount);
@@ -317,18 +462,180 @@ export async function buildSemanticClusters(
 
     assignments = nextAssignments;
 
-    const nextCentroids = centroids.map((centroid, clusterIndex) => {
+    centroids = centroids.map((centroid, clusterIndex) => {
       const clusterVectors = items
         .filter((item) => assignments.get(item.id) === clusterIndex)
         .map((item) => item.embedding);
       return clusterVectors.length > 0 ? averageEmbedding(clusterVectors) : centroid;
     });
 
-    centroids = nextCentroids;
     if (unchanged) {
       break;
     }
   }
+
+  return centroids.map((centroid, clusterIndex) =>
+    items
+      .filter((item) => assignments.get(item.id) === clusterIndex)
+      .map((item) => ({
+        item,
+        similarity: cosine(item.embedding, centroid),
+      }))
+      .sort((left, right) => right.similarity - left.similarity)
+  );
+}
+
+function buildChildClusters(params: {
+  parentId: string;
+  members: ClusteredElement[];
+  itemsById: Map<number, IndexedClusterElement>;
+  labelCandidates: LabelCandidate[];
+}) {
+  const primaryItems = params.members
+    .filter((member) => member.isPrimary)
+    .map((member) => params.itemsById.get(member.id))
+    .filter(Boolean) as IndexedClusterElement[];
+
+  const childClusterCount = chooseChildClusterCount(primaryItems.length);
+  if (childClusterCount < 2) {
+    return undefined;
+  }
+
+  const grouped = clusterItems(primaryItems, childClusterCount).filter(
+    (group) => group.length > 0
+  );
+  if (grouped.length < 2) {
+    return undefined;
+  }
+
+  return grouped
+    .map((group, index) => {
+      const centroid = averageEmbedding(group.map((entry) => entry.item.embedding));
+      const label = determineClusterLabel({
+        centroid,
+        representativeMembers: group,
+        labelCandidates: params.labelCandidates,
+      });
+
+      return {
+        id: `${params.parentId}-child-${index + 1}`,
+        title: label.title,
+        summary: buildClusterSummary(group),
+        memberCount: group.length,
+        primaryMemberCount: group.length,
+        isOutlierBucket: false,
+        labelSource: label.labelSource,
+        labelConfidence: label.labelConfidence,
+        representativeTerms: label.representativeTerms,
+        representativeItems: group.slice(0, 5).map((entry) =>
+          mapClusteredElement({ ...entry, isPrimary: true })
+        ),
+        members: group.map((entry) => mapClusteredElement({ ...entry, isPrimary: true })),
+      } satisfies SemanticCluster;
+    })
+    .sort((left, right) => right.primaryMemberCount - left.primaryMemberCount);
+}
+
+export async function buildSemanticClusters(
+  db: Database,
+  options?: { maxClusters?: number }
+): Promise<SemanticClustersResponse> {
+  const discoveredRows = loadDiscoveredElements(db);
+  const maxClusters = Math.max(1, Math.min(options?.maxClusters ?? DEFAULT_MAX_CLUSTERS, 10));
+  const itemIds = discoveredRows.map((row) => Number(row.id));
+
+  await ensureSearchIndexForElementIds(db, itemIds);
+  await ensureLabelEmbeddings(db);
+  const embeddingsById = loadEmbeddingsByElementId(db, itemIds);
+  const labelCandidates = loadLabelCandidates(db);
+
+  const items = discoveredRows
+    .map((row) => {
+      const embedding = embeddingsById.get(Number(row.id));
+      if (!embedding || embedding.length === 0) {
+        return null;
+      }
+      return {
+        id: Number(row.id),
+        name: String(row.name),
+        normalizedName: String(row.normalized_name),
+        icon: row.icon == null ? null : String(row.icon),
+        discoveredAt: String(row.discovered_at),
+        embedding,
+      } satisfies IndexedClusterElement;
+    })
+    .filter(Boolean) as IndexedClusterElement[];
+  const itemsById = new Map(items.map((item) => [item.id, item]));
+
+  if (items.length === 0) {
+    return {
+      generatedAt: new Date().toISOString(),
+      totalItems: 0,
+      clusterCount: 0,
+      maxClusters,
+      minClusterSize: MIN_CLUSTER_PRIMARY_SIZE,
+      overlapItemCount: 0,
+      clusters: [],
+    };
+  }
+
+  const clusterCount = chooseClusterCount(items.length, maxClusters);
+  if (clusterCount <= 1) {
+    const clusterMembers = items.map((item) => ({
+      item,
+      similarity: 1,
+    }));
+
+    return {
+      generatedAt: new Date().toISOString(),
+      totalItems: items.length,
+      clusterCount: 1,
+      maxClusters,
+      minClusterSize: MIN_CLUSTER_PRIMARY_SIZE,
+      overlapItemCount: 0,
+      clusters: [
+        {
+          id: "cluster-1",
+          title: buildComposedLabel(clusterMembers.slice(0, 2).map((entry) => entry.item.name)),
+          summary: buildClusterSummary(clusterMembers),
+          memberCount: items.length,
+          primaryMemberCount: items.length,
+          isOutlierBucket: false,
+          labelSource: "composed",
+          labelConfidence: 0.4,
+          representativeTerms: clusterMembers.slice(0, 5).map((entry) => entry.item.name),
+          representativeItems: items.slice(0, 5).map((item) => ({
+            id: item.id,
+            name: item.name,
+            normalizedName: item.normalizedName,
+            icon: item.icon,
+            membershipStrength: 1,
+            isPrimary: true,
+          })),
+          members: items.map((item) => ({
+            id: item.id,
+            name: item.name,
+            normalizedName: item.normalizedName,
+            icon: item.icon,
+            membershipStrength: 1,
+            isPrimary: true,
+          })),
+        },
+      ],
+    };
+  }
+
+  let centroids = selectInitialCentroids(items, clusterCount);
+  let assignments = new Map<number, number>();
+  const groupedPrimaryMembers = clusterItems(items, clusterCount);
+  centroids = groupedPrimaryMembers.map((group) =>
+    averageEmbedding(group.map((entry) => entry.item.embedding))
+  );
+  assignments = new Map(
+    groupedPrimaryMembers.flatMap((group, clusterIndex) =>
+      group.map((entry) => [entry.item.id, clusterIndex] as const)
+    )
+  );
 
   const clusterMemberships = centroids.map(() => [] as Array<{
     item: IndexedClusterElement;
@@ -375,7 +682,7 @@ export async function buildSemanticClusters(
     }
   }
 
-  const clusters = clusterMemberships
+  const rawClusters = clusterMemberships
     .map((members, clusterIndex) => {
       const sortedMembers = [...members].sort((left, right) => {
         if (right.similarity !== left.similarity) {
@@ -384,32 +691,86 @@ export async function buildSemanticClusters(
         return left.item.name.localeCompare(right.item.name, "en");
       });
       const primaryMembers = sortedMembers.filter((entry) => entry.isPrimary);
+      const centroid =
+        primaryMembers.length > 0
+          ? averageEmbedding(primaryMembers.map((entry) => entry.item.embedding))
+          : averageEmbedding(sortedMembers.map((entry) => entry.item.embedding));
+      const label = determineClusterLabel({
+        centroid,
+        representativeMembers: primaryMembers.length > 0 ? primaryMembers : sortedMembers,
+        labelCandidates,
+      });
 
       return {
         id: `cluster-${clusterIndex + 1}`,
-        title: buildClusterTitle(primaryMembers.length > 0 ? primaryMembers : sortedMembers),
+        title: label.title,
         summary: buildClusterSummary(primaryMembers.length > 0 ? primaryMembers : sortedMembers),
         memberCount: sortedMembers.length,
         primaryMemberCount: primaryMembers.length,
-        representativeItems: sortedMembers.slice(0, 5).map((entry) => ({
-          id: entry.item.id,
-          name: entry.item.name,
-          normalizedName: entry.item.normalizedName,
-          icon: entry.item.icon,
-          membershipStrength: Number(entry.similarity.toFixed(4)),
-          isPrimary: entry.isPrimary,
-        })),
-        members: sortedMembers.map((entry) => ({
-          id: entry.item.id,
-          name: entry.item.name,
-          normalizedName: entry.item.normalizedName,
-          icon: entry.item.icon,
-          membershipStrength: Number(entry.similarity.toFixed(4)),
-          isPrimary: entry.isPrimary,
-        })),
+        isOutlierBucket: false,
+        labelSource: label.labelSource,
+        labelConfidence: label.labelConfidence,
+        representativeTerms: label.representativeTerms,
+        representativeItems: sortedMembers.slice(0, 5).map((entry) => mapClusteredElement(entry)),
+        members: sortedMembers.map((entry) => mapClusteredElement(entry)),
+        children: undefined,
       } satisfies SemanticCluster;
     })
-    .filter((cluster) => cluster.primaryMemberCount > 0)
+    .filter((cluster) => cluster.primaryMemberCount > 0);
+
+  const undersizedClusters = rawClusters.filter(
+    (cluster) => cluster.primaryMemberCount < MIN_CLUSTER_PRIMARY_SIZE
+  );
+  const stableClusters = rawClusters.filter(
+    (cluster) => cluster.primaryMemberCount >= MIN_CLUSTER_PRIMARY_SIZE
+  );
+
+  const miscMembersById = new Map<number, ClusteredElement>();
+  for (const cluster of undersizedClusters) {
+    for (const member of cluster.members) {
+      const existing = miscMembersById.get(member.id);
+      if (!existing || member.membershipStrength > existing.membershipStrength) {
+        miscMembersById.set(member.id, member);
+      }
+    }
+  }
+
+  const miscMembers = [...miscMembersById.values()].sort((left, right) => {
+    if (right.membershipStrength !== left.membershipStrength) {
+      return right.membershipStrength - left.membershipStrength;
+    }
+    return left.name.localeCompare(right.name, "en");
+  });
+
+  const clusters = [
+    ...stableClusters.map((cluster) => ({
+      ...cluster,
+      children: buildChildClusters({
+        parentId: cluster.id,
+        members: cluster.members,
+        itemsById,
+        labelCandidates,
+      }),
+    })),
+    ...(miscMembers.length > 0
+      ? [
+          {
+            id: "cluster-other",
+            title: "Other",
+            summary: `Smaller semantic outliers grouped together because their source clusters had fewer than ${MIN_CLUSTER_PRIMARY_SIZE} primary items.`,
+            memberCount: miscMembers.length,
+            primaryMemberCount: miscMembers.filter((member) => member.isPrimary).length,
+            isOutlierBucket: true,
+            labelSource: "fallback",
+            labelConfidence: 1,
+            representativeTerms: miscMembers.slice(0, 5).map((member) => member.name),
+            representativeItems: miscMembers.slice(0, 5),
+            members: miscMembers,
+            children: undefined,
+          } satisfies SemanticCluster,
+        ]
+      : []),
+  ]
     .sort((left, right) => {
       if (right.primaryMemberCount !== left.primaryMemberCount) {
         return right.primaryMemberCount - left.primaryMemberCount;
@@ -422,6 +783,7 @@ export async function buildSemanticClusters(
     totalItems: items.length,
     clusterCount: clusters.length,
     maxClusters,
+    minClusterSize: MIN_CLUSTER_PRIMARY_SIZE,
     overlapItemCount: overlapItemIds.size,
     clusters,
   };

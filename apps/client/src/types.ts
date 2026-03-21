@@ -185,8 +185,13 @@ export interface SemanticCluster {
   summary: string;
   memberCount: number;
   primaryMemberCount: number;
+  isOutlierBucket: boolean;
+  labelSource: "catalog" | "composed" | "fallback";
+  labelConfidence: number;
+  representativeTerms: string[];
   representativeItems: ClusteredLibraryItem[];
   members: ClusteredLibraryItem[];
+  children?: SemanticCluster[];
 }
 
 export interface SemanticClustersResponse {
@@ -194,6 +199,7 @@ export interface SemanticClustersResponse {
   totalItems: number;
   clusterCount: number;
   maxClusters: number;
+  minClusterSize: number;
   overlapItemCount: number;
   clusters: SemanticCluster[];
 }

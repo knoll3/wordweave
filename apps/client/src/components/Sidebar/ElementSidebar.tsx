@@ -106,6 +106,10 @@ function getCorrectedQuery(query: string, items: Item[]) {
   return null;
 }
 
+function compareItemsByName(left: Item, right: Item) {
+  return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
+}
+
 const ElementSidebar: React.FC<Props> = ({
   items,
   onAddItemToWorkspace,
@@ -332,11 +336,74 @@ const ElementSidebar: React.FC<Props> = ({
   }
 
   function expandAllClusters() {
-    setExpandedClusterIds(clusters.map((cluster) => cluster.id));
+    setExpandedClusterIds(
+      clusters.flatMap((cluster) => [
+        cluster.id,
+        ...(cluster.children?.map((child) => child.id) ?? []),
+      ])
+    );
   }
 
   function collapseAllClusters() {
     setExpandedClusterIds([]);
+  }
+
+  function renderTreeLeaves(cluster: SemanticCluster, depth: number) {
+    return cluster.members
+      .map((member) => {
+        const item = itemsById.get(member.id);
+        return item ? { item, isPrimary: member.isPrimary } : null;
+      })
+      .filter(Boolean)
+      .sort((left, right) => compareItemsByName(left!.item, right!.item))
+      .map((entry) => (
+        <button
+          key={`${cluster.id}-${entry!.item.id}`}
+          type="button"
+          className={`library-tree-leaf${entry!.isPrimary ? "" : " is-secondary"}`}
+          style={{ paddingLeft: `${8 + depth * 18}px` }}
+          onClick={() => onAddItemToWorkspace(entry!.item)}
+        >
+          <span className="library-tree-branch" aria-hidden="true">
+            └
+          </span>
+          <span className="element-icon">
+            {entry!.item.icon || entry!.item.name.charAt(0).toUpperCase()}
+          </span>
+          <span className="library-tree-leaf-name">{entry!.item.name}</span>
+        </button>
+      ));
+  }
+
+  function renderTreeCluster(cluster: SemanticCluster, depth = 0) {
+    const isExpanded = expandedClusterIds.includes(cluster.id);
+    const hasChildren = (cluster.children?.length ?? 0) > 0;
+
+    return (
+      <div key={cluster.id} className="library-tree-group">
+        <button
+          type="button"
+          className={`library-tree-node${depth > 0 ? " is-child" : ""}`}
+          role="treeitem"
+          aria-expanded={isExpanded}
+          onClick={() => toggleCluster(cluster.id)}
+          style={{ paddingLeft: `${8 + depth * 18}px` }}
+        >
+          <span className="library-tree-caret" aria-hidden="true">
+            {isExpanded ? "▾" : "▸"}
+          </span>
+          <span className="library-tree-label">{cluster.title}</span>
+          <span className="library-tree-count">{cluster.primaryMemberCount}</span>
+        </button>
+        {isExpanded ? (
+          <div className="library-tree-children" role="group">
+            {hasChildren
+              ? cluster.children!.map((child) => renderTreeCluster(child, depth + 1))
+              : renderTreeLeaves(cluster, depth + 1)}
+          </div>
+        ) : null}
+      </div>
+    );
   }
 
   return (
@@ -439,55 +506,7 @@ const ElementSidebar: React.FC<Props> = ({
               </div>
             ) : clusters.length > 0 ? (
               <div className="library-tree" role="tree" aria-label="Clustered library">
-                {clusters.map((cluster) => {
-                  const isExpanded = expandedClusterIds.includes(cluster.id);
-                  return (
-                    <div key={cluster.id} className="library-tree-group">
-                      <button
-                        type="button"
-                        className="library-tree-node"
-                        role="treeitem"
-                        aria-expanded={isExpanded}
-                        onClick={() => toggleCluster(cluster.id)}
-                      >
-                        <span className="library-tree-caret" aria-hidden="true">
-                          {isExpanded ? "▾" : "▸"}
-                        </span>
-                        <span className="library-tree-label">{cluster.title}</span>
-                        <span className="library-tree-count">{cluster.primaryMemberCount}</span>
-                      </button>
-                      {isExpanded ? (
-                        <div className="library-tree-children" role="group">
-                          {cluster.members.map((member) => {
-                            const item = itemsById.get(member.id);
-                            if (!item) {
-                              return null;
-                            }
-
-                            return (
-                              <button
-                                key={`${cluster.id}-${member.id}`}
-                                type="button"
-                                className={`library-tree-leaf${
-                                  member.isPrimary ? "" : " is-secondary"
-                                }`}
-                                onClick={() => onAddItemToWorkspace(item)}
-                              >
-                                <span className="library-tree-branch" aria-hidden="true">
-                                  └
-                                </span>
-                                <span className="element-icon">
-                                  {item.icon || item.name.charAt(0).toUpperCase()}
-                                </span>
-                                <span className="library-tree-leaf-name">{item.name}</span>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {clusters.map((cluster) => renderTreeCluster(cluster))}
               </div>
             ) : (
               <div className="sidebar-placeholder">

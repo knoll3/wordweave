@@ -144,31 +144,70 @@ const ClustersPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="clusters-member-grid">
-                  {activeCluster.members.map((item) => (
-                    <article
-                      key={`${activeCluster.id}-${item.id}-${item.isPrimary ? "p" : "s"}`}
-                      className={`clusters-member-card${
-                        item.isPrimary ? "" : " is-secondary"
-                      }`}
-                    >
-                      <div className="clusters-member-top">
-                        <span className="clusters-member-icon" aria-hidden="true">
-                          {item.icon || item.name.charAt(0).toUpperCase()}
-                        </span>
-                        <div>
-                          <div className="clusters-member-name">{item.name}</div>
-                          <div className="clusters-member-meta">
-                            {item.isPrimary ? "Primary member" : "Secondary member"}
+                {activeCluster.children && activeCluster.children.length > 0 ? (
+                  <div className="clusters-subcluster-list">
+                    {activeCluster.children.map((child) => (
+                      <section key={child.id} className="clusters-subcluster-card">
+                        <div className="clusters-subcluster-header">
+                          <div>
+                            <div className="clusters-subcluster-title">{child.title}</div>
+                            <div className="clusters-subcluster-summary">{child.summary}</div>
+                          </div>
+                          <div className="clusters-subcluster-count">
+                            {child.primaryMemberCount}
                           </div>
                         </div>
-                      </div>
-                      <div className="clusters-member-strength">
-                        Fit {formatMembership(item.membershipStrength)}
-                      </div>
-                    </article>
-                  ))}
-                </div>
+                        <div className="clusters-member-grid">
+                          {child.members.map((item) => (
+                            <article
+                              key={`${child.id}-${item.id}`}
+                              className="clusters-member-card"
+                            >
+                              <div className="clusters-member-top">
+                                <span className="clusters-member-icon" aria-hidden="true">
+                                  {item.icon || item.name.charAt(0).toUpperCase()}
+                                </span>
+                                <div>
+                                  <div className="clusters-member-name">{item.name}</div>
+                                  <div className="clusters-member-meta">Subcluster member</div>
+                                </div>
+                              </div>
+                              <div className="clusters-member-strength">
+                                Fit {formatMembership(item.membershipStrength)}
+                              </div>
+                            </article>
+                          ))}
+                        </div>
+                      </section>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="clusters-member-grid">
+                    {activeCluster.members.map((item) => (
+                      <article
+                        key={`${activeCluster.id}-${item.id}-${item.isPrimary ? "p" : "s"}`}
+                        className={`clusters-member-card${
+                          item.isPrimary ? "" : " is-secondary"
+                        }`}
+                      >
+                        <div className="clusters-member-top">
+                          <span className="clusters-member-icon" aria-hidden="true">
+                            {item.icon || item.name.charAt(0).toUpperCase()}
+                          </span>
+                          <div>
+                            <div className="clusters-member-name">{item.name}</div>
+                            <div className="clusters-member-meta">
+                              {item.isPrimary ? "Primary member" : "Secondary member"}
+                            </div>
+                          </div>
+                        </div>
+                        <div className="clusters-member-strength">
+                          Fit {formatMembership(item.membershipStrength)}
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                )}
               </section>
             ) : null}
           </div>

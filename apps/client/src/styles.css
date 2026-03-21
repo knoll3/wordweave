@@ -247,6 +247,10 @@ body.page-scrollable {
   color: var(--text-main);
 }
 
+.library-tree-node.is-child {
+  color: #cbd5e1;
+}
+
 .library-tree-caret,
 .library-tree-branch {
   line-height: 1;
@@ -2288,6 +2292,53 @@ body.page-scrollable {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   gap: 12px;
+}
+
+.clusters-subcluster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.clusters-subcluster-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.52);
+}
+
+.clusters-subcluster-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.clusters-subcluster-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.clusters-subcluster-summary {
+  margin-top: 4px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.clusters-subcluster-count {
+  min-width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(79, 70, 229, 0.16);
+  color: #c7d2fe;
+  font-size: 0.78rem;
+  font-weight: 700;
 }
 
 .clusters-member-card {
