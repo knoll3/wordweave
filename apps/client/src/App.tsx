@@ -718,6 +718,9 @@ const App: React.FC = () => {
                 <a className="button graph-link-button" href="/cache">
                   View Cache
                 </a>
+                <a className="button graph-link-button" href="/clusters">
+                  View Clusters
+                </a>
                 <button
                   type="button"
                   className={`admin-toggle-button${forceUnlocks ? " active" : ""}`}

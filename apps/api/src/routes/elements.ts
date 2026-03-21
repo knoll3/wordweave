@@ -17,6 +17,7 @@ import {
 } from "../models";
 import { getLatestRecipeContext } from "../latestRecipeLookup";
 import { getOrCreateElementReference } from "../referenceLookup";
+import { buildSemanticClusters } from "../semanticClusters";
 
 const router = express.Router();
 
@@ -31,6 +32,23 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Error in GET /elements", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/clusters", async (req, res) => {
+  const rawMaxClusters = Number(req.query.maxClusters ?? 10);
+  const maxClusters = Number.isFinite(rawMaxClusters)
+    ? Math.max(1, Math.min(10, Math.floor(rawMaxClusters)))
+    : 10;
+
+  try {
+    const db = await getDb();
+    const clusters = await buildSemanticClusters(db, { maxClusters });
+    persistDatabase(db);
+    return res.json(clusters);
+  } catch (err) {
+    console.error("Error in GET /elements/clusters", err);
+    return res.status(500).json({ error: "Failed to build semantic clusters" });
   }
 });
 

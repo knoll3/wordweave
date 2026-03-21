@@ -90,6 +90,9 @@ const CachePage: React.FC = () => {
           <a className="button" href="/">
             Back To Workspace
           </a>
+          <a className="button" href="/clusters">
+            View Clusters
+          </a>
         </div>
       </header>
 

@@ -168,7 +168,35 @@ export interface PaginatedCacheRecipes {
   limit: number;
   total: number;
   totalPages: number;
- }
+}
+
+export interface ClusteredLibraryItem {
+  id: number;
+  name: string;
+  normalizedName: string;
+  icon: string | null;
+  membershipStrength: number;
+  isPrimary: boolean;
+}
+
+export interface SemanticCluster {
+  id: string;
+  title: string;
+  summary: string;
+  memberCount: number;
+  primaryMemberCount: number;
+  representativeItems: ClusteredLibraryItem[];
+  members: ClusteredLibraryItem[];
+}
+
+export interface SemanticClustersResponse {
+  generatedAt: string;
+  totalItems: number;
+  clusterCount: number;
+  maxClusters: number;
+  overlapItemCount: number;
+  clusters: SemanticCluster[];
+}
 
 export interface GeneratedCacheRecipe {
   recipeId: number;

@@ -8,6 +8,7 @@ import type {
   QuestLine,
   Recipe,
   RecentRecipe,
+  SemanticClustersResponse,
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
@@ -116,6 +117,17 @@ export async function fetchCacheRecipes(options?: {
   }
   const res = await fetch(url.toString());
   return handleResponse<PaginatedCacheRecipes>(res);
+}
+
+export async function fetchSemanticClusters(options?: {
+  maxClusters?: number;
+}): Promise<SemanticClustersResponse> {
+  const url = new URL(`${API_BASE}/elements/clusters`, window.location.origin);
+  if (options?.maxClusters != null) {
+    url.searchParams.set("maxClusters", String(options.maxClusters));
+  }
+  const res = await fetch(url.toString());
+  return handleResponse<SemanticClustersResponse>(res);
 }
 
 export async function generateCacheRecipes(): Promise<GenerateCacheRecipesResult> {

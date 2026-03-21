@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { Item } from "../../types";
+import type { Item, SemanticCluster } from "../../types";
 import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
 import {
+  fetchSemanticClusters,
   fetchItems,
   resetLibrary,
 } from "../../lib/api";
@@ -121,13 +122,19 @@ const ElementSidebar: React.FC<Props> = ({
   const [isResettingLibrary, setIsResettingLibrary] = useState(false);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
+  const [browseMode, setBrowseMode] = useState<"all" | "tree">("all");
+  const [clusters, setClusters] = useState<SemanticCluster[]>([]);
+  const [clustersLoading, setClustersLoading] = useState(false);
+  const [expandedClusterIds, setExpandedClusterIds] = useState<string[]>([]);
   const latestRequestIdRef = useRef(0);
   const latestSemanticRequestIdRef = useRef(0);
+  const latestClustersRequestIdRef = useRef(0);
   const elementListRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<number | null>(null);
 
   useEffect(() => {
     void loadLibraryItems();
+    void loadSemanticClusters();
   }, []);
 
   const correctedSearchQuery = useMemo(
@@ -191,6 +198,29 @@ const ElementSidebar: React.FC<Props> = ({
     }
   }
 
+  async function loadSemanticClusters() {
+    const requestId = ++latestClustersRequestIdRef.current;
+    try {
+      setClustersLoading(true);
+      const response = await fetchSemanticClusters();
+      if (requestId !== latestClustersRequestIdRef.current) return;
+      setClusters(response.clusters);
+      setExpandedClusterIds((current) =>
+        current.length > 0
+          ? current.filter((clusterId) =>
+              response.clusters.some((cluster) => cluster.id === clusterId)
+            )
+          : []
+      );
+    } catch (err) {
+      console.error("Failed to load semantic clusters", err);
+    } finally {
+      if (requestId === latestClustersRequestIdRef.current) {
+        setClustersLoading(false);
+      }
+    }
+  }
+
   const lexicalSearchItems = useMemo(() => {
     const trimmed = search.trim().toLowerCase();
     const corrected = correctedSearchQuery?.trim().toLowerCase() ?? "";
@@ -239,6 +269,8 @@ const ElementSidebar: React.FC<Props> = ({
     );
   }, [items, lexicalSearchItems, search, semanticItems, sortBy]);
 
+  const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
   useEffect(() => {
     if (pendingScrollRestoreRef.current == null) return;
     if (!elementListRef.current) return;
@@ -269,6 +301,7 @@ const ElementSidebar: React.FC<Props> = ({
       setSemanticItems([]);
       onLibraryReset?.();
       await loadLibraryItems();
+      await loadSemanticClusters();
     } catch (err) {
       console.error("Failed to reset library", err);
     } finally {
@@ -288,6 +321,22 @@ const ElementSidebar: React.FC<Props> = ({
     pool.slice(0, Math.min(RANDOM_SPAWN_COUNT, pool.length)).forEach((item) => {
       onAddItemToWorkspace(item);
     });
+  }
+
+  function toggleCluster(clusterId: string) {
+    setExpandedClusterIds((current) =>
+      current.includes(clusterId)
+        ? current.filter((id) => id !== clusterId)
+        : [...current, clusterId]
+    );
+  }
+
+  function expandAllClusters() {
+    setExpandedClusterIds(clusters.map((cluster) => cluster.id));
+  }
+
+  function collapseAllClusters() {
+    setExpandedClusterIds([]);
   }
 
   return (
@@ -320,21 +369,60 @@ const ElementSidebar: React.FC<Props> = ({
       <section className="sidebar-section library-section">
         <div className="library-header-row">
           <h2 className="section-title">Library</h2>
-          <div className="sort-controls" role="group" aria-label="Sort library">
-            <button
-              type="button"
-              className={`sort-button ${sortBy === "time" ? "active" : ""}`}
-              onClick={() => setSortBy("time")}
-            >
-              Time
-            </button>
-            <button
-              type="button"
-              className={`sort-button ${sortBy === "name" ? "active" : ""}`}
-              onClick={() => setSortBy("name")}
-            >
-              Name
-            </button>
+          <div className="library-toolbar">
+            <div className="sort-controls" role="group" aria-label="Browse library">
+              <button
+                type="button"
+                className={`sort-button ${browseMode === "all" ? "active" : ""}`}
+                onClick={() => setBrowseMode("all")}
+              >
+                All
+              </button>
+              <button
+                type="button"
+                className={`sort-button ${browseMode === "tree" ? "active" : ""}`}
+                onClick={() => setBrowseMode("tree")}
+              >
+                Tree
+              </button>
+            </div>
+            {browseMode === "all" ? (
+              <div className="sort-controls" role="group" aria-label="Sort library">
+                <button
+                  type="button"
+                  className={`sort-button ${sortBy === "time" ? "active" : ""}`}
+                  onClick={() => setSortBy("time")}
+                >
+                  Time
+                </button>
+                <button
+                  type="button"
+                  className={`sort-button ${sortBy === "name" ? "active" : ""}`}
+                  onClick={() => setSortBy("name")}
+                >
+                  Name
+                </button>
+              </div>
+            ) : (
+              <div className="sort-controls" role="group" aria-label="Tree controls">
+                <button
+                  type="button"
+                  className="sort-button"
+                  onClick={expandAllClusters}
+                  disabled={clusters.length === 0}
+                >
+                  Expand All
+                </button>
+                <button
+                  type="button"
+                  className="sort-button"
+                  onClick={collapseAllClusters}
+                  disabled={expandedClusterIds.length === 0}
+                >
+                  Collapse All
+                </button>
+              </div>
+            )}
           </div>
         </div>
         <ElementSearch value={search} onChange={handleSearchChange} />
@@ -342,6 +430,71 @@ const ElementSidebar: React.FC<Props> = ({
           <div className="sidebar-placeholder">Loading items…</div>
         ) : libraryLoadError ? (
           <div className="sidebar-placeholder">{libraryLoadError}</div>
+        ) : !search.trim() && browseMode === "tree" ? (
+          <div ref={elementListRef} className="library-results library-tree-results">
+            {clustersLoading ? (
+              <div className="library-cluster-status">
+                <span className="search-pending-spinner" aria-hidden="true" />
+                <span>Building clusters…</span>
+              </div>
+            ) : clusters.length > 0 ? (
+              <div className="library-tree" role="tree" aria-label="Clustered library">
+                {clusters.map((cluster) => {
+                  const isExpanded = expandedClusterIds.includes(cluster.id);
+                  return (
+                    <div key={cluster.id} className="library-tree-group">
+                      <button
+                        type="button"
+                        className="library-tree-node"
+                        role="treeitem"
+                        aria-expanded={isExpanded}
+                        onClick={() => toggleCluster(cluster.id)}
+                      >
+                        <span className="library-tree-caret" aria-hidden="true">
+                          {isExpanded ? "▾" : "▸"}
+                        </span>
+                        <span className="library-tree-label">{cluster.title}</span>
+                        <span className="library-tree-count">{cluster.primaryMemberCount}</span>
+                      </button>
+                      {isExpanded ? (
+                        <div className="library-tree-children" role="group">
+                          {cluster.members.map((member) => {
+                            const item = itemsById.get(member.id);
+                            if (!item) {
+                              return null;
+                            }
+
+                            return (
+                              <button
+                                key={`${cluster.id}-${member.id}`}
+                                type="button"
+                                className={`library-tree-leaf${
+                                  member.isPrimary ? "" : " is-secondary"
+                                }`}
+                                onClick={() => onAddItemToWorkspace(item)}
+                              >
+                                <span className="library-tree-branch" aria-hidden="true">
+                                  └
+                                </span>
+                                <span className="element-icon">
+                                  {item.icon || item.name.charAt(0).toUpperCase()}
+                                </span>
+                                <span className="library-tree-leaf-name">{item.name}</span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="sidebar-placeholder">
+                Not enough items are available to form semantic clusters yet.
+              </div>
+            )}
+          </div>
         ) : (
           <div className="library-results">
             <ElementList
