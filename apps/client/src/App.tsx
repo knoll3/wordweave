@@ -59,6 +59,70 @@ const TOAST_DURATION_MS = 3500;
 const ITEM_DRAWER_EXIT_MS = 220;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 
+type QuestCelebrationState = {
+  title: string;
+  copy: string;
+};
+
+const UNLOCK_DISPLAY: Record<
+  UnlockKey,
+  {
+    name: string;
+    icon: string;
+    accentClass: string;
+    shortCopy: string;
+  }
+> = {
+  creative: {
+    name: "Creative Spark",
+    icon: "✨",
+    accentClass: "is-creative",
+    shortCopy: "Pushes results toward imaginative, memorable concepts.",
+  },
+  split: {
+    name: "Split",
+    icon: "✂️",
+    accentClass: "is-split",
+    shortCopy: "Subtracts one concept from another to reveal what remains.",
+  },
+  opposite: {
+    name: "Opposite",
+    icon: "↔️",
+    accentClass: "is-opposite",
+    shortCopy: "Finds the clearest opposite of the selected idea.",
+  },
+  random_tools: {
+    name: "Randomize",
+    icon: "🔀",
+    accentClass: "is-randomize",
+    shortCopy: "Shifts an item into a nearby semantic variation.",
+  },
+  craft: {
+    name: "Craft",
+    icon: "🔨",
+    accentClass: "is-craft",
+    shortCopy: "Resolves inputs as a physical outcome, object, or material.",
+  },
+  evolve: {
+    name: "Evolve",
+    icon: "🧬",
+    accentClass: "is-evolve",
+    shortCopy: "Pushes an item toward its next stronger or more advanced form.",
+  },
+  pop_culture: {
+    name: "Pop Culture",
+    icon: "🎬",
+    accentClass: "is-pop-culture",
+    shortCopy: "Turns clues into a specific entertainment reference.",
+  },
+  word_combine: {
+    name: "Compound",
+    icon: "🔗",
+    accentClass: "is-compound",
+    shortCopy: "Builds a real established compound word or phrase.",
+  },
+};
+
 const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   if (typeof window === "undefined") {
     return [];
@@ -149,7 +213,9 @@ const App: React.FC = () => {
   const [trackedQuestUrl, setTrackedQuestUrl] = useState<string | null>(null);
   const [isLoadingTrackedQuestReference, setIsLoadingTrackedQuestReference] =
     useState(false);
-  const [questCelebrationText, setQuestCelebrationText] = useState<string | null>(null);
+  const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
+    null
+  );
   const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
   const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
@@ -210,8 +276,41 @@ const App: React.FC = () => {
     void loadFeatureUnlocks();
   }, [items]);
 
-  const pendingUnlockIntro =
-    featureUnlocks.find((unlock) => unlock.introPending) ?? null;
+  useEffect(() => {
+    const pendingUnlock = featureUnlocks.find((unlock) => unlock.introPending);
+    if (!pendingUnlock) {
+      return;
+    }
+
+    const sourceNormalized = pendingUnlock.sourceItemName?.trim().toLowerCase() ?? null;
+    const sourceItemId =
+      sourceNormalized == null
+        ? null
+        : items.find((item) => item.normalizedName === sourceNormalized)?.id ?? null;
+    const sourceNodeId =
+      sourceItemId == null
+        ? null
+        : [...workspaceItems]
+            .reverse()
+            .find((workspaceItem) => workspaceItem.itemId === sourceItemId)?.nodeId ?? null;
+    const catalystName = UNLOCK_DISPLAY[pendingUnlock.key].name;
+
+    showQuestCelebration(
+      `${catalystName} unlocked`,
+      pendingUnlock.summary,
+      sourceNodeId
+    );
+
+    void markUnlockIntroSeen(pendingUnlock.key)
+      .then(() => {
+        setFeatureUnlocks((prev) =>
+          prev.map((unlock) =>
+            unlock.key === pendingUnlock.key ? { ...unlock, introPending: false } : unlock
+          )
+        );
+      })
+      .catch(() => {});
+  }, [featureUnlocks, items, workspaceItems]);
 
   function showError(message: string, err: unknown) {
     void err;
@@ -292,6 +391,16 @@ const App: React.FC = () => {
         .find((workspaceItem) => workspaceItem.itemId === trackedItemId)?.nodeId ?? null
     );
   }, [items, trackedQuest, workspaceItems]);
+  const catalystUnlockQuests = useMemo(
+    () =>
+      featureUnlocks.map((unlock) => ({
+        ...unlock,
+        display: UNLOCK_DISPLAY[unlock.key],
+      })),
+    [featureUnlocks]
+  );
+  const nextLockedCatalystKey =
+    catalystUnlockQuests.find((unlock) => !unlock.unlocked)?.key ?? null;
 
   function trackNextAvailableQuest() {
     if (!trackedQuest) {
@@ -309,16 +418,20 @@ const App: React.FC = () => {
     setTrackedTargetQuestKey(nextQuest?.normalizedTarget ?? null);
   }
 
-  function showQuestCelebration(text: string, nodeId: string | null) {
+  function showQuestCelebration(
+    title: string,
+    copy: string,
+    nodeId: string | null
+  ) {
     if (celebrationTimeoutRef.current != null) {
       window.clearTimeout(celebrationTimeoutRef.current);
     }
-    setQuestCelebrationText(text);
+    setQuestCelebration({ title, copy });
     setIsQuestCelebrating(true);
     setCelebratedQuestNodeId(nodeId);
     celebrationTimeoutRef.current = window.setTimeout(() => {
       setIsQuestCelebrating(false);
-      setQuestCelebrationText(null);
+      setQuestCelebration(null);
       setCelebratedQuestNodeId(null);
       celebrationTimeoutRef.current = null;
     }, QUEST_CELEBRATION_DURATION_MS);
@@ -367,7 +480,11 @@ const App: React.FC = () => {
       return;
     }
     lastCelebratedQuestKeyRef.current = trackedQuestCompletionKey;
-    showQuestCelebration(`Target complete: ${trackedQuest.target}`, trackedQuestWorkspaceNodeId);
+    showQuestCelebration(
+      `Target complete: ${trackedQuest.target}`,
+      "Your tracked target has been discovered.",
+      trackedQuestWorkspaceNodeId
+    );
   }, [trackedQuest?.target, trackedQuestCompletionKey, trackedQuestWorkspaceNodeId]);
 
   useEffect(
@@ -873,61 +990,13 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
-      {questCelebrationText ? (
+      {questCelebration ? (
         <div className="quest-complete-toast" aria-live="assertive" role="status">
           <div className="quest-complete-toast-kicker">Quest Complete</div>
-          <div className="quest-complete-toast-title">{questCelebrationText}</div>
-          <div className="quest-complete-toast-copy">
-            Your tracked target has been discovered.
-          </div>
+          <div className="quest-complete-toast-title">{questCelebration.title}</div>
+          <div className="quest-complete-toast-copy">{questCelebration.copy}</div>
         </div>
       ) : null}
-      {pendingUnlockIntro ? (
-        <div className="results-overlay" role="presentation">
-          <div className="results-backdrop" />
-          <div className="results-panel quest-complete-panel" role="dialog" aria-modal="true">
-            <div className="results-header">
-              <div>
-                <h3 className="results-title">{pendingUnlockIntro.title}</h3>
-                <p className="results-subtitle">{pendingUnlockIntro.summary}</p>
-                {pendingUnlockIntro.sourceItemName ? (
-                  <p className="results-subtitle">
-                    Unlocked by discovering{" "}
-                    <strong>{pendingUnlockIntro.sourceItemName}</strong>
-                    {pendingUnlockIntro.sourceMatchedWord &&
-                    pendingUnlockIntro.sourceMatchedWord.toLowerCase() !==
-                      pendingUnlockIntro.sourceItemName.toLowerCase()
-                      ? `, which matched "${pendingUnlockIntro.sourceMatchedWord}".`
-                      : "."}
-                  </p>
-                ) : null}
-              </div>
-            </div>
-            <div className="confirm-actions">
-              <button
-                type="button"
-                className="button primary"
-                onClick={async () => {
-                  try {
-                    await markUnlockIntroSeen(pendingUnlockIntro.key);
-                    setFeatureUnlocks((prev) =>
-                      prev.map((unlock) =>
-                        unlock.key === pendingUnlockIntro.key
-                          ? { ...unlock, introPending: false }
-                          : unlock
-                      )
-                    );
-                  } catch {
-                  }
-                }}
-              >
-                Continue
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
-
       <div className="app-root">
         <aside className="sidebar">
           <ElementSidebar
@@ -1017,9 +1086,9 @@ const App: React.FC = () => {
                   {isQuestDrawerOpen ? "▴" : "▾"}
                 </span>
               </button>
-              {questCelebrationText ? (
+              {questCelebration ? (
                 <div className="quest-hub-celebration" aria-live="polite">
-                  {questCelebrationText}
+                  {questCelebration.title}
                 </div>
               ) : null}
             </div>
@@ -1200,6 +1269,72 @@ const App: React.FC = () => {
                 })}
               </div>
             )}
+            <div className="quest-section">
+              <div className="quest-section-header">
+                <div className="quest-section-title">Catalyst Unlocks</div>
+                <div className="quest-section-subtitle">
+                  Permanent mechanic unlocks that expand the workspace.
+                </div>
+              </div>
+              <div className="quest-card-list">
+                {catalystUnlockQuests.map((unlock) => {
+                  const isNextLocked =
+                    !unlock.unlocked && unlock.key === nextLockedCatalystKey;
+                  return (
+                    <article
+                      key={unlock.key}
+                      className={`quest-card quest-card-unlock ${unlock.display.accentClass}${
+                        unlock.unlocked ? " is-complete" : ""
+                      }${isNextLocked ? " is-featured-unlock" : ""}`}
+                    >
+                      <div className="quest-card-top">
+                        <div className="quest-card-title-wrap">
+                          <span className="quest-card-icon" aria-hidden="true">
+                            {unlock.display.icon}
+                          </span>
+                          <div>
+                            <div className="quest-card-title">{unlock.display.name}</div>
+                            <div className="quest-card-description">
+                              {unlock.display.shortCopy}
+                            </div>
+                          </div>
+                        </div>
+                        <span
+                          className={`quest-card-badge ${
+                            unlock.unlocked
+                              ? "is-complete"
+                              : isNextLocked
+                                ? "is-tracked"
+                                : "is-available"
+                          }`}
+                        >
+                          {unlock.unlocked
+                            ? "Unlocked"
+                            : isNextLocked
+                              ? "Next"
+                              : "Locked"}
+                        </span>
+                      </div>
+                      <div className="quest-card-criteria">{unlock.summary}</div>
+                      {unlock.sourceItemName ? (
+                        <div className="quest-card-meta">
+                          Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
+                          {unlock.sourceMatchedWord &&
+                          unlock.sourceMatchedWord.toLowerCase() !==
+                            unlock.sourceItemName.toLowerCase()
+                            ? `, which matched "${unlock.sourceMatchedWord}".`
+                            : "."}
+                        </div>
+                      ) : !unlock.unlocked ? (
+                        <div className="quest-card-meta">
+                          This catalyst is still locked. Discover related concepts to reveal it.
+                        </div>
+                      ) : null}
+                    </article>
+                  );
+                })}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}

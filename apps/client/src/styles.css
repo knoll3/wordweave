@@ -1591,6 +1591,31 @@ body.page-scrollable {
   gap: 10px;
 }
 
+.quest-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.quest-section-header {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quest-section-title {
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--text-soft);
+}
+
+.quest-section-subtitle {
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
 .quest-card {
   border: 1px solid rgba(148, 163, 184, 0.18);
   border-radius: 12px;
@@ -1621,6 +1646,63 @@ body.page-scrollable {
   box-shadow: 0 0 0 1px rgba(52, 211, 153, 0.12);
 }
 
+.quest-card.quest-card-unlock {
+  gap: 8px;
+}
+
+.quest-card.quest-card-unlock.is-featured-unlock {
+  border-color: rgba(96, 165, 250, 0.28);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.1);
+}
+
+.quest-card.quest-card-unlock.is-creative {
+  background:
+    radial-gradient(circle at top right, rgba(168, 85, 247, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-split {
+  background:
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-opposite {
+  background:
+    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-randomize {
+  background:
+    radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-craft {
+  background:
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-evolve {
+  background:
+    radial-gradient(circle at top right, rgba(236, 72, 153, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-pop-culture {
+  background:
+    radial-gradient(circle at top right, rgba(250, 204, 21, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
+.quest-card.quest-card-unlock.is-compound {
+  background:
+    radial-gradient(circle at top right, rgba(217, 180, 254, 0.12), transparent 34%),
+    rgba(15, 23, 42, 0.74);
+}
+
 .quest-card.is-complete {
   border-color: rgba(52, 211, 153, 0.3);
 }
@@ -1636,6 +1718,25 @@ body.page-scrollable {
   font-size: 0.9rem;
   font-weight: 600;
   color: var(--text-main);
+}
+
+.quest-card-title-wrap {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.quest-card-icon {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(15, 23, 42, 0.82);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  font-size: 1rem;
 }
 
 .quest-card-description {
@@ -1681,6 +1782,12 @@ body.page-scrollable {
 
 .quest-card-action-note {
   font-size: 0.76rem;
+  color: var(--text-muted);
+}
+
+.quest-card-meta {
+  font-size: 0.74rem;
+  line-height: 1.45;
   color: var(--text-muted);
 }
 
