@@ -14,23 +14,56 @@ const QUEST_MODEL: OpenAiModel = "gpt-5-nano";
 const QUEST_RETRY_LIMIT = 3;
 const QUEST_HISTORY_LIMIT = 120;
 const QUEST_PROMPT_HISTORY_LIMIT = 40;
-const QUEST_GENERATION_MULTIPLIER = 2;
+const QUEST_GENERATION_CANDIDATE_COUNT = 8;
+const QUEST_SLOT_EXCLUSION_LIMIT = 12;
 const VARIATION_THEME_POOL = [
+  "nature",
   "pop culture",
-  "history",
   "mythology",
   "science",
-  "animals",
+  "fiction",
   "places",
-  "inventions",
+  "creatures",
+  "objects",
   "materials",
-  "famous objects",
-  "space",
-  "oceans",
+  "inventions",
+  "history",
   "music",
   "movies",
-  "folklore",
   "technology",
+  "art",
+  "landmarks",
+  "internet culture",
+] as const;
+const QUEST_TARGET_STYLE_GUIDANCE = [
+  "Keep the batch broad and varied instead of clustering around one type of concept.",
+  "Lean noticeably toward silly, playful, surprising, referential, and imaginative targets.",
+  "Let some results feel delightfully odd, funny, chaotic, or challenge-run worthy, while still staying recognizable and achievable.",
+  "Do not make the whole batch only that; keep a little room for striking or iconic targets too.",
+  "Keep the results open-ended and varied.",
+] as const;
+const QUEST_HARD_RULES = [
+  "Every target must be a real recognizable noun-like concept or named concept.",
+  "Do not return descriptive adjective+noun phrases unless they are a fixed famous name.",
+  "Prefer one-word targets or clean, well-known named concepts.",
+  "Avoid vague filler terms, generic abstractions, and invented phrases.",
+  "Do not repeat anything from the recent-targets exclusion list for the matching difficulty.",
+  "Keep the list varied.",
+  "Match the requested difficulty closely.",
+  "Do not explain anything outside the JSON.",
+] as const;
+const QUEST_DIFFICULTY_DEFINITIONS: Record<DifficultyTier, string> = {
+  easy: "Common, concrete, broadly recognizable targets.",
+  medium: "Recognizable but less obvious, more specific, or more referential targets.",
+  hard:
+    "Challenging, varied, and interesting targets. Favor specific, surprising, playful, weird, referential, or imaginative concepts that feel fun to chase and a little unhinged in a good way, without collapsing into one narrow category of result.",
+};
+const QUEST_HARD_AVOID = [
+  "dry textbook terms",
+  "overly scholarly or academic-only targets",
+  "overly repetitive category clusters",
+  "too many plain everyday objects in a row",
+  "too many obvious first-association nouns in a row",
 ] as const;
 
 type UsageCostSummary = {
@@ -47,7 +80,7 @@ type UsageCostSummary = {
 type TargetQuest = {
   target: string;
   normalizedTarget: string;
-  difficulty: "easy" | "medium" | "stretch";
+  difficulty: "easy" | "medium" | "hard";
   flavor: string;
   teaser: string;
 };
@@ -109,56 +142,38 @@ function buildDifficultyPlan(count: number, unlockedCatalystKeys: Set<string>) {
     0
   );
 
-  let plan: DifficultyTier[];
+  let difficulty: DifficultyTier;
   let guidance: string;
   if (catalystPower >= 7) {
-    plan = ["easy", "medium", "stretch", "stretch"];
+    difficulty = "hard";
     guidance =
-      "The player has several strong catalysts unlocked, so stretch targets can be more ambitious, more referential, and a little less obvious.";
+      "Use hard difficulty. Bias the batch toward fun, weird, playful, and surprising targets that feel like exciting challenge-run goals. Keep them difficult and recognizable, not dry.";
   } else if (catalystPower >= 4) {
-    plan = ["easy", "medium", "medium", "stretch"];
+    difficulty = "medium";
     guidance =
-      "The player has a solid catalyst toolkit, so medium targets can be richer and one stretch target can expect more creative reasoning.";
+      "Use medium difficulty. Make the targets recognizable but not too obvious, and keep them playful and varied.";
   } else if (catalystPower >= 1.5) {
-    plan = ["easy", "easy", "medium", "medium"];
+    difficulty = "medium";
     guidance =
-      "The player has some useful catalysts unlocked, so keep most targets approachable while introducing a couple of more involved goals.";
+      "Use medium difficulty. Keep the targets approachable enough to feel possible, but still interesting and a little surprising.";
   } else {
-    plan = ["easy", "easy", "easy", "medium"];
+    difficulty = "easy";
     guidance =
-      "The player has few catalyst tools unlocked, so favor cleaner, more straightforward targets and keep only one target a step above the rest.";
+      "Use easy difficulty. Favor clean, recognizable, fun targets that feel achievable without advanced catalyst tricks.";
   }
 
   return {
     catalystPower,
     guidance,
-    plan: plan.slice(0, count),
+    difficulty,
+    count,
   };
-}
-
-function expandDifficultyPlan(
-  basePlan: DifficultyTier[],
-  count: number
-): DifficultyTier[] {
-  if (basePlan.length === 0) {
-    return Array.from({ length: count }, () => "easy");
-  }
-
-  return Array.from({ length: count }, (_, index) => {
-    if (index < basePlan.length) {
-      return basePlan[index];
-    }
-
-    const tailStart = Math.max(basePlan.length - 2, 0);
-    const tail = basePlan.slice(tailStart);
-    return tail[index % tail.length] ?? basePlan[basePlan.length - 1];
-  });
 }
 
 function loadRecentQuestHistory(db: Database, limit: number) {
   const stmt = db.prepare(
     `
-    SELECT target, normalized_target
+    SELECT target, normalized_target, difficulty
     FROM target_quest_history
     ORDER BY generated_at DESC, id DESC
     LIMIT ?
@@ -166,16 +181,68 @@ function loadRecentQuestHistory(db: Database, limit: number) {
   );
   stmt.bind([limit]);
 
-  const rows: Array<{ target: string; normalizedTarget: string }> = [];
+  const rows: Array<{
+    target: string;
+    normalizedTarget: string;
+    difficulty: DifficultyTier;
+  }> = [];
   while (stmt.step()) {
     const row = stmt.getAsObject() as Record<string, unknown>;
     rows.push({
       target: String(row.target),
       normalizedTarget: String(row.normalized_target),
+      difficulty:
+        String(row.difficulty) === "stretch"
+          ? "hard"
+          : (String(row.difficulty) as DifficultyTier),
     });
   }
   stmt.free();
   return rows;
+}
+
+function buildPromptHistoryByDifficulty(
+  history: Array<{ target: string; difficulty: DifficultyTier }>,
+  limit: number
+) {
+  const grouped: Record<DifficultyTier, string[]> = {
+    easy: [],
+    medium: [],
+    hard: [],
+  };
+
+  for (const entry of history) {
+    const bucket = grouped[entry.difficulty];
+    if (!bucket || bucket.length >= limit) {
+      continue;
+    }
+    bucket.push(entry.target);
+  }
+
+  return grouped;
+}
+
+function pushPromptExclusion(
+  grouped: Record<DifficultyTier, string[]>,
+  difficulty: DifficultyTier,
+  target: string,
+  limit: number
+) {
+  const bucket = grouped[difficulty];
+  if (!bucket) {
+    return;
+  }
+  if (bucket.includes(target) || bucket.length >= limit) {
+    return;
+  }
+  bucket.push(target);
+}
+
+function buildQuestPromptConfig() {
+  return {
+    targetDomainsText: QUEST_TARGET_STYLE_GUIDANCE.map((line) => `- ${line}`).join("\n"),
+    hardRulesText: QUEST_HARD_RULES.map((rule) => `- ${rule}`).join("\n"),
+  };
 }
 
 function loadKnownElementNames(db: Database) {
@@ -328,42 +395,54 @@ router.post("/targets", async (req, res) => {
     );
     const knownElementNames = loadKnownElementNames(db);
     const recentHistory = loadRecentQuestHistory(db, QUEST_HISTORY_LIMIT);
-    const recentTargetNames = recentHistory.map((entry) => entry.target);
+    const promptHistoryByDifficulty = buildPromptHistoryByDifficulty(
+      recentHistory,
+      QUEST_PROMPT_HISTORY_LIMIT
+    );
     const recentTargetSet = new Set(recentHistory.map((entry) => entry.normalizedTarget));
     const acceptedInRun = new Set<string>();
-    const promptExclusions = new Set(
-      recentTargetNames.slice(0, QUEST_PROMPT_HISTORY_LIMIT)
-    );
     const requestedCount = parsedBody.data.count;
-    const generatedCountPerAttempt = Math.min(6, requestedCount * QUEST_GENERATION_MULTIPLIER);
+    const generatedCountPerAttempt = QUEST_GENERATION_CANDIDATE_COUNT;
     const usageSummaries: Array<UsageCostSummary | null> = [];
     let responseModel: string = QUEST_MODEL;
     let generatedQuests: TargetQuest[] = [];
 
     for (let attempt = 0; attempt < QUEST_RETRY_LIMIT; attempt += 1) {
-      const requestedDifficulties = expandDifficultyPlan(
-        difficultyPlan.plan,
-        generatedCountPerAttempt
-      );
       const generation = await generateTargetQuests({
         model: QUEST_MODEL,
         count: generatedCountPerAttempt,
-        recentTargets: [...promptExclusions],
         variationThemes: sampleVariationThemes(),
-        requestedDifficulties,
+        activeDifficulty: {
+          difficulty: difficultyPlan.difficulty,
+          guidance: QUEST_DIFFICULTY_DEFINITIONS[difficultyPlan.difficulty],
+          recentTargetsToAvoid: promptHistoryByDifficulty[
+            difficultyPlan.difficulty
+          ].slice(0, QUEST_SLOT_EXCLUSION_LIMIT),
+          avoid:
+            difficultyPlan.difficulty === "hard"
+              ? [...QUEST_HARD_AVOID]
+              : [],
+        },
         difficultyGuidance: difficultyPlan.guidance,
+        promptConfig: buildQuestPromptConfig(),
       });
 
       responseModel = generation.responseModel;
       usageSummaries.push(generation.usage);
 
       const nextAccepted: TargetQuest[] = [];
-      const rejectedThisAttempt: string[] = [];
+      const rejectedThisAttempt: Array<{
+        target: string;
+        difficulty: DifficultyTier;
+      }> = [];
 
       for (const quest of generation.selection.quests) {
         const normalizedTarget = normalizeTarget(quest.target);
         if (!looksAchievableTarget(quest.target)) {
-          rejectedThisAttempt.push(quest.target);
+          rejectedThisAttempt.push({
+            target: quest.target,
+            difficulty: difficultyPlan.difficulty,
+          });
           continue;
         }
         if (
@@ -371,14 +450,17 @@ router.post("/targets", async (req, res) => {
           knownElementNames.has(normalizedTarget) ||
           acceptedInRun.has(normalizedTarget)
         ) {
-          rejectedThisAttempt.push(quest.target);
+          rejectedThisAttempt.push({
+            target: quest.target,
+            difficulty: difficultyPlan.difficulty,
+          });
           continue;
         }
 
         nextAccepted.push({
           target: titleCaseWords(quest.target),
           normalizedTarget,
-          difficulty: quest.difficulty,
+          difficulty: difficultyPlan.difficulty,
           flavor: quest.flavor.trim(),
           teaser: quest.teaser.trim(),
         });
@@ -387,7 +469,12 @@ router.post("/targets", async (req, res) => {
 
       generatedQuests.push(...nextAccepted);
       for (const rejected of rejectedThisAttempt) {
-        promptExclusions.add(rejected);
+        pushPromptExclusion(
+          promptHistoryByDifficulty,
+          rejected.difficulty,
+          rejected.target,
+          QUEST_PROMPT_HISTORY_LIMIT
+        );
       }
 
       if (generatedQuests.length >= requestedCount) {
@@ -407,7 +494,7 @@ router.post("/targets", async (req, res) => {
       generatedAt: new Date().toISOString(),
       model: responseModel,
       retryCount: usageSummaries.length,
-      recentExclusionCount: Math.min(recentTargetNames.length, QUEST_PROMPT_HISTORY_LIMIT),
+      recentExclusionCount: Math.min(recentHistory.length, QUEST_PROMPT_HISTORY_LIMIT),
       catalystPower: Number(difficultyPlan.catalystPower.toFixed(2)),
       cost: aggregateUsageCost(usageSummaries),
       quests: generatedQuests,

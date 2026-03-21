@@ -316,17 +316,14 @@ Your job is to suggest a small list of fun target terms for the player to try to
 Important:
 - The targets should feel fun, varied, and motivating.
 - Favor things that would plausibly have their own Wikipedia article or major reference entry.
-- Favor pop culture references, historical references, mythology, science, places, creatures, inventions, materials, iconic objects, and other memorable concepts.
+- Use this breadth guidance:
+{{TARGET_QUEST_TARGET_DOMAINS}}
 
 Hard rules:
-- Every target must be a real recognizable noun-like concept or named concept.
-- Do not return descriptive adjective+noun phrases unless they are a fixed famous name.
-- Prefer one-word targets or clean, well-known named concepts.
-- Avoid vague filler terms, generic abstractions, and invented phrases.
-- Do not repeat anything from the recent-targets exclusion list.
-- Keep the list varied.
-- Match the requested difficulty mix closely and return quests in that same order.
-- Do not explain anything outside the JSON.
+{{TARGET_QUEST_HARD_RULES}}
+
+Use this difficulty for the whole batch:
+{{TARGET_QUEST_ACTIVE_DIFFICULTY}}
 
 Return ONLY valid JSON in this format:
 
@@ -334,7 +331,7 @@ Return ONLY valid JSON in this format:
   "quests": [
     {
       "target": "target word",
-      "difficulty": "easy",
+      "difficulty": "hard",
       "flavor": "short category label",
       "teaser": "short motivating line"
     }
@@ -344,14 +341,8 @@ Return ONLY valid JSON in this format:
 Requested quest count:
 {{TARGET_QUEST_COUNT}}
 
-Requested difficulty mix, in order:
-{{TARGET_QUEST_DIFFICULTIES}}
-
 Difficulty guidance:
 {{TARGET_QUEST_DIFFICULTY_GUIDANCE}}
-
-Recent targets to avoid:
-{{RECENT_TARGETS}}
 
 Extra variation themes to keep the list fresh:
 {{VARIATION_THEMES}}
@@ -620,10 +611,18 @@ function normalizeSplitResult(
 export async function generateTargetQuests(params: {
   model?: OpenAiModel;
   count: number;
-  recentTargets: string[];
   variationThemes: string[];
-  requestedDifficulties: Array<"easy" | "medium" | "stretch">;
+  activeDifficulty: {
+    difficulty: "easy" | "medium" | "hard";
+    guidance: string;
+    recentTargetsToAvoid: string[];
+    avoid?: string[];
+  };
   difficultyGuidance: string;
+  promptConfig: {
+    targetDomainsText: string;
+    hardRulesText: string;
+  };
 }): Promise<{
   selection: TargetQuestSelection;
   usage: ReturnType<typeof buildUsageCostSummary>;
@@ -634,20 +633,40 @@ export async function generateTargetQuests(params: {
   const prompt = TARGET_QUEST_PROMPT
     .replace("{{TARGET_QUEST_COUNT}}", String(params.count))
     .replace(
-      "{{TARGET_QUEST_DIFFICULTIES}}",
-      JSON.stringify(params.requestedDifficulties)
+      "{{TARGET_QUEST_TARGET_DOMAINS}}",
+      params.promptConfig.targetDomainsText
+    )
+    .replace(
+      "{{TARGET_QUEST_HARD_RULES}}",
+      params.promptConfig.hardRulesText
+    )
+    .replace(
+      "{{TARGET_QUEST_ACTIVE_DIFFICULTY}}",
+      [
+        `- difficulty: ${params.activeDifficulty.difficulty}`,
+        `- guidance: ${params.activeDifficulty.guidance}`,
+        `- recent targets to avoid: ${
+          params.activeDifficulty.recentTargetsToAvoid.length > 0
+            ? params.activeDifficulty.recentTargetsToAvoid.join(", ")
+            : "none"
+        }`,
+        ...(params.activeDifficulty.avoid && params.activeDifficulty.avoid.length > 0
+          ? [
+              `- also avoid: ${params.activeDifficulty.avoid.join(", ")}`,
+            ]
+          : []),
+      ].join("\n")
     )
     .replace(
       "{{TARGET_QUEST_DIFFICULTY_GUIDANCE}}",
       params.difficultyGuidance
     )
-    .replace("{{RECENT_TARGETS}}", JSON.stringify(params.recentTargets))
     .replace("{{VARIATION_THEMES}}", JSON.stringify(params.variationThemes));
 
   console.log("[openai][target-quests] sending request", {
     model,
     requestedCount: params.count,
-    recentTargetCount: params.recentTargets.length,
+    recentTargetCount: params.activeDifficulty.recentTargetsToAvoid.length,
     variationThemes: params.variationThemes,
     prompt,
   });

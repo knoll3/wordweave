@@ -142,7 +142,7 @@ export interface SelectionCombineLayout {
 export interface TargetQuest {
   target: string;
   normalizedTarget: string;
-  difficulty: "easy" | "medium" | "stretch";
+  difficulty: "easy" | "medium" | "hard";
   flavor: string;
   teaser: string;
 }

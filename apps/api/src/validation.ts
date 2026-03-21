@@ -56,13 +56,13 @@ export const targetQuestSelectionSchema = z.object({
     .array(
       z.object({
         target: z.string().min(1).max(64),
-        difficulty: z.enum(["easy", "medium", "stretch"]),
+        difficulty: z.enum(["easy", "medium", "hard"]),
         flavor: z.string().min(1).max(48),
         teaser: z.string().min(1).max(140),
       })
     )
     .min(1)
-    .max(6),
+    .max(8),
 });
 
 export const recipeBatchStepSchema = z.object({

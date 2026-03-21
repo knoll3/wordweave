@@ -77,6 +77,19 @@ function tokenizeQuestMatchText(value: string) {
     .filter(Boolean);
 }
 
+function normalizeQuestToken(token: string) {
+  if (token.endsWith("ies") && token.length > 3) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.endsWith("es") && token.length > 3) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && token.length > 3) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
 function matchesQuestTarget(target: string, candidate: Item) {
   const normalizedTarget = normalizeQuestMatchText(target);
   const normalizedCandidate = normalizeQuestMatchText(
@@ -90,32 +103,19 @@ function matchesQuestTarget(target: string, candidate: Item) {
   if (normalizedTarget === normalizedCandidate) {
     return true;
   }
-
-  if (
-    normalizedTarget.includes(normalizedCandidate) ||
-    normalizedCandidate.includes(normalizedTarget)
-  ) {
-    return true;
-  }
-
   const targetTokens = tokenizeQuestMatchText(target);
   const candidateTokens = tokenizeQuestMatchText(candidate.normalizedName || candidate.name);
   if (!targetTokens.length || !candidateTokens.length) {
     return false;
   }
 
-  const targetTokenSet = new Set(targetTokens);
-  const candidateTokenSet = new Set(candidateTokens);
-  let overlapCount = 0;
-  for (const token of targetTokenSet) {
-    if (candidateTokenSet.has(token)) {
-      overlapCount += 1;
-    }
+  if (targetTokens.length !== candidateTokens.length) {
+    return false;
   }
 
-  const overlapRatio =
-    overlapCount / Math.max(targetTokenSet.size, candidateTokenSet.size, 1);
-  return overlapRatio >= 0.8;
+  return targetTokens.every((token, index) => {
+    return normalizeQuestToken(token) === normalizeQuestToken(candidateTokens[index] ?? "");
+  });
 }
 
 type QuestCelebrationState = {
