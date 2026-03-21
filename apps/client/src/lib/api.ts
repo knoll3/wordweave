@@ -173,18 +173,6 @@ export async function combineElements(
     model?: AiModel;
   }
 ): Promise<Recipe> {
-  console.log("[combine] request", {
-    inputs,
-    creative: options?.creative ?? false,
-    subtractive: options?.subtractive ?? false,
-    opposite: options?.opposite ?? false,
-    popCulture: options?.popCulture ?? false,
-    evolve: options?.evolve ?? false,
-    randomize: options?.randomize ?? false,
-    crafting: options?.crafting ?? false,
-    wordCombine: options?.wordCombine ?? false,
-    model: options?.model ?? null,
-  });
   const res = await fetch(`${API_BASE}/recipes/combine`, {
     method: "POST",
     headers: {
@@ -203,9 +191,7 @@ export async function combineElements(
       model: options?.model,
     }),
   });
-  const data = await handleResponse<Recipe>(res);
-  console.log("[combine] response", data);
-  return data;
+  return handleResponse<Recipe>(res);
 }
 
 export async function selectCandidate(

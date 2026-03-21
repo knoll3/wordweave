@@ -36,8 +36,7 @@ const CachePage: React.FC = () => {
           setTotalPages(data.totalPages);
           setError(null);
         }
-      } catch (err) {
-        console.error("[cache] failed to load recipes", err);
+      } catch {
         if (!cancelled) {
           setError("Failed to load recipe cache.");
         }
@@ -60,11 +59,9 @@ const CachePage: React.FC = () => {
     try {
       setIsGenerating(true);
       setError(null);
-      const result = await generateCacheRecipes();
-      console.log("[cache] generated recipes", result);
+      await generateCacheRecipes();
       await loadRecipes(1);
-    } catch (err) {
-      console.error("[cache] failed to generate recipes", err);
+    } catch {
       setError("Failed to generate cached recipes.");
     } finally {
       setIsGenerating(false);

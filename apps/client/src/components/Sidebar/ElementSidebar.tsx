@@ -173,7 +173,6 @@ const ElementSidebar: React.FC<Props> = ({
       if (requestId !== latestRequestIdRef.current) return;
       onItemsLoaded?.(data);
     } catch (err) {
-      console.error("Failed to load items", err);
       if (requestId === latestRequestIdRef.current) {
         setLibraryLoadError(
           err instanceof Error ? err.message : "Failed to load library items"
@@ -194,8 +193,7 @@ const ElementSidebar: React.FC<Props> = ({
       const data = await fetchItems(query);
       if (requestId !== latestSemanticRequestIdRef.current) return;
       setSemanticItems(data);
-    } catch (err) {
-      console.error("Failed to load semantic items", err);
+    } catch {
     } finally {
       if (requestId === latestSemanticRequestIdRef.current) {
         setSemanticLoading(false);
@@ -217,8 +215,7 @@ const ElementSidebar: React.FC<Props> = ({
             )
           : []
       );
-    } catch (err) {
-      console.error("Failed to load semantic clusters", err);
+    } catch {
     } finally {
       if (requestId === latestClustersRequestIdRef.current) {
         setClustersLoading(false);
@@ -307,8 +304,8 @@ const ElementSidebar: React.FC<Props> = ({
       onLibraryReset?.();
       await loadLibraryItems();
       await loadSemanticClusters();
-    } catch (err) {
-      console.error("Failed to reset library", err);
+    } catch {
+      setLibraryLoadError("Failed to reset library.");
     } finally {
       setIsResettingLibrary(false);
     }

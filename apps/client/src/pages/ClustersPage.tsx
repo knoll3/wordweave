@@ -27,8 +27,7 @@ const ClustersPage: React.FC = () => {
         setData(next);
         setActiveClusterId(next.clusters[0]?.id ?? null);
         setError(null);
-      } catch (err) {
-        console.error("[clusters] failed to load semantic clusters", err);
+      } catch {
         if (!cancelled) {
           setError("Failed to load semantic clusters.");
         }

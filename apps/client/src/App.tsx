@@ -152,8 +152,7 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
         typeof item.position.x === "number" &&
         typeof item.position.y === "number"
     );
-  } catch (err) {
-    console.warn("Failed to restore workspace items", err);
+  } catch {
     return [];
   }
 };
@@ -240,7 +239,7 @@ const App: React.FC = () => {
     featureUnlocks.find((unlock) => unlock.introPending) ?? null;
 
   function showError(message: string, err: unknown) {
-    console.error(message, err);
+    void err;
     setErrorMessage(message);
   }
 
@@ -248,8 +247,7 @@ const App: React.FC = () => {
     try {
       const statuses = await fetchUnlockStatuses();
       setFeatureUnlocks(statuses);
-    } catch (err) {
-      console.error("Failed to load feature unlocks", err);
+    } catch {
     }
   }
 
@@ -796,8 +794,7 @@ const App: React.FC = () => {
                           : unlock
                       )
                     );
-                  } catch (err) {
-                    console.error("Failed to mark unlock intro as seen", err);
+                  } catch {
                   }
                 }}
               >
