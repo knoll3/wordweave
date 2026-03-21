@@ -32,9 +32,16 @@ export interface LatestRecipeInput {
   icon: string | null;
 }
 
+export interface LatestRecipeCatalyst {
+  name: string;
+  normalizedName: string;
+  icon: string | null;
+}
+
 export interface LatestRecipeContext {
   recipeId: number | null;
   summaryLine: string | null;
+  catalyst: LatestRecipeCatalyst | null;
   inputs: LatestRecipeInput[];
 }
 

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { ChevronDown, Sparkles } from "lucide-react";
 import {
   Application,
   Container,
@@ -45,6 +46,14 @@ interface Props {
   ) => void;
   onCombineWorkspaceSelection: (selectionLayout: SelectionCombineLayout) => void;
   onOpenItemDetails: (item: Item) => void;
+  catalystActions?: Array<{
+    key: string;
+    title: string;
+    icon: React.ReactNode;
+    tint: string;
+    iconTint: string;
+    onClick: () => void;
+  }>;
 }
 
 type CameraState = {
@@ -194,6 +203,7 @@ function GraphView({
   onCombineWorkspaceItems,
   onCombineWorkspaceSelection,
   onOpenItemDetails,
+  catalystActions = [],
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -239,6 +249,7 @@ function GraphView({
   } | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectionLayout, setSelectionLayout] = useState<SelectionCombineLayout | null>(null);
+  const [isCatalystDockOpen, setIsCatalystDockOpen] = useState(false);
   const [selectionOverlayRect, setSelectionOverlayRect] = useState<{
     left: number;
     top: number;
@@ -1428,6 +1439,65 @@ function GraphView({
       {workspaceItems.length === 0 ? (
         <div className="graph-placeholder">
           Click items in the library to place them into the workspace.
+        </div>
+      ) : null}
+      {catalystActions.length > 0 ? (
+        <div
+          className={`graph-catalyst-dock${isCatalystDockOpen ? "" : " is-collapsed"}`}
+          aria-label="Catalysts"
+        >
+          <button
+            type="button"
+            className="graph-catalyst-dock-header"
+            onClick={() => setIsCatalystDockOpen((current) => !current)}
+            aria-expanded={isCatalystDockOpen}
+            aria-controls="graph-catalyst-list"
+          >
+            <span className="graph-catalyst-dock-header-main">
+              <span className="graph-catalyst-dock-badge" aria-hidden="true">
+                <Sparkles size={14} strokeWidth={2} />
+              </span>
+              <span className="graph-catalyst-dock-copy">
+                <span className="graph-catalyst-dock-label">Catalysts</span>
+                <span className="graph-catalyst-dock-meta">
+                  {catalystActions.length} ready
+                </span>
+              </span>
+            </span>
+            <span className="graph-catalyst-dock-header-end">
+              <span className="graph-catalyst-dock-count">{catalystActions.length}</span>
+              <span className="graph-catalyst-dock-toggle" aria-hidden="true">
+                <ChevronDown size={16} strokeWidth={2.25} />
+              </span>
+            </span>
+          </button>
+          <div
+            id="graph-catalyst-list"
+            className={`graph-catalyst-list-wrap${isCatalystDockOpen ? "" : " is-collapsed"}`}
+          >
+            <div className="graph-catalyst-list">
+              {catalystActions.map((action) => (
+                <button
+                  key={action.key}
+                  type="button"
+                  className="graph-catalyst-button"
+                  onClick={action.onClick}
+                  style={{ ["--catalyst-tint" as string]: action.tint }}
+                >
+                  <span
+                    className="graph-catalyst-button-icon"
+                    aria-hidden="true"
+                    style={{ color: action.iconTint }}
+                  >
+                    {action.icon}
+                  </span>
+                  <span className="graph-catalyst-button-copy">
+                    <span className="graph-catalyst-button-title">{action.title}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       ) : null}
       <button

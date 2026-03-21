@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  Shuffle,
+  Hammer,
+  Sparkles,
+  TrendingUp,
+  Theater,
+  Link2,
+  Split,
+  ArrowLeftRight,
+} from "lucide-react";
+import {
   COMBINE_RESULT_PLACEHOLDER_ITEM,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CRAFT_ITEM,
@@ -282,6 +292,111 @@ const App: React.FC = () => {
   const drawerItem = drawerItemId == null ? null : itemById.get(drawerItemId) ?? null;
   const renderedDrawerItem =
     renderedDrawerItemId == null ? null : itemById.get(renderedDrawerItemId) ?? null;
+  const catalystActions = useMemo(() => {
+    const actions: Array<{
+      key: string;
+      title: string;
+      icon: React.ReactNode;
+      tint: string;
+      iconTint: string;
+      onClick: () => void;
+    }> = [];
+
+    if (isFeatureUnlocked("creative")) {
+      actions.push({
+        key: "creative",
+        title: "Creative Spark",
+        icon: <Sparkles size={16} strokeWidth={2} />,
+        tint: "rgba(168, 85, 247, 0.22)",
+        iconTint: "#ddd6fe",
+        onClick: () => addItemToWorkspace(CREATIVE_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("split")) {
+      actions.push({
+        key: "split",
+        title: "Split",
+        icon: <Split size={16} strokeWidth={2} />,
+        tint: "rgba(249, 115, 22, 0.22)",
+        iconTint: "#fdba74",
+        onClick: () => addItemToWorkspace(SPLIT_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("opposite")) {
+      actions.push({
+        key: "opposite",
+        title: "Opposite",
+        icon: <ArrowLeftRight size={16} strokeWidth={2} />,
+        tint: "rgba(59, 130, 246, 0.22)",
+        iconTint: "#bfdbfe",
+        onClick: () => addItemToWorkspace(OPPOSITE_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("random_tools")) {
+      actions.push({
+        key: "randomize",
+        title: "Randomize",
+        icon: <Shuffle size={16} strokeWidth={2} />,
+        tint: "rgba(16, 185, 129, 0.22)",
+        iconTint: "#a7f3d0",
+        onClick: () => addItemToWorkspace(RANDOMIZE_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("craft")) {
+      actions.push({
+        key: "craft",
+        title: "Craft",
+        icon: <Hammer size={16} strokeWidth={2} />,
+        tint: "rgba(245, 158, 11, 0.22)",
+        iconTint: "#fde68a",
+        onClick: () => addItemToWorkspace(CRAFT_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("evolve")) {
+      actions.push({
+        key: "evolve",
+        title: "Evolve",
+        icon: <TrendingUp size={16} strokeWidth={2} />,
+        tint: "rgba(236, 72, 153, 0.22)",
+        iconTint: "#fbcfe8",
+        onClick: () => addItemToWorkspace(EVOLVE_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("pop_culture")) {
+      actions.push({
+        key: "pop_culture",
+        title: "Pop Culture",
+        icon: <Theater size={16} strokeWidth={2} />,
+        tint: "rgba(234, 179, 8, 0.22)",
+        iconTint: "#fde047",
+        onClick: () => addItemToWorkspace(POP_CULTURE_ITEM_ID),
+      });
+    }
+
+    if (isFeatureUnlocked("word_combine")) {
+      actions.push({
+        key: "compound",
+        title: "Compound",
+        icon: <Link2 size={16} strokeWidth={2} />,
+        tint: "rgba(192, 132, 252, 0.22)",
+        iconTint: "#e9d5ff",
+        onClick: () => addItemToWorkspace(WORD_COMBINE_ITEM_ID),
+      });
+    }
+
+    return actions;
+  }, [
+    featureUnlocks,
+    forceUnlocks,
+    viewportCenter,
+    items,
+  ]);
 
   useEffect(() => {
     if (drawerItemId == null) {
@@ -480,10 +595,6 @@ const App: React.FC = () => {
           : "No regular items selected.",
         null
       );
-      return false;
-    }
-    if (hasRandomizeCatalyst && actualInputItems.length !== 1) {
-      showError("Randomize needs exactly one regular item to transform.", null);
       return false;
     }
     if (
@@ -780,6 +891,7 @@ const App: React.FC = () => {
                 onCombineWorkspaceItems={combineWorkspaceItems}
                 onCombineWorkspaceSelection={combineWorkspaceSelection}
                 onOpenItemDetails={openItemDetails}
+                catalystActions={catalystActions}
               />
             </div>
           </section>

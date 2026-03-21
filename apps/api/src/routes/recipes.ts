@@ -27,6 +27,71 @@ import {
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
 const CACHE_BATCH_SIZE = 25;
+const CATALYST_RUN_KEY_PREFIXES = new Set([
+  "creative",
+  "subtract",
+  "opposite",
+  "pop",
+  "evolve",
+  "randomize",
+  "craft",
+  "compound",
+]);
+
+function buildRecipeInputKey(params: {
+  inputKey: string;
+  creative: boolean;
+  subtractive: boolean;
+  opposite: boolean;
+  popCulture: boolean;
+  evolve: boolean;
+  randomize: boolean;
+  crafting: boolean;
+  wordCombine: boolean;
+}): string {
+  const {
+    inputKey,
+    creative,
+    subtractive,
+    opposite,
+    popCulture,
+    evolve,
+    randomize,
+    crafting,
+    wordCombine,
+  } = params;
+
+  return creative
+    ? `creative|${inputKey}`
+    : subtractive
+      ? `subtract|${inputKey}`
+      : opposite
+        ? `opposite|${inputKey}`
+        : popCulture
+          ? `pop|${inputKey}`
+          : evolve
+            ? `evolve|${inputKey}`
+            : randomize
+              ? `randomize|${inputKey}`
+              : crafting
+                ? `craft|${inputKey}`
+                : wordCombine
+                  ? `compound|${inputKey}`
+                  : inputKey;
+}
+
+function buildStoredRecipeInputKey(baseInputKey: string, bypassCache: boolean): string {
+  if (!bypassCache) {
+    return baseInputKey;
+  }
+
+  return `${baseInputKey}::run:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function isCatalystRecipeInputKey(inputKey: string): boolean {
+  const modeKey = inputKey.split("|", 1)[0] ?? "";
+  return CATALYST_RUN_KEY_PREFIXES.has(modeKey);
+}
 
 async function syncSearchIndex(
   db: Awaited<ReturnType<typeof getDb>>,
@@ -345,12 +410,6 @@ router.post("/combine", async (req, res) => {
     return res.status(400).json({ error: "No valid inputs provided" });
   }
 
-  if (randomize && normalizedInputs.length !== 1) {
-    return res.status(400).json({
-      error: "Randomize requires exactly one regular input item",
-    });
-  }
-
   try {
     const db = await getDb();
     const effectiveCreative = creative;
@@ -361,25 +420,7 @@ router.post("/combine", async (req, res) => {
     const effectiveEvolve = evolve;
     const effectiveWordCombine = wordCombine;
 
-    const recipeInputKey = effectiveCreative
-      ? `creative|${inputKey}`
-      : effectiveSubtractive
-        ? `subtract|${inputKey}`
-        : effectiveOpposite
-          ? `opposite|${inputKey}`
-          : effectivePopCulture
-            ? `pop|${inputKey}`
-            : effectiveEvolve
-              ? `evolve|${inputKey}`
-              : randomize
-                ? `randomize|${inputKey}`
-                : effectiveCrafting
-                  ? `craft|${inputKey}`
-                  : effectiveWordCombine
-                    ? `compound|${inputKey}`
-                    : inputKey;
-
-    console.log("[api][combine] resolved mode", {
+    const recipeInputKey = buildRecipeInputKey({
       inputKey,
       creative: effectiveCreative,
       subtractive: effectiveSubtractive,
@@ -390,70 +431,31 @@ router.post("/combine", async (req, res) => {
       crafting: effectiveCrafting,
       wordCombine: effectiveWordCombine,
     });
+    const bypassCache = isCatalystRecipeInputKey(recipeInputKey);
 
-    if (effectiveCreative) {
-      console.log("[api][combine] creative mode bypassing cache", {
-        inputs: normalizedInputs.map((i) => i.name),
-      });
+    console.log("[api][combine] resolved mode", {
+      inputKey,
+      recipeInputKey,
+      bypassCache,
+      creative: effectiveCreative,
+      subtractive: effectiveSubtractive,
+      opposite: effectiveOpposite,
+      popCulture: effectivePopCulture,
+      evolve: effectiveEvolve,
+      randomize,
+      crafting: effectiveCrafting,
+      wordCombine: effectiveWordCombine,
+    });
 
-      let llmResult;
-      try {
-        llmResult = await generateResult(
-          normalizedInputs.map((i) => i.name),
-          { creative: true, model }
-        );
-        console.log("[api][combine] creative OpenAI result", llmResult);
-      } catch (err) {
-        console.error("Error generating creative result", err);
-        const message =
-          err instanceof Error ? err.message : "Failed to generate creative result from model";
-        return res.status(502).json({ error: message });
-      }
+    let stmt;
+    let recipeRow: any = null;
 
-      const createdResultName = toTitleCaseWords(llmResult.name);
-      const normalizedName = createdResultName.trim().toLowerCase();
-
-      const elementId = ensureElement(db, {
-        name: createdResultName,
-        normalizedName,
-        icon: llmResult.icon,
-      });
-      discoverElement(db, elementId);
-      await syncSearchIndex(db, [elementId]);
-      persistDatabase(db);
-
-      let elementStmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
-      );
-      const elementRow = elementStmt.getAsObject([elementId]);
-      elementStmt.free();
-
-      return res.json({
-        recipeId: 0,
-        inputKey: recipeInputKey,
-        inputs: normalizedInputs,
-        candidates: [
-          {
-            id: 0,
-            name: createdResultName,
-            icon: llmResult.icon,
-            orderIndex: 0,
-          },
-        ],
-        chosenCandidateId: null,
-        resultElement: {
-          id: Number(elementRow.id),
-          name: String(elementRow.name),
-          normalizedName: String(elementRow.normalized_name),
-          icon: elementRow.icon ? String(elementRow.icon) : null,
-        },
-      });
+    if (!bypassCache) {
+      // Look up existing recipe
+      stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
+      recipeRow = stmt.getAsObject([recipeInputKey]);
+      stmt.free();
     }
-
-    // Look up existing recipe
-    let stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
-    let recipeRow = stmt.getAsObject([recipeInputKey]);
-    stmt.free();
 
     if (recipeRow && recipeRow.id !== undefined) {
       console.log("[api][combine] cache hit", {
@@ -608,19 +610,27 @@ router.post("/combine", async (req, res) => {
       );
     }
 
-    // Not found: generate a single result via OpenAI
-    console.log("[api][combine] cache miss; generating via OpenAI", {
-      inputKey: recipeInputKey,
-      creative,
-      subtractive: effectiveSubtractive,
-      opposite: effectiveOpposite,
-      popCulture: effectivePopCulture,
-      evolve: effectiveEvolve,
-      randomize,
-      crafting: effectiveCrafting,
-      wordCombine: effectiveWordCombine,
-      inputs: normalizedInputs.map((i) => i.name),
-    });
+    // Not found or bypassed: generate a single result via OpenAI
+    const storedRecipeInputKey = buildStoredRecipeInputKey(recipeInputKey, bypassCache);
+    console.log(
+      bypassCache
+        ? "[api][combine] catalyst mode bypassing cache; generating via OpenAI"
+        : "[api][combine] cache miss; generating via OpenAI",
+      {
+        inputKey: recipeInputKey,
+        storedRecipeInputKey,
+        bypassCache,
+        creative,
+        subtractive: effectiveSubtractive,
+        opposite: effectiveOpposite,
+        popCulture: effectivePopCulture,
+        evolve: effectiveEvolve,
+        randomize,
+        crafting: effectiveCrafting,
+        wordCombine: effectiveWordCombine,
+        inputs: normalizedInputs.map((i) => i.name),
+      }
+    );
     let llmResult;
     try {
       llmResult = await generateResult(
@@ -654,7 +664,7 @@ router.post("/combine", async (req, res) => {
       const insertRecipeStmt = db.prepare(
         "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
       );
-      insertRecipeStmt.run([recipeInputKey, inputDisplayJson]);
+      insertRecipeStmt.run([storedRecipeInputKey, inputDisplayJson]);
       insertRecipeStmt.free();
 
       const lastIdStmt = db.prepare(
@@ -722,7 +732,7 @@ router.post("/combine", async (req, res) => {
 
     // Load back inserted data
     stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
-    recipeRow = stmt.getAsObject([recipeInputKey]);
+    recipeRow = stmt.getAsObject([storedRecipeInputKey]);
     stmt.free();
 
     const candidatesStmt = db.prepare(

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import {
   fetchItemReference,
   fetchLatestRecipeContext,
+  type LatestRecipeCatalyst,
   type LatestRecipeInput,
 } from "../../lib/api";
 import type { Item } from "../../types";
@@ -33,6 +34,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   const [referenceDescription, setReferenceDescription] = useState<string | null>(null);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [isLoadingReference, setIsLoadingReference] = useState(false);
+  const [recipeCatalyst, setRecipeCatalyst] = useState<LatestRecipeCatalyst | null>(null);
   const [recipeInputs, setRecipeInputs] = useState<LatestRecipeInput[]>([]);
   const [isLoadingRecipe, setIsLoadingRecipe] = useState(false);
 
@@ -43,6 +45,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       setReferenceDescription(null);
       setReferenceUrl(null);
       setIsLoadingReference(false);
+      setRecipeCatalyst(null);
       setRecipeInputs([]);
       setIsLoadingRecipe(false);
       return;
@@ -63,10 +66,12 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       });
 
     setIsLoadingRecipe(true);
+    setRecipeCatalyst(null);
     setRecipeInputs([]);
     void fetchLatestRecipeContext(item.id)
       .then((latestRecipe) => {
         if (cancelled) return;
+        setRecipeCatalyst(latestRecipe?.catalyst ?? null);
         setRecipeInputs(latestRecipe?.inputs ?? []);
       })
       .finally(() => {
@@ -183,6 +188,19 @@ const ItemDetailsDrawer: React.FC<Props> = ({
           ) : recipeInputs.length > 0 ? (
             <>
               <div className="item-drawer-chip-row item-drawer-recipe-row">
+                {recipeCatalyst ? (
+                  <>
+                    <span className="item-drawer-chip is-disabled">
+                      <span aria-hidden="true">
+                        {recipeCatalyst.icon || recipeCatalyst.name.charAt(0).toUpperCase()}
+                      </span>
+                      <span>{recipeCatalyst.name}</span>
+                    </span>
+                    <span className="item-drawer-recipe-separator" aria-hidden="true">
+                      +
+                    </span>
+                  </>
+                ) : null}
                 {linkedRecipeInputs.map((input, index) => (
                   <React.Fragment key={`${input.normalizedName}-${input.id ?? "missing"}`}>
                     {index > 0 ? (

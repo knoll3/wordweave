@@ -7,9 +7,16 @@ export type LatestRecipeInput = {
   icon: string | null;
 };
 
+export type LatestRecipeCatalyst = {
+  name: string;
+  normalizedName: string;
+  icon: string | null;
+};
+
 export type LatestRecipeContext = {
   recipeId: number | null;
   summaryLine: string | null;
+  catalyst: LatestRecipeCatalyst | null;
   inputs: LatestRecipeInput[];
 };
 
@@ -22,8 +29,57 @@ type ElementRow = {
 
 type RecipeRow = {
   id: number;
+  input_key: string;
   input_display_json: string;
 };
+
+const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
+  creative: {
+    name: "Creative Spark",
+    normalizedName: "creative spark",
+    icon: "✨",
+  },
+  subtract: {
+    name: "Split",
+    normalizedName: "split",
+    icon: "✂️",
+  },
+  opposite: {
+    name: "Opposite",
+    normalizedName: "opposite",
+    icon: "↔️",
+  },
+  pop: {
+    name: "Pop Culture",
+    normalizedName: "pop culture",
+    icon: "🎬",
+  },
+  evolve: {
+    name: "Evolve",
+    normalizedName: "evolve",
+    icon: "🧬",
+  },
+  randomize: {
+    name: "Randomize",
+    normalizedName: "randomize",
+    icon: "🔀",
+  },
+  craft: {
+    name: "Craft",
+    normalizedName: "craft",
+    icon: "🔨",
+  },
+  compound: {
+    name: "Compound",
+    normalizedName: "compound",
+    icon: "🔗",
+  },
+};
+
+function getCatalystFromInputKey(inputKey: string): LatestRecipeCatalyst | null {
+  const modeKey = inputKey.split("|", 1)[0] ?? "";
+  return CATALYST_BY_MODE_KEY[modeKey] ?? null;
+}
 
 function loadElementsByNormalizedName(db: Database) {
   const stmt = db.prepare(
@@ -43,7 +99,7 @@ function loadElementsByNormalizedName(db: Database) {
 function loadLatestRecipeForElement(db: Database, elementId: number): RecipeRow | null {
   const stmt = db.prepare(
     `
-    SELECT id, input_display_json
+    SELECT id, input_key, input_display_json
     FROM recipes
     WHERE result_element_id = ?
     ORDER BY updated_at DESC, id DESC
@@ -59,6 +115,7 @@ function loadLatestRecipeForElement(db: Database, elementId: number): RecipeRow 
 
   return {
     id: Number(row.id),
+    input_key: String(row.input_key),
     input_display_json: String(row.input_display_json),
   };
 }
@@ -82,6 +139,7 @@ export function getLatestRecipeContext(
     return {
       recipeId: null,
       summaryLine: null,
+      catalyst: null,
       inputs: [],
     };
   }
@@ -102,12 +160,18 @@ export function getLatestRecipeContext(
     };
   });
 
+  const catalyst = getCatalystFromInputKey(recipe.input_key);
+  const summaryParts = catalyst
+    ? [catalyst.name, ...inputs.map((input) => input.name)]
+    : inputs.map((input) => input.name);
+
   return {
     recipeId: recipe.id,
     summaryLine:
-      inputs.length > 0
-        ? `${inputs.map((input) => input.name).join(" + ")} -> ${String(elementRow.name)}`
+      summaryParts.length > 0
+        ? `${summaryParts.join(" + ")} -> ${String(elementRow.name)}`
         : null,
+    catalyst,
     inputs,
   };
 }
