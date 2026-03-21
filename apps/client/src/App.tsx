@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Shuffle,
   Hammer,
@@ -34,6 +34,7 @@ import type {
   FeatureUnlockStatus,
   Item,
   SelectionCombineLayout,
+  TargetQuestList,
   UnlockKey,
   WorkspaceItem,
 } from "./types";
@@ -43,88 +44,20 @@ import ItemDetailsDrawer from "./components/Graph/ItemDetailsDrawer";
 import {
   combineElements,
   fetchUnlockStatuses,
+  fetchQuestTargetReference,
+  generateTargetQuests,
   markUnlockIntroSeen,
 } from "./lib/api";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
-const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
+const TARGET_QUEST_LIST_STORAGE_KEY = "wordweave.target-quest-list";
+const TRACKED_TARGET_QUEST_STORAGE_KEY = "wordweave.tracked-target-quest";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
 const TOAST_DURATION_MS = 3500;
 const ITEM_DRAWER_EXIT_MS = 220;
-
-const FEATURE_QUESTS: Array<{
-  key: UnlockKey;
-  title: string;
-  description: string;
-  criteria: string;
-}> = [
-  {
-    key: "creative",
-    title: "Unlock Creative Spark",
-    description:
-      "Gain the Creative Spark catalyst so you can push a combination toward a more imaginative result.",
-    criteria:
-      "Discover something close to ideas, inspiration, imagination, design, art, or creativity.",
-  },
-  {
-    key: "split",
-    title: "Unlock Split",
-    description:
-      "Gain the Split catalyst so you can remove one concept from another instead of combining them normally.",
-    criteria:
-      "Discover something close to split, divide, remove, subtract, difference, or separation.",
-  },
-  {
-    key: "opposite",
-    title: "Unlock Opposite",
-    description:
-      "Gain the Opposite catalyst so you can ask for the direct opposite of an input concept.",
-    criteria:
-      "Discover something close to opposite, reverse, inverse, contrast, or counterpart.",
-  },
-  {
-    key: "random_tools",
-    title: "Unlock Random Tools",
-    description:
-      "Gain the Random library action and the Randomize catalyst for chance-driven experimentation.",
-    criteria:
-      "Discover something close to random, chance, chaos, luck, surprise, shuffle, or entropy.",
-  },
-  {
-    key: "craft",
-    title: "Unlock Craft",
-    description:
-      "Gain the Craft catalyst so combinations can resolve as a physical built or manufactured result.",
-    criteria:
-      "Discover something close to craft, build, forge, tool, maker, workshop, or construction.",
-  },
-  {
-    key: "evolve",
-    title: "Unlock Evolve",
-    description:
-      "Gain the Evolve catalyst so a concept can advance into its next stronger, more developed form.",
-    criteria:
-      "Discover something close to evolution, progress, growth, upgrade, development, or transformation.",
-  },
-  {
-    key: "pop_culture",
-    title: "Unlock Pop Culture",
-    description:
-      "Gain the Pop Culture catalyst so combinations can resolve into a specific entertainment or celebrity reference.",
-    criteria:
-      "Discover something close to movies, shows, music, celebrities, Hollywood, fandom, or pop culture.",
-  },
-  {
-    key: "word_combine",
-    title: "Unlock Compound",
-    description:
-      "Gain the Compound catalyst so inputs can join into a real established compound word or phrase when one truly exists.",
-    criteria:
-      "Discover something close to language, dictionary, vocabulary, compound words, phrases, or linguistics.",
-  },
-];
+const QUEST_CELEBRATION_DURATION_MS = 2600;
 
 const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   if (typeof window === "undefined") {
@@ -157,6 +90,38 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   }
 };
 
+const loadStoredTargetQuestList = (): TargetQuestList | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedQuestList = window.localStorage.getItem(TARGET_QUEST_LIST_STORAGE_KEY);
+  if (!storedQuestList) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(storedQuestList) as TargetQuestList;
+    if (!parsed || !Array.isArray(parsed.quests)) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const loadStoredTrackedTargetQuestKey = (): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedTrackedQuest = window.localStorage.getItem(
+    TRACKED_TARGET_QUEST_STORAGE_KEY
+  );
+  return storedTrackedQuest?.trim() || null;
+};
+
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(
@@ -171,12 +136,28 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
-  const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
+  const [targetQuestList, setTargetQuestList] = useState<TargetQuestList | null>(
+    loadStoredTargetQuestList
+  );
+  const [trackedTargetQuestKey, setTrackedTargetQuestKey] = useState<string | null>(
+    loadStoredTrackedTargetQuestKey
+  );
   const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
+  const [isGeneratingTargetQuests, setIsGeneratingTargetQuests] = useState(false);
+  const [targetQuestError, setTargetQuestError] = useState<string | null>(null);
+  const [trackedQuestDescription, setTrackedQuestDescription] = useState<string | null>(null);
+  const [trackedQuestUrl, setTrackedQuestUrl] = useState<string | null>(null);
+  const [isLoadingTrackedQuestReference, setIsLoadingTrackedQuestReference] =
+    useState(false);
+  const [questCelebrationText, setQuestCelebrationText] = useState<string | null>(null);
+  const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
+  const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
   const [renderedDrawerItemId, setRenderedDrawerItemId] = useState<number | null>(null);
   const [isDrawerClosing, setIsDrawerClosing] = useState(false);
+  const lastCelebratedQuestKeyRef = useRef<string | null>(null);
+  const celebrationTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -184,15 +165,6 @@ const App: React.FC = () => {
       setSelectedModel(storedModel as AiModel);
     }
     setForceUnlocks(window.localStorage.getItem(FORCE_UNLOCKS_STORAGE_KEY) === "true");
-    const storedTrackedQuest = window.localStorage.getItem(
-      TRACKED_QUEST_STORAGE_KEY
-    ) as UnlockKey | null;
-    if (
-      storedTrackedQuest &&
-      FEATURE_QUESTS.some((quest) => quest.key === storedTrackedQuest)
-    ) {
-      setTrackedQuestKey(storedTrackedQuest);
-    }
   }, []);
 
   useEffect(() => {
@@ -207,9 +179,12 @@ const App: React.FC = () => {
   }, [forceUnlocks]);
 
   useEffect(() => {
-    if (!trackedQuestKey) return;
-    window.localStorage.setItem(TRACKED_QUEST_STORAGE_KEY, trackedQuestKey);
-  }, [trackedQuestKey]);
+    if (!trackedTargetQuestKey) {
+      window.localStorage.removeItem(TRACKED_TARGET_QUEST_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(TRACKED_TARGET_QUEST_STORAGE_KEY, trackedTargetQuestKey);
+  }, [trackedTargetQuestKey]);
 
   useEffect(() => {
     if (combiningNodeIds.length > 0) return;
@@ -251,6 +226,26 @@ const App: React.FC = () => {
     }
   }
 
+  async function loadTargetQuestList() {
+    try {
+      setIsGeneratingTargetQuests(true);
+      setTargetQuestError(null);
+      const next = await generateTargetQuests({ count: 4 });
+      setTargetQuestList(next);
+      setTrackedTargetQuestKey((current) =>
+        current && next.quests.some((quest) => quest.normalizedTarget === current)
+          ? current
+          : next.quests[0]?.normalizedTarget ?? null
+      );
+    } catch (err) {
+      setTargetQuestError(
+        err instanceof Error ? err.message : "Failed to generate target quests."
+      );
+    } finally {
+      setIsGeneratingTargetQuests(false);
+    }
+  }
+
   function isFeatureUnlocked(key: UnlockKey) {
     if (forceUnlocks) return true;
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
@@ -258,23 +253,142 @@ const App: React.FC = () => {
 
   const quests = useMemo(
     () =>
-      FEATURE_QUESTS.map((quest) => ({
+      (targetQuestList?.quests ?? []).map((quest) => ({
         ...quest,
-        completed: isFeatureUnlocked(quest.key),
+        completed: items.some(
+          (item) => item.normalizedName === quest.normalizedTarget
+        ),
       })),
-    [featureUnlocks, forceUnlocks]
+    [items, targetQuestList]
   );
 
   useEffect(() => {
-    if (trackedQuestKey && quests.some((quest) => quest.key === trackedQuestKey)) {
+    if (trackedTargetQuestKey && quests.some((quest) => quest.normalizedTarget === trackedTargetQuestKey)) {
       return;
     }
-    const firstIncomplete = quests.find((quest) => !quest.completed) ?? quests[0] ?? null;
-    setTrackedQuestKey(firstIncomplete?.key ?? null);
-  }, [quests, trackedQuestKey]);
+    setTrackedTargetQuestKey(quests[0]?.normalizedTarget ?? null);
+  }, [quests, trackedTargetQuestKey]);
 
   const trackedQuest =
-    quests.find((quest) => quest.key === trackedQuestKey) ?? quests[0] ?? null;
+    quests.find((quest) => quest.normalizedTarget === trackedTargetQuestKey) ??
+    quests[0] ??
+    null;
+
+  const trackedQuestCompletionKey = trackedQuest?.completed
+    ? trackedQuest.normalizedTarget
+    : null;
+  const trackedQuestWorkspaceNodeId = useMemo(() => {
+    if (!trackedQuest) {
+      return null;
+    }
+    const trackedItemId =
+      items.find((item) => item.normalizedName === trackedQuest.normalizedTarget)?.id ?? null;
+    if (trackedItemId == null) {
+      return null;
+    }
+    return (
+      [...workspaceItems]
+        .reverse()
+        .find((workspaceItem) => workspaceItem.itemId === trackedItemId)?.nodeId ?? null
+    );
+  }, [items, trackedQuest, workspaceItems]);
+
+  function trackNextAvailableQuest() {
+    if (!trackedQuest) {
+      setTrackedTargetQuestKey(quests[0]?.normalizedTarget ?? null);
+      return;
+    }
+
+    const nextQuest =
+      quests.find(
+        (quest) =>
+          !quest.completed &&
+          quest.normalizedTarget !== trackedQuest.normalizedTarget
+      ) ?? null;
+
+    setTrackedTargetQuestKey(nextQuest?.normalizedTarget ?? null);
+  }
+
+  function showQuestCelebration(text: string, nodeId: string | null) {
+    if (celebrationTimeoutRef.current != null) {
+      window.clearTimeout(celebrationTimeoutRef.current);
+    }
+    setQuestCelebrationText(text);
+    setIsQuestCelebrating(true);
+    setCelebratedQuestNodeId(nodeId);
+    celebrationTimeoutRef.current = window.setTimeout(() => {
+      setIsQuestCelebrating(false);
+      setQuestCelebrationText(null);
+      setCelebratedQuestNodeId(null);
+      celebrationTimeoutRef.current = null;
+    }, QUEST_CELEBRATION_DURATION_MS);
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!trackedQuest) {
+      setTrackedQuestDescription(null);
+      setTrackedQuestUrl(null);
+      setIsLoadingTrackedQuestReference(false);
+      return;
+    }
+
+    setIsLoadingTrackedQuestReference(true);
+    setTrackedQuestDescription(null);
+    setTrackedQuestUrl(null);
+    void fetchQuestTargetReference(trackedQuest.target)
+      .then((reference) => {
+        if (cancelled) return;
+        setTrackedQuestDescription(reference?.summary ?? null);
+        setTrackedQuestUrl(reference?.sourceUrl ?? null);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setTrackedQuestDescription(null);
+        setTrackedQuestUrl(null);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setIsLoadingTrackedQuestReference(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [trackedQuest]);
+
+  useEffect(() => {
+    if (!trackedQuestCompletionKey || !trackedQuest) {
+      lastCelebratedQuestKeyRef.current = null;
+      return;
+    }
+    if (lastCelebratedQuestKeyRef.current === trackedQuestCompletionKey) {
+      return;
+    }
+    lastCelebratedQuestKeyRef.current = trackedQuestCompletionKey;
+    showQuestCelebration(`Target complete: ${trackedQuest.target}`, trackedQuestWorkspaceNodeId);
+  }, [trackedQuest?.target, trackedQuestCompletionKey, trackedQuestWorkspaceNodeId]);
+
+  useEffect(
+    () => () => {
+      if (celebrationTimeoutRef.current != null) {
+        window.clearTimeout(celebrationTimeoutRef.current);
+      }
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (!targetQuestList) {
+      window.localStorage.removeItem(TARGET_QUEST_LIST_STORAGE_KEY);
+      return;
+    }
+    window.localStorage.setItem(
+      TARGET_QUEST_LIST_STORAGE_KEY,
+      JSON.stringify(targetQuestList)
+    );
+  }, [targetQuestList]);
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CRAFT_ITEM.id, CRAFT_ITEM);
@@ -759,6 +873,15 @@ const App: React.FC = () => {
           </button>
         </div>
       )}
+      {questCelebrationText ? (
+        <div className="quest-complete-toast" aria-live="assertive" role="status">
+          <div className="quest-complete-toast-kicker">Quest Complete</div>
+          <div className="quest-complete-toast-title">{questCelebrationText}</div>
+          <div className="quest-complete-toast-copy">
+            Your tracked target has been discovered.
+          </div>
+        </div>
+      ) : null}
       {pendingUnlockIntro ? (
         <div className="results-overlay" role="presentation">
           <div className="results-backdrop" />
@@ -855,33 +978,59 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            {trackedQuest ? (
-              <div className="quest-hub quest-hub-inline">
-                <button
-                  type="button"
-                  className="quest-hub-trigger"
-                  onClick={() => setIsQuestDrawerOpen((prev) => !prev)}
-                  aria-expanded={isQuestDrawerOpen}
-                  aria-label="Open quests"
-                >
-                  <span
-                    className={`quest-status-dot ${
-                      trackedQuest.completed ? "is-complete" : "is-active"
-                    }`}
-                    aria-hidden="true"
-                  />
-                  <span className="quest-hub-label">Quest</span>
-                  <span className="quest-hub-current">{trackedQuest.title}</span>
-                  <span className="quest-hub-chevron" aria-hidden="true">
-                    {isQuestDrawerOpen ? "▴" : "▾"}
+            <div className="quest-hub quest-hub-inline">
+              <button
+                type="button"
+                className={`quest-hub-trigger${isQuestCelebrating ? " is-celebrating" : ""}`}
+                onClick={() => setIsQuestDrawerOpen((prev) => !prev)}
+                aria-expanded={isQuestDrawerOpen}
+                aria-label="Open target quests"
+              >
+                <span
+                  className={`quest-status-dot ${
+                    trackedQuest?.completed ? "is-complete" : "is-active"
+                  }`}
+                  aria-hidden="true"
+                />
+                  <span className="quest-hub-label">Target</span>
+                <span className="quest-hub-copy">
+                  <span className="quest-hub-current">
+                    {isGeneratingTargetQuests
+                      ? "Generating targets..."
+                      : targetQuestError
+                        ? "Quest generation failed"
+                        : trackedQuest?.completed
+                          ? `${trackedQuest.target} complete`
+                          : trackedQuest?.target ?? "Generate targets"}
                   </span>
-                </button>
-              </div>
-            ) : null}
+                  {trackedQuest ? (
+                    <span className="quest-hub-summary">
+                      {trackedQuest.completed
+                        ? "Target discovered. Choose another one when you're ready."
+                        : isLoadingTrackedQuestReference
+                          ? "Loading description..."
+                          : trackedQuestDescription ?? trackedQuest.teaser}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="quest-hub-chevron" aria-hidden="true">
+                  {isQuestDrawerOpen ? "▴" : "▾"}
+                </span>
+              </button>
+              {questCelebrationText ? (
+                <div className="quest-hub-celebration" aria-live="polite">
+                  {questCelebrationText}
+                </div>
+              ) : null}
+            </div>
             <div className="graph-canvas">
               <GraphView
                 items={items}
                 workspaceItems={workspaceItems}
+                celebratedNodeId={celebratedQuestNodeId}
+                onTriggerCelebrationTest={(nodeId) =>
+                  showQuestCelebration("Quest complete: Test effect", nodeId)
+                }
                 onWorkspaceItemsChange={setWorkspaceItems}
                 onViewportCenterChange={setViewportCenter}
                 combiningNodeIds={combiningNodeIds}
@@ -906,69 +1055,150 @@ const App: React.FC = () => {
           onSelectItem={openItemDetails}
         />
       ) : null}
-      {isQuestDrawerOpen && trackedQuest ? (
+      {isQuestDrawerOpen ? (
         <div className="quest-popover-layer" role="presentation">
           <button
             type="button"
             className="quest-popover-backdrop"
-            aria-label="Close quests"
+            aria-label="Close target quests"
             onClick={() => setIsQuestDrawerOpen(false)}
           />
-          <div className="quest-popover" role="dialog" aria-label="Quests">
+          <div className="quest-popover" role="dialog" aria-label="Target quests">
             <div className="quest-drawer-header">
-              <div className="quest-drawer-title">Milestones</div>
+              <div className="quest-drawer-title">Targets</div>
               <div className="quest-drawer-subtitle">
-                Track one quest here. All milestones still complete automatically in the background.
+                AI-generated target terms to chase next. Generated with{" "}
+                {targetQuestList?.model ?? "gpt-5-nano"}.
               </div>
+              {targetQuestList?.cost ? (
+                <div className="quest-drawer-subtitle">
+                  Last generation cost about ${targetQuestList.cost.totalCostUsd.toFixed(5)}
+                  {" "}using {targetQuestList.cost.promptTokens} prompt tokens and{" "}
+                  {targetQuestList.cost.completionTokens} output tokens.
+                </div>
+              ) : null}
             </div>
-            <div className="quest-card-list">
-              {quests.map((quest) => {
-                const isTracked = trackedQuestKey === quest.key;
-                return (
-                  <article
-                    key={quest.key}
-                    className={`quest-card${quest.completed ? " is-complete" : ""}${
-                      isTracked ? " is-tracked" : ""
+            {trackedQuest ? (
+              <article
+                className={`quest-card quest-card-featured${
+                  trackedQuest.completed ? " is-complete" : ""
+                }`}
+              >
+                <div className="quest-card-top">
+                  <div>
+                    <div className="quest-card-title">{trackedQuest.target}</div>
+                    <div className="quest-card-description">
+                      {trackedQuest.completed
+                        ? "You discovered this target. Pick another one to keep the run going."
+                        : isLoadingTrackedQuestReference
+                          ? "Loading target description..."
+                          : trackedQuestDescription ?? trackedQuest.teaser}
+                    </div>
+                  </div>
+                  <span
+                    className={`quest-card-badge ${
+                      trackedQuest.completed ? "is-complete" : "is-tracked"
                     }`}
                   >
-                    <div className="quest-card-top">
-                      <div>
-                        <div className="quest-card-title">{quest.title}</div>
-                        <div className="quest-card-description">{quest.description}</div>
-                      </div>
-                      <span
-                        className={`quest-card-badge ${
-                          quest.completed
-                            ? "is-complete"
-                            : isTracked
-                              ? "is-tracked"
-                              : "is-available"
-                        }`}
-                      >
-                        {quest.completed
-                          ? "Complete"
-                          : isTracked
-                            ? "Tracked"
-                            : "Available"}
-                      </span>
-                    </div>
-                    <div className="quest-card-criteria">{quest.criteria}</div>
-                    <div className="quest-card-actions">
-                      <button
-                        type="button"
-                        className={`button ${isTracked ? "secondary" : "primary"}`}
-                        onClick={() => {
-                          setTrackedQuestKey(quest.key);
-                          setIsQuestDrawerOpen(false);
-                        }}
-                      >
-                        {isTracked ? "Tracking" : "Track"}
-                      </button>
-                    </div>
-                  </article>
-                );
-              })}
+                    {trackedQuest.completed ? "Complete" : trackedQuest.difficulty}
+                  </span>
+                </div>
+                <div className="quest-card-criteria">{trackedQuest.flavor}</div>
+                {trackedQuestUrl ? (
+                  <div className="quest-card-link-row">
+                    <a
+                      className="item-drawer-link"
+                      href={trackedQuestUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Open Wikipedia article
+                    </a>
+                  </div>
+                ) : null}
+                {trackedQuest.completed ? (
+                  <div className="quest-card-actions quest-card-actions-complete">
+                    <button
+                      type="button"
+                      className="button primary"
+                      onClick={trackNextAvailableQuest}
+                      disabled={!quests.some((quest) => !quest.completed)}
+                    >
+                      {quests.some((quest) => !quest.completed)
+                        ? "Choose Next Target"
+                        : "All Current Targets Complete"}
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            ) : null}
+            <div className="quest-card-actions quest-card-actions-top">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => void loadTargetQuestList()}
+                disabled={isGeneratingTargetQuests}
+              >
+                {isGeneratingTargetQuests ? "Generating..." : "Refresh Targets"}
+              </button>
             </div>
+            {targetQuestError ? (
+              <div className="quest-card-list">
+                <article className="quest-card">
+                  <div className="quest-card-description">{targetQuestError}</div>
+                </article>
+              </div>
+            ) : (
+              <div className="quest-card-list">
+                {quests.map((quest) => {
+                  const isTracked =
+                    trackedTargetQuestKey === quest.normalizedTarget;
+                  return (
+                    <article
+                      key={quest.normalizedTarget}
+                      className={`quest-card${quest.completed ? " is-complete" : ""}${
+                        isTracked ? " is-tracked" : ""
+                      }`}
+                    >
+                      <div className="quest-card-top">
+                        <div>
+                          <div className="quest-card-title">{quest.target}</div>
+                          <div className="quest-card-description">{quest.teaser}</div>
+                        </div>
+                        <span
+                          className={`quest-card-badge ${
+                            quest.completed
+                              ? "is-complete"
+                              : isTracked
+                                ? "is-tracked"
+                                : "is-available"
+                          }`}
+                        >
+                          {quest.completed
+                            ? "Complete"
+                            : isTracked
+                              ? "Tracking"
+                              : quest.difficulty}
+                        </span>
+                      </div>
+                      <div className="quest-card-criteria">{quest.flavor}</div>
+                      <div className="quest-card-actions">
+                        <button
+                          type="button"
+                          className={`button ${isTracked ? "secondary" : "primary"}`}
+                          onClick={() => {
+                            setTrackedTargetQuestKey(quest.normalizedTarget);
+                            setIsQuestDrawerOpen(false);
+                          }}
+                        >
+                          {isTracked ? "Tracking" : "Track"}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       ) : null}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   CRAFT_ITEM_ID,
   CREATIVE_ITEM_ID,
@@ -84,6 +84,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   onClose,
   onSelectItem,
 }) => {
+  const drawerRef = useRef<HTMLElement | null>(null);
   const catalystGuide = item.id < 0 ? CATALYST_GUIDES[item.id] ?? null : null;
   const isBaseItem =
     item.normalizedName === "fire" ||
@@ -143,6 +144,24 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     };
   }, [item.id]);
 
+  useEffect(() => {
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) {
+        return;
+      }
+      if (drawerRef.current?.contains(target)) {
+        return;
+      }
+      onClose();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [onClose]);
+
   const linkedRecipeInputs = useMemo(
     () =>
       recipeInputs.map((input) => ({
@@ -165,13 +184,12 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       className={`item-drawer-layer${isClosing ? " is-closing" : ""}`}
       role="presentation"
     >
-      <button
-        type="button"
-        className="item-drawer-backdrop"
-        aria-label="Close item details"
-        onClick={onClose}
-      />
-      <aside className="item-drawer" role="dialog" aria-label={`${item.name} details`}>
+      <aside
+        ref={drawerRef}
+        className="item-drawer"
+        role="dialog"
+        aria-label={`${item.name} details`}
+      >
         <div className="item-drawer-header">
           <div className="item-drawer-header-actions">
             {canGoBack ? (

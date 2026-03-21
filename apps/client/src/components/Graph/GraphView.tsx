@@ -35,6 +35,8 @@ import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 interface Props {
   items: Item[];
   workspaceItems: WorkspaceItem[];
+  celebratedNodeId?: string | null;
+  onTriggerCelebrationTest?: (nodeId: string | null) => void;
   onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
@@ -94,6 +96,8 @@ type ItemView = {
   icon: Text;
   label: Text;
   badge: Text | null;
+  celebration: Graphics | null;
+  celebrationParticles: Graphics | null;
   itemId: number;
   width: number;
   targetX: number;
@@ -103,6 +107,9 @@ type ItemView = {
   contentAlpha: number;
   targetContentAlpha: number;
   destroyWhenSettled: boolean;
+  celebrationProgress: number;
+  celebrationTintProgress: number;
+  celebrationTintHoldFrames: number;
 };
 
 type ItemVisualState = "default" | "highlight";
@@ -133,6 +140,9 @@ const DUPLICATE_OFFSET_Y = 14;
 const DOUBLE_CLICK_MS = 320;
 const DRAWER_OPEN_DELAY_MS = 180;
 const CLICK_MOVE_THRESHOLD = 6;
+const CELEBRATION_PROGRESS_STEP = 0.022;
+const CELEBRATION_TINT_FADE_STEP = 0.012;
+const CELEBRATION_TINT_HOLD_FRAMES = 150;
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -157,22 +167,101 @@ function getNodeTint(itemId: number) {
   return 0x94a3b8;
 }
 
+function mixColor(from: number, to: number, amount: number) {
+  const t = clamp(amount, 0, 1);
+  const fromR = (from >> 16) & 0xff;
+  const fromG = (from >> 8) & 0xff;
+  const fromB = from & 0xff;
+  const toR = (to >> 16) & 0xff;
+  const toG = (to >> 8) & 0xff;
+  const toB = to & 0xff;
+  const r = Math.round(fromR + (toR - fromR) * t);
+  const g = Math.round(fromG + (toG - fromG) * t);
+  const b = Math.round(fromB + (toB - fromB) * t);
+  return (r << 16) | (g << 8) | b;
+}
+
 function drawItemCard(
   background: Graphics,
   width: number,
   itemId: number,
-  state: ItemVisualState
+  state: ItemVisualState,
+  celebrationAmount = 0,
+  celebrationPulse = 0
 ) {
   const isHighlighted = state === "highlight";
+  const celebrationFill = mixColor(0x5b2a86, 0x7c3aed, celebrationPulse);
+  const celebrationStroke = mixColor(0xe9d5ff, 0xf3e8ff, celebrationPulse);
+  const fillColor = mixColor(
+    isHighlighted ? 0x132033 : 0x0f172a,
+    celebrationFill,
+    celebrationAmount
+  );
+  const strokeColor = mixColor(
+    getNodeTint(itemId),
+    celebrationStroke,
+    celebrationAmount
+  );
   background.clear();
   background
     .roundRect(0, 0, width, CARD_HEIGHT, CARD_RADIUS)
-    .fill({ color: isHighlighted ? 0x132033 : 0x0f172a, alpha: 1 })
+    .fill({ color: fillColor, alpha: 1 })
     .stroke({
       width: 1.5,
-      color: getNodeTint(itemId),
-      alpha: isHighlighted ? 0.5 : 0.42,
+      color: strokeColor,
+      alpha: (isHighlighted ? 0.5 : 0.42) + celebrationAmount * 0.28,
     });
+}
+
+function drawCelebrationBurst(graphic: Graphics, width: number) {
+  const radius = Math.max(width * 0.42, 26);
+  graphic.clear();
+  graphic.circle(0, 0, radius).stroke({
+    width: 3,
+    color: 0xfacc15,
+    alpha: 0.92,
+  });
+  graphic.circle(0, 0, radius + 8).stroke({
+    width: 1.5,
+    color: 0x86efac,
+    alpha: 0.72,
+  });
+  for (let index = 0; index < 8; index += 1) {
+    const angle = (Math.PI * 2 * index) / 8;
+    const inner = radius + 4;
+    const outer = radius + 12;
+    graphic
+      .moveTo(Math.cos(angle) * inner, Math.sin(angle) * inner)
+      .lineTo(Math.cos(angle) * outer, Math.sin(angle) * outer)
+      .stroke({
+        width: 2,
+        color: 0xfef08a,
+        alpha: 0.9,
+      });
+  }
+}
+
+function drawCelebrationParticles(
+  graphic: Graphics,
+  width: number,
+  progress: number
+) {
+  const completion = 1 - progress;
+  const radiusBase = Math.max(width * 0.26, 18);
+  graphic.clear();
+  for (let index = 0; index < 10; index += 1) {
+    const angle = (Math.PI * 2 * index) / 10 + completion * 0.45;
+    const distance = radiusBase + completion * 26 + (index % 2) * 6;
+    const x = Math.cos(angle) * distance;
+    const y = Math.sin(angle) * distance;
+    const size = Math.max(1.8, 4.8 - completion * 2.8);
+    const color =
+      index % 3 === 0 ? 0xfacc15 : index % 3 === 1 ? 0x86efac : 0xf9a8d4;
+    graphic.circle(x, y, size).fill({
+      color,
+      alpha: Math.max(0, 0.95 - completion * 0.75),
+    });
+  }
 }
 
 function setViewTopLeftPosition(view: ItemView, position: { x: number; y: number }) {
@@ -196,6 +285,8 @@ function getViewTopLeftPosition(view: ItemView) {
 function GraphView({
   items,
   workspaceItems,
+  celebratedNodeId = null,
+  onTriggerCelebrationTest,
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
@@ -259,6 +350,7 @@ function GraphView({
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
+  const lastCelebratedNodeIdRef = useRef<string | null>(null);
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -394,7 +486,13 @@ function GraphView({
   };
 
   const applyViewState = (view: ItemView, state: ItemVisualState, scale = 1) => {
-    drawItemCard(view.background, view.width, view.itemId, state);
+    drawItemCard(
+      view.background,
+      view.width,
+      view.itemId,
+      state,
+      view.celebrationTintProgress
+    );
     view.targetScale = scale;
     const isHoverScale = scale === 1 || scale === 1.04;
     const isSettledNearFullSize =
@@ -434,6 +532,23 @@ function GraphView({
       window.clearTimeout(pendingDrawerOpenRef.current);
       pendingDrawerOpenRef.current = null;
     }
+  };
+
+  const triggerCelebration = (view: ItemView) => {
+    if (!view.celebration) {
+      return;
+    }
+    view.celebrationProgress = 1;
+    view.celebrationTintProgress = 1;
+    view.celebrationTintHoldFrames = CELEBRATION_TINT_HOLD_FRAMES;
+    view.celebration.visible = true;
+    view.celebration.alpha = 1;
+    view.celebration.scale.set(0.82);
+    if (view.celebrationParticles) {
+      view.celebrationParticles.visible = true;
+      view.celebrationParticles.alpha = 1;
+    }
+    applyViewState(view, "highlight", 1.13);
   };
 
   const scheduleDrawerOpen = (item: Item) => {
@@ -722,6 +837,35 @@ function GraphView({
     ]);
   };
 
+  const clearSelectedWorkspaceItems = () => {
+    const selectedIds = new Set(selectedNodeIdsRef.current);
+    if (selectedIds.size === 0) {
+      return;
+    }
+
+    onWorkspaceItemsChangeRef.current((prev) =>
+      prev.filter((item) => !selectedIds.has(item.nodeId))
+    );
+    clearSelection();
+    setIsSelectionMode(false);
+  };
+
+  const triggerCelebrationTest = () => {
+    const preferredNodeId =
+      selectedNodeIdsRef.current[selectedNodeIdsRef.current.length - 1] ??
+      workspaceItemsRef.current[workspaceItemsRef.current.length - 1]?.nodeId ??
+      null;
+    if (!preferredNodeId) {
+      return;
+    }
+    const view = itemViewsRef.current.get(preferredNodeId);
+    if (!view) {
+      return;
+    }
+    triggerCelebration(view);
+    onTriggerCelebrationTest?.(preferredNodeId);
+  };
+
   const updateHoverTarget = (draggedNodeId: string) => {
     const world = worldRef.current;
     const draggedView = itemViewsRef.current.get(draggedNodeId);
@@ -803,6 +947,8 @@ function GraphView({
           },
         })
       : null;
+    const celebration = isPlaceholder ? null : new Graphics();
+    const celebrationParticles = isPlaceholder ? null : new Graphics();
 
     const background = new Graphics();
     if (loader) {
@@ -834,6 +980,19 @@ function GraphView({
       badge.x = cardWidth - badge.width - 6;
       badge.y = CARD_HEIGHT - badge.height + 10;
     }
+    if (celebration) {
+      drawCelebrationBurst(celebration, cardWidth);
+      celebration.x = Math.round(cardWidth / 2);
+      celebration.y = Math.round(CARD_HEIGHT / 2);
+      celebration.visible = false;
+      celebration.alpha = 0;
+    }
+    if (celebrationParticles) {
+      celebrationParticles.x = Math.round(cardWidth / 2);
+      celebrationParticles.y = Math.round(CARD_HEIGHT / 2);
+      celebrationParticles.visible = false;
+      celebrationParticles.alpha = 0;
+    }
 
     container.addChild(background);
     if (loader) {
@@ -844,6 +1003,12 @@ function GraphView({
     }
     if (badge) {
       container.addChild(badge);
+    }
+    if (celebration) {
+      container.addChild(celebration);
+    }
+    if (celebrationParticles) {
+      container.addChild(celebrationParticles);
     }
 
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
@@ -867,6 +1032,8 @@ function GraphView({
         icon,
         label,
         badge,
+        celebration,
+        celebrationParticles,
         itemId: item.id,
         width: cardWidth,
         targetX: container.x,
@@ -876,6 +1043,9 @@ function GraphView({
         contentAlpha: 1,
         targetContentAlpha: 1,
         destroyWhenSettled: false,
+        celebrationProgress: 0,
+        celebrationTintProgress: 0,
+        celebrationTintHoldFrames: 0,
         nodeId: workspaceItem.nodeId,
       });
       dragStateRef.current = {
@@ -899,6 +1069,8 @@ function GraphView({
       icon,
       label,
       badge,
+      celebration,
+      celebrationParticles,
       itemId: item.id,
       width: cardWidth,
       targetX: 0,
@@ -908,6 +1080,9 @@ function GraphView({
       contentAlpha: 1,
       targetContentAlpha: 1,
       destroyWhenSettled: false,
+      celebrationProgress: 0,
+      celebrationTintProgress: 0,
+      celebrationTintHoldFrames: 0,
     };
     setViewTopLeftPosition(view, workspaceItem.position);
     return view;
@@ -1354,6 +1529,75 @@ function GraphView({
           );
           view.container.alpha = view.contentAlpha;
 
+          if (view.celebrationTintHoldFrames > 0) {
+            view.celebrationTintHoldFrames -= 1;
+          } else if (view.celebrationTintProgress > 0) {
+            view.celebrationTintProgress = Math.max(
+              0,
+              view.celebrationTintProgress - CELEBRATION_TINT_FADE_STEP
+            );
+          }
+
+          if (view.celebration && view.celebrationProgress > 0) {
+            view.celebrationProgress = Math.max(
+              0,
+              view.celebrationProgress - CELEBRATION_PROGRESS_STEP
+            );
+            const completion = 1 - view.celebrationProgress;
+            drawItemCard(
+              view.background,
+              view.width,
+              view.itemId,
+              "highlight",
+              view.celebrationTintProgress
+            );
+            view.celebration.visible = true;
+            view.celebration.alpha =
+              Math.sin(completion * Math.PI) * 0.92 * view.contentAlpha;
+            const scale = 0.82 + completion * 0.48;
+            view.celebration.scale.set(scale);
+            if (view.celebrationParticles) {
+              drawCelebrationParticles(
+                view.celebrationParticles,
+                view.width,
+                view.celebrationProgress
+              );
+              view.celebrationParticles.visible = true;
+              view.celebrationParticles.alpha = view.contentAlpha;
+            }
+            const pulseBoost =
+              Math.sin(completion * Math.PI * 2.6) *
+              0.065 *
+              Math.max(view.celebrationProgress, 0.28);
+            view.container.scale.set(appliedScale + pulseBoost);
+            if (view.celebrationProgress === 0) {
+              view.celebration.visible = false;
+              view.celebration.alpha = 0;
+              if (view.celebrationParticles) {
+                view.celebrationParticles.visible = false;
+                view.celebrationParticles.clear();
+                view.celebrationParticles.alpha = 0;
+              }
+              applyViewState(
+                view,
+                selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
+                1
+              );
+            }
+          } else if (view.celebrationTintProgress > 0) {
+            const tintPulsePhase =
+              Math.sin(Date.now() * 0.006 + view.width * 0.02) * 0.5 + 0.5;
+            drawItemCard(
+              view.background,
+              view.width,
+              view.itemId,
+              selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
+              view.celebrationTintProgress,
+              tintPulsePhase
+            );
+            view.container.scale.set(appliedScale);
+          }
+
           if (
             view.destroyWhenSettled &&
             Math.abs(view.container.scale.x - view.targetScale) < 0.001 &&
@@ -1416,6 +1660,22 @@ function GraphView({
   useEffect(() => {
     syncScene(workspaceItems);
   }, [combiningNodeIds, itemById, selectedNodeIds, workspaceItems]);
+
+  useEffect(() => {
+    if (!celebratedNodeId) {
+      lastCelebratedNodeIdRef.current = null;
+      return;
+    }
+    if (lastCelebratedNodeIdRef.current === celebratedNodeId) {
+      return;
+    }
+    const view = itemViewsRef.current.get(celebratedNodeId);
+    if (!view) {
+      return;
+    }
+    lastCelebratedNodeIdRef.current = celebratedNodeId;
+    triggerCelebration(view);
+  }, [celebratedNodeId, workspaceItems]);
 
   useEffect(() => {
     refreshSelectionOverlay();
@@ -1559,10 +1819,21 @@ function GraphView({
       {workspaceItems.length > 0 ? (
         <button
           type="button"
-          className="button secondary graph-clear-button"
-          onClick={onClearWorkspace}
+          className="button secondary graph-celebration-test-button"
+          onClick={triggerCelebrationTest}
         >
-          Clear
+          Test Effect
+        </button>
+      ) : null}
+      {workspaceItems.length > 0 ? (
+        <button
+          type="button"
+          className="button secondary graph-clear-button"
+          onClick={
+            selectedNodeIds.length > 0 ? clearSelectedWorkspaceItems : onClearWorkspace
+          }
+        >
+          {selectedNodeIds.length > 0 ? "Clear Selected" : "Clear"}
         </button>
       ) : null}
     </div>

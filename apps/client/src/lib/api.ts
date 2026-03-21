@@ -5,15 +5,16 @@ import type {
   GenerateCacheRecipesResult,
   Item,
   PaginatedCacheRecipes,
-  QuestLine,
   Recipe,
   RecentRecipe,
   SemanticClustersResponse,
+  TargetQuestList,
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const itemReferenceCache = new Map<number, ItemReference | null>();
 const latestRecipeCache = new Map<number, LatestRecipeContext | null>();
+const questReferenceCache = new Map<string, ItemReference | null>();
 
 export interface ItemReference {
   id: number;
@@ -212,19 +213,47 @@ export async function selectCandidate(
   return handleResponse(res);
 }
 
-export async function generateQuest(options?: {
-  discoveredItems?: string[];
-}): Promise<QuestLine> {
-  const res = await fetch(`${API_BASE}/quests/generate`, {
+export async function generateTargetQuests(options?: {
+  count?: number;
+}): Promise<TargetQuestList> {
+  const res = await fetch(`${API_BASE}/quests/targets`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      discoveredItems: options?.discoveredItems ?? [],
+      count: options?.count ?? 4,
     }),
   });
-  return handleResponse<QuestLine>(res);
+  return handleResponse<TargetQuestList>(res);
+}
+
+export async function fetchQuestTargetReference(
+  target: string
+): Promise<ItemReference | null> {
+  const normalizedTarget = target.trim().toLowerCase();
+  if (!normalizedTarget) {
+    return null;
+  }
+
+  if (questReferenceCache.has(normalizedTarget)) {
+    return questReferenceCache.get(normalizedTarget) ?? null;
+  }
+
+  const url = new URL(`${API_BASE}/quests/reference`, window.location.origin);
+  url.searchParams.set("q", target.trim());
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    if (res.status === 404) {
+      questReferenceCache.set(normalizedTarget, null);
+      return null;
+    }
+    throw new Error(`Failed to load quest target reference (${res.status})`);
+  }
+
+  const reference = (await res.json()) as ItemReference;
+  questReferenceCache.set(normalizedTarget, reference);
+  return reference;
 }
 
 export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {

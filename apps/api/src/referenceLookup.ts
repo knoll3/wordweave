@@ -47,6 +47,24 @@ function getElementReferenceRecord(db: Database, elementId: number) {
   return mapReferenceRow(row);
 }
 
+function getReferenceRecordByLookupName(db: Database, lookupName: string) {
+  const stmt = db.prepare(
+    `
+    SELECT id, provider, lookup_name, status, title, summary, source_url
+    FROM item_references
+    WHERE provider = ? AND lower(lookup_name) = lower(?)
+    ORDER BY id DESC
+    LIMIT 1
+    `
+  );
+  const row = stmt.getAsObject(["wikipedia", lookupName]) as Record<string, unknown>;
+  stmt.free();
+  if (row.id == null) {
+    return null;
+  }
+  return mapReferenceRow(row);
+}
+
 function linkElementReference(db: Database, elementId: number, referenceId: number) {
   const stmt = db.prepare(
     "UPDATE elements SET reference_record_id = ? WHERE id = ?"
@@ -57,13 +75,13 @@ function linkElementReference(db: Database, elementId: number, referenceId: numb
 
 function insertReferenceRecord(
   db: Database,
-  elementId: number,
   params: {
     lookupName: string;
     status: "resolved" | "missing";
     title: string | null;
     summary: string | null;
     sourceUrl: string | null;
+    elementId?: number | null;
   }
 ) {
   const stmt = db.prepare(
@@ -94,7 +112,9 @@ function insertReferenceRecord(
     throw new Error("Failed to create item reference");
   }
 
-  linkElementReference(db, elementId, referenceId);
+  if (params.elementId != null) {
+    linkElementReference(db, params.elementId, referenceId);
+  }
   return referenceId;
 }
 
@@ -218,12 +238,13 @@ export async function getOrCreateElementReference(db: Database, elementId: numbe
   const lookupName = String(elementRow.name).trim();
   const resolved = await lookupWikipediaReference(lookupName);
 
-  const referenceId = insertReferenceRecord(db, elementId, {
+  const referenceId = insertReferenceRecord(db, {
     lookupName,
     status: resolved ? "resolved" : "missing",
     title: resolved?.title ?? null,
     summary: resolved?.summary ?? null,
     sourceUrl: resolved?.sourceUrl ?? null,
+    elementId,
   });
 
   return getElementReferenceRecord(db, elementId) ?? {
@@ -235,4 +256,37 @@ export async function getOrCreateElementReference(db: Database, elementId: numbe
     summary: resolved?.summary ?? null,
     sourceUrl: resolved?.sourceUrl ?? null,
   };
+}
+
+export async function getOrCreateReferenceByName(db: Database, rawLookupName: string) {
+  const lookupName = rawLookupName.trim();
+  if (!lookupName) {
+    return null;
+  }
+
+  const existing = getReferenceRecordByLookupName(db, lookupName);
+  if (existing) {
+    return existing;
+  }
+
+  const resolved = await lookupWikipediaReference(lookupName);
+  const referenceId = insertReferenceRecord(db, {
+    lookupName,
+    status: resolved ? "resolved" : "missing",
+    title: resolved?.title ?? null,
+    summary: resolved?.summary ?? null,
+    sourceUrl: resolved?.sourceUrl ?? null,
+  });
+
+  return (
+    getReferenceRecordByLookupName(db, lookupName) ?? {
+      id: referenceId,
+      provider: "wikipedia",
+      lookupName,
+      status: resolved ? "resolved" : "missing",
+      title: resolved?.title ?? null,
+      summary: resolved?.summary ?? null,
+      sourceUrl: resolved?.sourceUrl ?? null,
+    }
+  );
 }

@@ -1,451 +1,332 @@
 import express from "express";
-import { Database } from "sql.js";
+import type { Database } from "sql.js";
+import { getDb, persistDatabase } from "../db";
 import {
-  BASE_ELEMENTS,
-  ensureElement,
-  getDb,
-  persistDatabase,
-} from "../db";
-import {
-  chooseQuestInputs,
-  generateQuestChain,
-  generateResult,
-  OpenAiModel,
+  generateTargetQuests,
+  type OpenAiModel,
 } from "../openaiClient";
-import { normalizeInputs, toTitleCaseWords } from "../models";
-import { generateQuestRequestSchema } from "../validation";
-
-type CacheItem = {
-  name: string;
-  normalizedName: string;
-};
-
-type QuestStep = {
-  target: string;
-  normalizedTarget: string;
-  inputs: string[];
-  normalizedInputs: string[];
-  recipeId: number;
-};
+import { getOrCreateReferenceByName } from "../referenceLookup";
+import { generateTargetQuestRequestSchema } from "../validation";
 
 const router = express.Router();
 
-const QUEST_STEP_COUNT = 3;
-const STEP_RETRY_LIMIT = 40;
-const QUEST_MODEL: OpenAiModel = "gpt-5-mini";
-const QUEST_INPUT_SAMPLE_SIZE = 100;
+const QUEST_MODEL: OpenAiModel = "gpt-5-nano";
+const QUEST_RETRY_LIMIT = 3;
+const QUEST_HISTORY_LIMIT = 120;
+const QUEST_PROMPT_HISTORY_LIMIT = 40;
+const QUEST_GENERATION_MULTIPLIER = 2;
+const VARIATION_THEME_POOL = [
+  "pop culture",
+  "history",
+  "mythology",
+  "science",
+  "animals",
+  "places",
+  "inventions",
+  "materials",
+  "famous objects",
+  "space",
+  "oceans",
+  "music",
+  "movies",
+  "folklore",
+  "technology",
+] as const;
 
-function randomFrom<T>(items: T[]) {
-  return items[Math.floor(Math.random() * items.length)];
+type UsageCostSummary = {
+  pricingModel: string;
+  promptTokens: number;
+  cachedPromptTokens: number;
+  uncachedPromptTokens: number;
+  completionTokens: number;
+  promptCostUsd: number;
+  completionCostUsd: number;
+  totalCostUsd: number;
+};
+
+type TargetQuest = {
+  target: string;
+  normalizedTarget: string;
+  difficulty: "easy" | "medium" | "stretch";
+  flavor: string;
+  teaser: string;
+};
+
+function normalizeTarget(value: string) {
+  return value.trim().toLowerCase();
 }
 
-function sampleItems<T>(items: T[], sampleSize: number) {
-  const copy = [...items];
-  for (let i = copy.length - 1; i > 0; i -= 1) {
+function titleCaseWords(value: string) {
+  return value
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      if (/^[A-Z0-9][A-Z0-9'’-]*$/.test(word)) {
+        return word;
+      }
+      return word.charAt(0).toUpperCase() + word.slice(1).toLowerCase();
+    })
+    .join(" ");
+}
+
+function sampleVariationThemes() {
+  const pool = [...VARIATION_THEME_POOL];
+  for (let i = pool.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
+    [pool[i], pool[j]] = [pool[j], pool[i]];
   }
-  return copy.slice(0, Math.min(sampleSize, copy.length));
+  return pool.slice(0, 4);
 }
 
-function loadCacheItems(db: Database) {
-  const stmt = db.prepare(`
-    SELECT DISTINCT
-      e.name,
-      e.normalized_name
-    FROM recipes r
-    JOIN elements e ON e.id = r.result_element_id
-    WHERE r.result_element_id IS NOT NULL
-  `);
+function loadRecentQuestHistory(db: Database, limit: number) {
+  const stmt = db.prepare(
+    `
+    SELECT target, normalized_target
+    FROM target_quest_history
+    ORDER BY generated_at DESC, id DESC
+    LIMIT ?
+    `
+  );
+  stmt.bind([limit]);
 
-  const items: CacheItem[] = [];
+  const rows: Array<{ target: string; normalizedTarget: string }> = [];
   while (stmt.step()) {
     const row = stmt.getAsObject() as Record<string, unknown>;
-    items.push({
-      name: String(row.name),
-      normalizedName: String(row.normalized_name),
+    rows.push({
+      target: String(row.target),
+      normalizedTarget: String(row.normalized_target),
     });
   }
   stmt.free();
-
-  return items;
+  return rows;
 }
 
-function loadCachedResultNames(db: Database) {
-  return new Set(loadCacheItems(db).map((item) => item.normalizedName));
-}
-
-function getBaseQuestItems(): CacheItem[] {
-  return BASE_ELEMENTS.map((element) => ({
-    name: element.name,
-    normalizedName: element.name.trim().toLowerCase(),
-  }));
-}
-
-function mergeUniqueItems(...groups: CacheItem[][]) {
-  const byName = new Map<string, CacheItem>();
-  for (const group of groups) {
-    for (const item of group) {
-      if (!byName.has(item.normalizedName)) {
-        byName.set(item.normalizedName, item);
-      }
-    }
-  }
-  return [...byName.values()];
-}
-
-function findItemByName(items: CacheItem[], rawName: string) {
-  const normalized = rawName.trim().toLowerCase();
-  return items.find((item) => item.normalizedName === normalized) ?? null;
-}
-
-function loadUsedInputNames(db: Database) {
-  const stmt = db.prepare("SELECT input_display_json FROM recipes");
-  const used = new Set<string>();
-
+function loadKnownElementNames(db: Database) {
+  const stmt = db.prepare("SELECT normalized_name FROM elements");
+  const names = new Set<string>();
   while (stmt.step()) {
     const row = stmt.getAsObject() as Record<string, unknown>;
-    const inputs = JSON.parse(String(row.input_display_json)) as Array<{
-      normalized: string;
-    }>;
-    inputs.forEach((input) => used.add(input.normalized));
+    names.add(String(row.normalized_name));
   }
   stmt.free();
-
-  return used;
+  return names;
 }
 
-function getRecipeIdByInputKey(db: Database, inputKey: string) {
-  const stmt = db.prepare("SELECT id FROM recipes WHERE input_key = ?");
-  const row = stmt.getAsObject([inputKey]);
-  stmt.free();
-  return row?.id !== undefined ? Number(row.id) : null;
-}
-
-function insertHiddenRecipe(params: {
-  db: Database;
-  inputKey: string;
-  inputDisplayJson: string;
-  resultName: string;
-  resultIcon: string;
-}) {
-  let recipeId = getRecipeIdByInputKey(params.db, params.inputKey);
-
-  if (recipeId) {
-    const updateRecipeStmt = params.db.prepare(
-      "UPDATE recipes SET input_display_json = ?, chosen_candidate_id = NULL, result_element_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-    );
-    updateRecipeStmt.run([params.inputDisplayJson, recipeId]);
-    updateRecipeStmt.free();
-
-    const deleteCandidatesStmt = params.db.prepare(
-      "DELETE FROM recipe_candidates WHERE recipe_id = ?"
-    );
-    deleteCandidatesStmt.run([recipeId]);
-    deleteCandidatesStmt.free();
-  } else {
-    const insertRecipeStmt = params.db.prepare(
-      "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
-    );
-    insertRecipeStmt.run([params.inputKey, params.inputDisplayJson]);
-    insertRecipeStmt.free();
-
-    const recipeIdStmt = params.db.prepare("SELECT last_insert_rowid() AS id");
-    if (recipeIdStmt.step()) {
-      const row = recipeIdStmt.getAsObject() as Record<string, unknown>;
-      recipeId = Number(row.id);
-    }
-    recipeIdStmt.free();
+function aggregateUsageCost(summaries: Array<UsageCostSummary | null>) {
+  const valid = summaries.filter(Boolean) as UsageCostSummary[];
+  if (valid.length === 0) {
+    return null;
   }
 
-  if (!recipeId || Number.isNaN(recipeId)) {
-    throw new Error("Failed to create hidden quest recipe");
-  }
-
-  const insertCandidateStmt = params.db.prepare(
-    "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
-  );
-  insertCandidateStmt.run([
-    recipeId,
-    params.resultName,
-    params.resultIcon,
-    0,
-  ]);
-  insertCandidateStmt.free();
-
-  const candidateIdStmt = params.db.prepare(
-    "SELECT last_insert_rowid() AS id"
-  );
-  let candidateId: number | null = null;
-  if (candidateIdStmt.step()) {
-    const row = candidateIdStmt.getAsObject() as Record<string, unknown>;
-    candidateId = Number(row.id);
-  }
-  candidateIdStmt.free();
-
-  if (!candidateId || Number.isNaN(candidateId)) {
-    throw new Error("Failed to create hidden quest candidate");
-  }
-
-  const updateRecipeStmt = params.db.prepare(
-    "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-  );
-  const elementId = ensureElement(params.db, {
-    name: params.resultName,
-    normalizedName: params.resultName.trim().toLowerCase(),
-    icon: params.resultIcon,
-  });
-  updateRecipeStmt.run([candidateId, elementId, recipeId]);
-  updateRecipeStmt.free();
-
-  return recipeId;
-}
-
-async function generateHiddenQuestStep(params: {
-  left: CacheItem;
-  right: CacheItem;
-  model: OpenAiModel;
-}) {
-  const { normalizedInputs, inputKey } = normalizeInputs([
-    params.left.name,
-    params.right.name,
-  ]);
-
-  const llmResult = await generateResult(
-    normalizedInputs.map((input) => input.name),
-    { model: params.model }
-  );
-  const resultName = toTitleCaseWords(llmResult.name);
-  const normalizedResultName = resultName.trim().toLowerCase();
-
+  const first = valid[0];
   return {
-    inputKey,
-    inputDisplayJson: JSON.stringify(normalizedInputs),
-    resultIcon: llmResult.icon,
-    nextItem: {
-      name: resultName,
-      normalizedName: normalizedResultName,
-    },
-    step: {
-      target: resultName,
-      normalizedTarget: normalizedResultName,
-      inputs: normalizedInputs.map((input) => input.name),
-      normalizedInputs: normalizedInputs.map((input) => input.normalized),
-      recipeId: 0,
-    } satisfies QuestStep,
-  };
-}
-
-function isRejectedIntermediateResult(params: {
-  step: QuestStep;
-  generatedOutputs: Set<string>;
-  candidateItemNames: Set<string>;
-}) {
-  return (
-    params.step.normalizedInputs.includes(params.step.normalizedTarget) ||
-    params.generatedOutputs.has(params.step.normalizedTarget) ||
-    params.candidateItemNames.has(params.step.normalizedTarget)
-  );
-}
-
-function isRejectedFinalResult(params: {
-  step: QuestStep;
-  generatedOutputs: Set<string>;
-  discoveredItems: Set<string>;
-  cachedResultNames: Set<string>;
-  baseItems: Set<string>;
-  candidateItemNames: Set<string>;
-}) {
-  return (
-    isRejectedIntermediateResult({
-      step: params.step,
-      generatedOutputs: params.generatedOutputs,
-      candidateItemNames: params.candidateItemNames,
-    }) ||
-    params.baseItems.has(params.step.normalizedTarget) ||
-    params.discoveredItems.has(params.step.normalizedTarget) ||
-    params.cachedResultNames.has(params.step.normalizedTarget)
-  );
-}
-
-async function pickQuestInputs(params: {
-  leafItems: CacheItem[];
-  currentItem: CacheItem | null;
-  curatedItems: CacheItem[];
-}) {
-  if (params.currentItem) {
-    const candidatePool = params.curatedItems.length
-      ? params.curatedItems
-      : params.leafItems;
-    const right = randomFrom(candidatePool);
-
-    return {
-      left: params.currentItem,
-      right,
-    };
-  }
-
-  return {
-    left: randomFrom(params.leafItems),
-    right: randomFrom(
-      params.curatedItems.length ? params.curatedItems : params.leafItems
+    pricingModel: first.pricingModel,
+    promptTokens: valid.reduce((sum, item) => sum + item.promptTokens, 0),
+    cachedPromptTokens: valid.reduce((sum, item) => sum + item.cachedPromptTokens, 0),
+    uncachedPromptTokens: valid.reduce((sum, item) => sum + item.uncachedPromptTokens, 0),
+    completionTokens: valid.reduce((sum, item) => sum + item.completionTokens, 0),
+    promptCostUsd: Number(
+      valid.reduce((sum, item) => sum + item.promptCostUsd, 0).toFixed(8)
+    ),
+    completionCostUsd: Number(
+      valid.reduce((sum, item) => sum + item.completionCostUsd, 0).toFixed(8)
+    ),
+    totalCostUsd: Number(
+      valid.reduce((sum, item) => sum + item.totalCostUsd, 0).toFixed(8)
     ),
   };
 }
 
-router.post("/generate", async (req, res) => {
-  const parsedBody = generateQuestRequestSchema.safeParse(req.body ?? {});
+function looksAchievableTarget(target: string) {
+  const trimmed = target.trim();
+  if (!trimmed) return false;
+
+  const words = trimmed.split(/\s+/).filter(Boolean);
+  if (words.length > 3) {
+    return false;
+  }
+
+  const normalizedWords = words.map((word) => word.toLowerCase());
+  const bannedLeadingDescriptors = new Set([
+    "colorful",
+    "beautiful",
+    "ancient",
+    "modern",
+    "big",
+    "small",
+    "tiny",
+    "giant",
+    "little",
+    "dark",
+    "light",
+    "happy",
+    "sad",
+    "shiny",
+    "mysterious",
+    "famous",
+  ]);
+
+  if (words.length > 1 && bannedLeadingDescriptors.has(normalizedWords[0])) {
+    return false;
+  }
+
+  const bannedTargets = new Set([
+    "thing",
+    "stuff",
+    "object",
+    "person",
+    "place",
+    "item",
+    "concept",
+    "idea",
+    "energy",
+  ]);
+  if (bannedTargets.has(trimmed.toLowerCase())) {
+    return false;
+  }
+
+  return /^[\p{L}\p{N}'’ -]+$/u.test(trimmed);
+}
+
+function insertQuestHistory(db: Database, quests: TargetQuest[], model: string) {
+  const stmt = db.prepare(
+    `
+    INSERT INTO target_quest_history (
+      target,
+      normalized_target,
+      difficulty,
+      flavor,
+      teaser,
+      model
+    ) VALUES (?, ?, ?, ?, ?, ?)
+    `
+  );
+
+  for (const quest of quests) {
+    stmt.run([
+      quest.target,
+      quest.normalizedTarget,
+      quest.difficulty,
+      quest.flavor,
+      quest.teaser,
+      model,
+    ]);
+  }
+
+  stmt.free();
+}
+
+router.get("/reference", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q) {
+    return res.status(400).json({ error: "Missing quest target query" });
+  }
+
+  try {
+    const db = await getDb();
+    const reference = await getOrCreateReferenceByName(db, q);
+    persistDatabase(db);
+    if (!reference) {
+      return res.status(404).json({ error: "Reference not found" });
+    }
+    return res.json(reference);
+  } catch (err) {
+    console.error("[api][target-quests] failed to load target reference", err);
+    return res.status(500).json({ error: "Failed to load target reference" });
+  }
+});
+
+router.post("/targets", async (req, res) => {
+  const parsedBody = generateTargetQuestRequestSchema.safeParse(req.body ?? {});
   if (!parsedBody.success) {
     return res.status(400).json({ error: "Invalid request body" });
   }
 
   try {
     const db = await getDb();
-    const cacheItems = loadCacheItems(db);
-    const cachedResultNames = loadCachedResultNames(db);
-    const usedInputNames = loadUsedInputNames(db);
-    const discoveredItems = new Set(
-      parsedBody.data.discoveredItems.map((item) => item.trim().toLowerCase())
+    const knownElementNames = loadKnownElementNames(db);
+    const recentHistory = loadRecentQuestHistory(db, QUEST_HISTORY_LIMIT);
+    const recentTargetNames = recentHistory.map((entry) => entry.target);
+    const recentTargetSet = new Set(recentHistory.map((entry) => entry.normalizedTarget));
+    const acceptedInRun = new Set<string>();
+    const promptExclusions = new Set(
+      recentTargetNames.slice(0, QUEST_PROMPT_HISTORY_LIMIT)
     );
-    const baseItems = new Set(["fire", "water", "earth", "air"]);
-    const baseQuestItems = getBaseQuestItems();
-    const leafItems = cacheItems.filter(
-      (item) => !usedInputNames.has(item.normalizedName)
-    );
-    const questSourceItems = mergeUniqueItems(cacheItems, baseQuestItems);
+    const requestedCount = parsedBody.data.count;
+    const generatedCountPerAttempt = Math.min(6, requestedCount * QUEST_GENERATION_MULTIPLIER);
+    const usageSummaries: Array<UsageCostSummary | null> = [];
+    let responseModel: string = QUEST_MODEL;
+    let generatedQuests: TargetQuest[] = [];
 
-    if (questSourceItems.length === 0) {
-      console.error("[api][quest] no source items available", {
-        cacheItemCount: cacheItems.length,
-        leafItemCount: leafItems.length,
+    for (let attempt = 0; attempt < QUEST_RETRY_LIMIT; attempt += 1) {
+      const generation = await generateTargetQuests({
+        model: QUEST_MODEL,
+        count: generatedCountPerAttempt,
+        recentTargets: [...promptExclusions],
+        variationThemes: sampleVariationThemes(),
       });
-      return res.status(400).json({
-        error: "Not enough items to generate a quest",
-      });
-    }
 
-    const sampledQuestItems = sampleItems(questSourceItems, QUEST_INPUT_SAMPLE_SIZE);
-    const candidateItemNames = new Set(
-      sampledQuestItems.map((item) => item.normalizedName)
-    );
+      responseModel = generation.responseModel;
+      usageSummaries.push(generation.usage);
 
-    console.log("[api][quest] generation inputs", {
-      cacheItemCount: cacheItems.length,
-      leafItemCount: leafItems.length,
-      candidateCount: sampledQuestItems.length,
-    });
+      const nextAccepted: TargetQuest[] = [];
+      const rejectedThisAttempt: string[] = [];
 
-    const chainPlan = await generateQuestChain({
-      model: QUEST_MODEL,
-      candidateItems: sampledQuestItems.map((item) => item.name),
-    });
-    const startItem = findItemByName(sampledQuestItems, chainPlan.start) ??
-      findItemByName(questSourceItems, chainPlan.start);
+      for (const quest of generation.selection.quests) {
+        const normalizedTarget = normalizeTarget(quest.target);
+        if (!looksAchievableTarget(quest.target)) {
+          rejectedThisAttempt.push(quest.target);
+          continue;
+        }
+        if (
+          recentTargetSet.has(normalizedTarget) ||
+          knownElementNames.has(normalizedTarget) ||
+          acceptedInRun.has(normalizedTarget)
+        ) {
+          rejectedThisAttempt.push(quest.target);
+          continue;
+        }
 
-    if (!startItem) {
-      return res.status(500).json({
-        error: `Quest chain referenced unknown start item: ${chainPlan.start}`,
-      });
-    }
-
-    console.log("[api][quest] planned start item", {
-      startItem: startItem.name,
-    });
-
-    const questSteps: QuestStep[] = [];
-    const generatedOutputs = new Set<string>();
-    let currentItem: CacheItem = startItem;
-
-    for (let index = 0; index < chainPlan.steps.length; index += 1) {
-      const plannedStep = chainPlan.steps[index];
-      const right = findItemByName(baseQuestItems, plannedStep.right);
-      const rightItem =
-        findItemByName(sampledQuestItems, plannedStep.right) ??
-        findItemByName(questSourceItems, plannedStep.right) ??
-        right;
-
-      if (!rightItem) {
-        return res.status(500).json({
-          error: `Quest chain referenced unknown partner item: ${plannedStep.right}`,
+        nextAccepted.push({
+          target: titleCaseWords(quest.target),
+          normalizedTarget,
+          difficulty: quest.difficulty,
+          flavor: quest.flavor.trim(),
+          teaser: quest.teaser.trim(),
         });
+        acceptedInRun.add(normalizedTarget);
       }
 
-      const { normalizedInputs, inputKey } = normalizeInputs([
-        currentItem.name,
-        rightItem.name,
-      ]);
-
-      const step: QuestStep = {
-        target: toTitleCaseWords(plannedStep.result),
-        normalizedTarget: plannedStep.result.trim().toLowerCase(),
-        inputs: normalizedInputs.map((input) => input.name),
-        normalizedInputs: normalizedInputs.map((input) => input.normalized),
-        recipeId: 0,
-      };
-
-      const rejected =
-        index === QUEST_STEP_COUNT - 1
-          ? isRejectedFinalResult({
-              step,
-              generatedOutputs,
-              discoveredItems,
-              cachedResultNames,
-              baseItems,
-              candidateItemNames,
-            })
-          : isRejectedIntermediateResult({
-              step,
-              generatedOutputs,
-              candidateItemNames,
-            });
-
-      if (rejected) {
-        return res.status(500).json({
-          error: `Quest chain produced rejected result: ${step.target}`,
-        });
+      generatedQuests.push(...nextAccepted);
+      for (const rejected of rejectedThisAttempt) {
+        promptExclusions.add(rejected);
       }
 
-      const recipeId = insertHiddenRecipe({
-        db,
-        inputKey,
-        inputDisplayJson: JSON.stringify(normalizedInputs),
-        resultName: step.target,
-        resultIcon: plannedStep.icon,
-      });
-      step.recipeId = recipeId;
-
-      console.log(
-        `[api][quest] step=${index + 1} planned formula="${step.inputs.join(
-          " + "
-        )} -> ${step.target}" recipeKey="${inputKey}" recipeId=${recipeId}`
-      );
-
-      questSteps.push(step);
-      generatedOutputs.add(step.normalizedTarget);
-      currentItem = {
-        name: step.target,
-        normalizedName: step.normalizedTarget,
-      };
+      if (generatedQuests.length >= requestedCount) {
+        generatedQuests = generatedQuests.slice(0, requestedCount);
+        break;
+      }
     }
 
+    if (generatedQuests.length === 0) {
+      return res.status(502).json({ error: "Failed to generate usable quest targets" });
+    }
+
+    insertQuestHistory(db, generatedQuests, responseModel);
     persistDatabase(db);
 
-    const compactPath = questSteps
-      .map((step) => `${step.inputs.join(" + ")} -> ${step.target}`)
-      .join(" | ");
-
-    console.log(
-      `[api][quest] generated hidden quest target="${currentItem?.name ?? ""}" steps=${questSteps.length} path="${compactPath}"`
-    );
-
     return res.json({
-      name: currentItem.name,
-      normalizedName: currentItem.normalizedName,
-      steps: questSteps,
+      generatedAt: new Date().toISOString(),
+      model: responseModel,
+      retryCount: usageSummaries.length,
+      recentExclusionCount: Math.min(recentTargetNames.length, QUEST_PROMPT_HISTORY_LIMIT),
+      cost: aggregateUsageCost(usageSummaries),
+      quests: generatedQuests,
     });
   } catch (err) {
-    console.error("[api][quest] failed to generate quest", err);
-    return res.status(500).json({ error: "Failed to generate quest" });
+    console.error("[api][target-quests] failed to generate target quests", err);
+    return res.status(500).json({ error: "Failed to generate target quests" });
   }
 });
 

@@ -2,11 +2,11 @@ import OpenAI from "openai";
 import {
   craftLlmResultSchema,
   llmResultSchema,
-  questChainSchema,
-  questInputChoiceSchema,
   recipeBatchSchema,
+  targetQuestSelectionSchema,
 } from "./validation";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
+import type { TargetQuestSelection } from "./validation";
 
 export type OpenAiModel =
   | "gpt-5-mini"
@@ -292,70 +292,46 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
-const QUEST_INPUT_SELECTION_PROMPT = `
-You are planning an interesting quest chain for a sandbox discovery game.
+const TARGET_QUEST_PROMPT = `
+You are generating target-word quests for a sandbox discovery game.
 
-Pick a small collection of candidate items that do not seem especially uninteresting when combined with each other.
+Your job is to suggest a small list of fun target terms for the player to try to discover.
 
-Rules:
-- Return only items from the provided candidate list.
-- Return at least 3 items.
-- Prefer items that are not obviously dull, redundant, flat, or repetitive when combined.
-- Do not try to optimize for the single best combinations in advance.
-- Do not explain your answer.
+Important:
+- The targets should feel fun, varied, and motivating.
+- Favor things that would plausibly have their own Wikipedia article or major reference entry.
+- Favor pop culture references, historical references, mythology, science, places, creatures, inventions, materials, iconic objects, and other memorable concepts.
 
-Return ONLY valid JSON in this format:
-
-{
-  "items": ["item one", "item two", "item three"]
-}
-
-Candidate items:
-{{QUEST_INPUT_CANDIDATES}}
-`.trim();
-
-const QUEST_CHAIN_PROMPT = `
-You are planning a 3-step hidden quest chain for a sandbox discovery game.
-The player will be provided with the final result.
-They are tasked with combining items in 3 steps to get to the final result.
-For this reason, the chain must be extremely easy, extremely direct, and extremely logical.
-
-You are given a pool of candidate items.
-
-Build a 3-step chain that follows these rules:
-- choose one starting item from the provided candidate pool
-- step 1 uses the chosen starting item plus one partner item from the candidate pool
-- step 2 uses the result of step 1 plus one partner item
-- step 3 uses the result of step 2 plus one partner item
-- pick the starting item and all partner items only from the provided candidate pool
-- none of the intermediate or final results may be identical to any item from the provided candidate pool
-- think carefully about what the combinations should produce
-- every step should feel obvious to an average player on first glance
-- prefer the most basic and expected result over a clever or creative one
-- produce results that match the style of normal crafting-game outputs: simple, expected, broadly recognizable nouns
-- prefer one-word results whenever possible
-- if a result has two words, it must be an extremely common phrase
-- avoid ornate, poetic, fantasy, embellished, or overly specific phrases
-- avoid piling descriptive adjectives onto nouns
-- avoid obscure or niche concepts
-- favor everyday real-world concepts over unusual or stylized concepts
-- choose the most straightforward and common path, not the most interesting one
-- the final target should be simple and familiar, not surprising
-- do not explain your reasoning
+Hard rules:
+- Every target must be a real recognizable noun-like concept or named concept.
+- Do not return descriptive adjective+noun phrases unless they are a fixed famous name.
+- Prefer one-word targets or clean, well-known named concepts.
+- Avoid vague filler terms, generic abstractions, and invented phrases.
+- Do not repeat anything from the recent-targets exclusion list.
+- Keep the list varied.
+- Do not explain anything outside the JSON.
 
 Return ONLY valid JSON in this format:
 
 {
-  "start": "chosen starting item from candidate pool",
-  "steps": [
-    { "right": "partner item", "result": "result item", "icon": "emoji" },
-    { "right": "partner item", "result": "result item", "icon": "emoji" },
-    { "right": "partner item", "result": "result item", "icon": "emoji" }
+  "quests": [
+    {
+      "target": "target word",
+      "difficulty": "easy",
+      "flavor": "short category label",
+      "teaser": "short motivating line"
+    }
   ]
 }
 
-Candidate partner items:
-{{QUEST_CHAIN_CANDIDATES}}
+Requested quest count:
+{{TARGET_QUEST_COUNT}}
+
+Recent targets to avoid:
+{{RECENT_TARGETS}}
+
+Extra variation themes to keep the list fresh:
+{{VARIATION_THEMES}}
 `.trim();
 
 const RECIPE_BATCH_PROMPT = `
@@ -421,6 +397,35 @@ function logUsageAndCost(params: {
       completionTokens: params.completionTokens,
     });
   }
+}
+
+function buildUsageCostSummary(params: {
+  responseModel: string;
+  promptTokens: number;
+  completionTokens: number;
+  cachedPromptTokens: number;
+}) {
+  const cost = estimateTextTokenCostUsd({
+    model: params.responseModel,
+    promptTokens: params.promptTokens,
+    completionTokens: params.completionTokens,
+    cachedPromptTokens: params.cachedPromptTokens,
+  });
+
+  if (!cost) {
+    return null;
+  }
+
+  return {
+    pricingModel: cost.pricingModel,
+    promptTokens: cost.promptTokens,
+    cachedPromptTokens: cost.cachedPromptTokens,
+    uncachedPromptTokens: cost.uncachedPromptTokens,
+    completionTokens: cost.completionTokens,
+    promptCostUsd: Number(cost.promptCostUsd.toFixed(8)),
+    completionCostUsd: Number(cost.completionCostUsd.toFixed(8)),
+    totalCostUsd: Number(cost.totalCostUsd.toFixed(8)),
+  };
 }
 
 function getOpenAI(): OpenAI {
@@ -550,21 +555,28 @@ export async function generateResult(
   return result.data;
 }
 
-export async function chooseQuestInputs(params: {
+export async function generateTargetQuests(params: {
   model?: OpenAiModel;
-  candidateItems: string[];
-}) {
+  count: number;
+  recentTargets: string[];
+  variationThemes: string[];
+}): Promise<{
+  selection: TargetQuestSelection;
+  usage: ReturnType<typeof buildUsageCostSummary>;
+  responseModel: string;
+}> {
   const openai = getOpenAI();
   const model = params.model ?? DEFAULT_MODEL_NAME;
+  const prompt = TARGET_QUEST_PROMPT
+    .replace("{{TARGET_QUEST_COUNT}}", String(params.count))
+    .replace("{{RECENT_TARGETS}}", JSON.stringify(params.recentTargets))
+    .replace("{{VARIATION_THEMES}}", JSON.stringify(params.variationThemes));
 
-  const prompt = QUEST_INPUT_SELECTION_PROMPT.replace(
-    "{{QUEST_INPUT_CANDIDATES}}",
-    JSON.stringify(params.candidateItems)
-  );
-
-  console.log("[openai][quest-picker] sending request", {
+  console.log("[openai][target-quests] sending request", {
     model,
-    candidateCount: params.candidateItems.length,
+    requestedCount: params.count,
+    recentTargetCount: params.recentTargets.length,
+    variationThemes: params.variationThemes,
     prompt,
   });
 
@@ -575,12 +587,25 @@ export async function chooseQuestInputs(params: {
     messages: [{ role: "user", content: prompt }],
   });
 
+  const promptTokens = response.usage?.prompt_tokens ?? 0;
+  const completionTokens = response.usage?.completion_tokens ?? 0;
+  const cachedPromptTokens =
+    response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const responseModel = response.model ?? model;
+  logUsageAndCost({
+    logPrefix: "[openai][target-quests]",
+    responseModel,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
   const content = response.choices[0]?.message?.content;
   if (!content) {
     throw new Error("No content returned from OpenAI");
   }
 
-  console.log("[openai][quest-picker] raw response content", content);
+  console.log("[openai][target-quests] raw response content", content);
 
   let parsed: unknown;
   try {
@@ -589,62 +614,23 @@ export async function chooseQuestInputs(params: {
     throw new Error("Failed to parse OpenAI JSON response");
   }
 
-  const result = questInputChoiceSchema.safeParse(parsed);
+  const result = targetQuestSelectionSchema.safeParse(parsed);
   if (!result.success) {
-    throw new Error("OpenAI quest input choice failed validation");
+    throw new Error("OpenAI target quest response failed validation");
   }
 
-  console.log("[openai][quest-picker] parsed result", result.data);
+  console.log("[openai][target-quests] parsed result", result.data);
 
-  return result.data;
-}
-
-export async function generateQuestChain(params: {
-  model?: OpenAiModel;
-  candidateItems: string[];
-}) {
-  const openai = getOpenAI();
-  const model = params.model ?? DEFAULT_MODEL_NAME;
-  const prompt = QUEST_CHAIN_PROMPT.replace(
-    "{{QUEST_CHAIN_CANDIDATES}}",
-    JSON.stringify(params.candidateItems)
-  );
-
-  console.log("[openai][quest-chain] sending request", {
-    model,
-    candidateCount: params.candidateItems.length,
-    prompt,
-  });
-
-  const response = await openai.chat.completions.create({
-    model,
-    temperature: 1,
-    response_format: { type: "json_object" },
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    throw new Error("No content returned from OpenAI");
-  }
-
-  console.log("[openai][quest-chain] raw response content", content);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch {
-    throw new Error("Failed to parse OpenAI JSON response");
-  }
-
-  const result = questChainSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error("OpenAI quest chain failed validation");
-  }
-
-  console.log("[openai][quest-chain] parsed result", result.data);
-
-  return result.data;
+  return {
+    selection: result.data,
+    usage: buildUsageCostSummary({
+      responseModel,
+      promptTokens,
+      completionTokens,
+      cachedPromptTokens,
+    }),
+    responseModel,
+  };
 }
 
 export async function generateRecipeBatch(params: {

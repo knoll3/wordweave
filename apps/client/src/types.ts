@@ -138,18 +138,32 @@ export interface SelectionCombineLayout {
   placeholderPosition: { x: number; y: number };
 }
 
-export interface QuestStep {
+export interface TargetQuest {
   target: string;
   normalizedTarget: string;
-  inputs: string[];
-  normalizedInputs: string[];
-  recipeId: number;
+  difficulty: "easy" | "medium" | "stretch";
+  flavor: string;
+  teaser: string;
 }
 
-export interface QuestLine {
-  name: string;
-  normalizedName: string;
-  steps: QuestStep[];
+export interface TargetQuestCostSummary {
+  pricingModel: string;
+  promptTokens: number;
+  cachedPromptTokens: number;
+  uncachedPromptTokens: number;
+  completionTokens: number;
+  promptCostUsd: number;
+  completionCostUsd: number;
+  totalCostUsd: number;
+}
+
+export interface TargetQuestList {
+  generatedAt: string;
+  model: string;
+  retryCount: number;
+  recentExclusionCount: number;
+  cost: TargetQuestCostSummary | null;
+  quests: TargetQuest[];
 }
 
 export interface CacheRecipe {
