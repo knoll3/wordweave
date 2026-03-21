@@ -29,6 +29,7 @@ import type {
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
+import ItemDetailsDrawer from "./components/Graph/ItemDetailsDrawer";
 import {
   combineElements,
   fetchUnlockStatuses,
@@ -41,6 +42,7 @@ const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const TRACKED_QUEST_STORAGE_KEY = "wordweave.tracked-quest";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
 const TOAST_DURATION_MS = 3500;
+const ITEM_DRAWER_EXIT_MS = 220;
 
 const FEATURE_QUESTS: Array<{
   key: UnlockKey;
@@ -162,6 +164,10 @@ const App: React.FC = () => {
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [trackedQuestKey, setTrackedQuestKey] = useState<UnlockKey | null>(null);
   const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
+  const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
+  const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
+  const [renderedDrawerItemId, setRenderedDrawerItemId] = useState<number | null>(null);
+  const [isDrawerClosing, setIsDrawerClosing] = useState(false);
 
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -261,6 +267,40 @@ const App: React.FC = () => {
 
   const trackedQuest =
     quests.find((quest) => quest.key === trackedQuestKey) ?? quests[0] ?? null;
+  const itemById = useMemo(() => {
+    const next = new Map(items.map((item) => [item.id, item]));
+    next.set(CRAFT_ITEM.id, CRAFT_ITEM);
+    next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
+    next.set(EVOLVE_ITEM.id, EVOLVE_ITEM);
+    next.set(POP_CULTURE_ITEM.id, POP_CULTURE_ITEM);
+    next.set(SPLIT_ITEM.id, SPLIT_ITEM);
+    next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
+    next.set(RANDOMIZE_ITEM.id, RANDOMIZE_ITEM);
+    next.set(WORD_COMBINE_ITEM.id, WORD_COMBINE_ITEM);
+    return next;
+  }, [items]);
+  const drawerItem = drawerItemId == null ? null : itemById.get(drawerItemId) ?? null;
+  const renderedDrawerItem =
+    renderedDrawerItemId == null ? null : itemById.get(renderedDrawerItemId) ?? null;
+
+  useEffect(() => {
+    if (drawerItemId == null) {
+      return;
+    }
+    setRenderedDrawerItemId(drawerItemId);
+    setIsDrawerClosing(false);
+  }, [drawerItemId]);
+
+  useEffect(() => {
+    if (!isDrawerClosing) {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      setIsDrawerClosing(false);
+      setRenderedDrawerItemId(null);
+    }, ITEM_DRAWER_EXIT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [isDrawerClosing]);
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -318,6 +358,32 @@ const App: React.FC = () => {
       prev.some((existing) => existing.id === item.id) ? prev : [...prev, item]
     );
     addItemToWorkspace(item.id);
+  }
+
+  function openItemDetails(item: Item) {
+    setDrawerItemId((current) => {
+      if (current === item.id) {
+        return current;
+      }
+      setDrawerHistory((history) =>
+        current == null ? [] : [...history, current]
+      );
+      return item.id;
+    });
+  }
+
+  function closeItemDetails() {
+    setDrawerItemId(null);
+    setDrawerHistory([]);
+    setIsDrawerClosing(true);
+  }
+
+  function goBackInItemDetails() {
+    setDrawerHistory((history) => {
+      const previousItemId = history[history.length - 1] ?? null;
+      setDrawerItemId(previousItemId);
+      return history.slice(0, -1);
+    });
   }
 
   function clearWorkspaceItems() {
@@ -710,11 +776,23 @@ const App: React.FC = () => {
                 onClearWorkspace={clearWorkspaceItems}
                 onCombineWorkspaceItems={combineWorkspaceItems}
                 onCombineWorkspaceSelection={combineWorkspaceSelection}
+                onOpenItemDetails={openItemDetails}
               />
             </div>
           </section>
         </main>
       </div>
+      {renderedDrawerItem ? (
+        <ItemDetailsDrawer
+          item={renderedDrawerItem}
+          itemsById={itemById}
+          canGoBack={drawerHistory.length > 0}
+          isClosing={isDrawerClosing}
+          onBack={goBackInItemDetails}
+          onClose={closeItemDetails}
+          onSelectItem={openItemDetails}
+        />
+      ) : null}
       {isQuestDrawerOpen && trackedQuest ? (
         <div className="quest-popover-layer" role="presentation">
           <button

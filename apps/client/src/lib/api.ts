@@ -4,6 +4,7 @@ import type {
   FeatureUnlockStatus,
   GenerateCacheRecipesResult,
   Item,
+  PaginatedCacheRecipes,
   QuestLine,
   Recipe,
   RecentRecipe,
@@ -11,6 +12,7 @@ import type {
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const itemReferenceCache = new Map<number, ItemReference | null>();
+const latestRecipeCache = new Map<number, LatestRecipeContext | null>();
 
 export interface ItemReference {
   id: number;
@@ -20,6 +22,19 @@ export interface ItemReference {
   title: string | null;
   summary: string | null;
   sourceUrl: string | null;
+}
+
+export interface LatestRecipeInput {
+  id: number | null;
+  name: string;
+  normalizedName: string;
+  icon: string | null;
+}
+
+export interface LatestRecipeContext {
+  recipeId: number | null;
+  summaryLine: string | null;
+  inputs: LatestRecipeInput[];
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -88,9 +103,19 @@ export async function fetchCacheStats(): Promise<{
   }>(res);
 }
 
-export async function fetchCacheRecipes(): Promise<CacheRecipe[]> {
-  const res = await fetch(`${API_BASE}/elements/cache-recipes`);
-  return handleResponse<CacheRecipe[]>(res);
+export async function fetchCacheRecipes(options?: {
+  page?: number;
+  limit?: number;
+}): Promise<PaginatedCacheRecipes> {
+  const url = new URL(`${API_BASE}/elements/cache-recipes`, window.location.origin);
+  if (options?.page != null) {
+    url.searchParams.set("page", String(options.page));
+  }
+  if (options?.limit != null) {
+    url.searchParams.set("limit", String(options.limit));
+  }
+  const res = await fetch(url.toString());
+  return handleResponse<PaginatedCacheRecipes>(res);
 }
 
 export async function generateCacheRecipes(): Promise<GenerateCacheRecipesResult> {
@@ -214,4 +239,25 @@ export async function fetchItemReference(elementId: number): Promise<ItemReferen
   const reference = (await res.json()) as ItemReference;
   itemReferenceCache.set(elementId, reference);
   return reference;
+}
+
+export async function fetchLatestRecipeContext(
+  elementId: number
+): Promise<LatestRecipeContext | null> {
+  if (latestRecipeCache.has(elementId)) {
+    return latestRecipeCache.get(elementId) ?? null;
+  }
+
+  const res = await fetch(`${API_BASE}/elements/${elementId}/latest-recipe`);
+  if (!res.ok) {
+    if (res.status === 404) {
+      latestRecipeCache.set(elementId, null);
+      return null;
+    }
+    throw new Error(`Failed to load latest recipe (${res.status})`);
+  }
+
+  const latestRecipe = (await res.json()) as LatestRecipeContext;
+  latestRecipeCache.set(elementId, latestRecipe);
+  return latestRecipe;
 }

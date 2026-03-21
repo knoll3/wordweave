@@ -2,15 +2,23 @@ import React, { useEffect, useState } from "react";
 import type { CacheRecipe } from "../types";
 import { fetchCacheRecipes, generateCacheRecipes } from "../lib/api";
 
+const PAGE_SIZE = 25;
+
 const CachePage: React.FC = () => {
   const [recipes, setRecipes] = useState<CacheRecipe[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalRecipes, setTotalRecipes] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function loadRecipes() {
-    const data = await fetchCacheRecipes();
-    setRecipes(data);
+  async function loadRecipes(page = currentPage) {
+    const data = await fetchCacheRecipes({ page, limit: PAGE_SIZE });
+    setRecipes(data.recipes);
+    setCurrentPage(data.page);
+    setTotalRecipes(data.total);
+    setTotalPages(data.totalPages);
     setError(null);
   }
 
@@ -20,9 +28,12 @@ const CachePage: React.FC = () => {
     async function load() {
       try {
         setIsLoading(true);
-        const data = await fetchCacheRecipes();
+        const data = await fetchCacheRecipes({ page: currentPage, limit: PAGE_SIZE });
         if (!cancelled) {
-          setRecipes(data);
+          setRecipes(data.recipes);
+          setCurrentPage(data.page);
+          setTotalRecipes(data.total);
+          setTotalPages(data.totalPages);
           setError(null);
         }
       } catch (err) {
@@ -42,7 +53,7 @@ const CachePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [currentPage]);
 
   async function handleGenerateRecipes() {
     if (isGenerating) return;
@@ -51,7 +62,7 @@ const CachePage: React.FC = () => {
       setError(null);
       const result = await generateCacheRecipes();
       console.log("[cache] generated recipes", result);
-      await loadRecipes();
+      await loadRecipes(1);
     } catch (err) {
       console.error("[cache] failed to generate recipes", err);
       setError("Failed to generate cached recipes.");
@@ -89,49 +100,81 @@ const CachePage: React.FC = () => {
       ) : recipes.length === 0 ? (
         <div className="cache-page-empty">No cached recipes yet.</div>
       ) : (
-        <div className="cache-table">
-          <div className="cache-table-head">
-            <span>Inputs</span>
-            <span>Chosen Result</span>
-            <span>Candidates</span>
-            <span>Updated</span>
+        <>
+          <div className="cache-table-toolbar">
+            <div className="cache-table-meta">
+              Showing {recipes.length} of {totalRecipes} cached recipes
+            </div>
+            <div className="cache-pagination">
+              <button
+                type="button"
+                className="button"
+                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                disabled={currentPage <= 1}
+              >
+                Previous
+              </button>
+              <span className="cache-pagination-status">
+                Page {currentPage} of {Math.max(totalPages, 1)}
+              </span>
+              <button
+                type="button"
+                className="button"
+                onClick={() =>
+                  setCurrentPage((page) =>
+                    totalPages > 0 ? Math.min(totalPages, page + 1) : page
+                  )
+                }
+                disabled={totalPages === 0 || currentPage >= totalPages}
+              >
+                Next
+              </button>
+            </div>
           </div>
-          {recipes.map((recipe) => {
-            const chosenCandidate =
-              recipe.candidates.find(
-                (candidate) => candidate.id === recipe.chosenCandidateId
-              ) ?? null;
-            return (
-              <div key={recipe.id} className="cache-table-row">
-                <div className="cache-cell cache-inputs">
-                  {recipe.inputs.map((input) => input.name).join(" + ")}
+          <div className="cache-table">
+            <div className="cache-table-head">
+              <span>Inputs</span>
+              <span>Chosen Result</span>
+              <span>Candidates</span>
+              <span>Updated</span>
+            </div>
+            {recipes.map((recipe) => {
+              const chosenCandidate =
+                recipe.candidates.find(
+                  (candidate) => candidate.id === recipe.chosenCandidateId
+                ) ?? null;
+              return (
+                <div key={recipe.id} className="cache-table-row">
+                  <div className="cache-cell cache-inputs">
+                    {recipe.inputs.map((input) => input.name).join(" + ")}
+                  </div>
+                  <div className="cache-cell">
+                    {recipe.resultElement
+                      ? `${recipe.resultElement.icon ?? ""} ${recipe.resultElement.name}`.trim()
+                      : chosenCandidate
+                        ? `${chosenCandidate.icon} ${chosenCandidate.name}`
+                        : "Unresolved"}
+                  </div>
+                  <div className="cache-cell cache-candidates">
+                    {recipe.candidates.map((candidate) => (
+                      <span
+                        key={candidate.id}
+                        className={`cache-candidate-chip ${
+                          candidate.id === recipe.chosenCandidateId ? "active" : ""
+                        }`}
+                      >
+                        {candidate.icon} {candidate.name}
+                      </span>
+                    ))}
+                  </div>
+                  <div className="cache-cell cache-updated">
+                    {new Date(recipe.updatedAt).toLocaleString()}
+                  </div>
                 </div>
-                <div className="cache-cell">
-                  {recipe.resultElement
-                    ? `${recipe.resultElement.icon ?? ""} ${recipe.resultElement.name}`.trim()
-                    : chosenCandidate
-                      ? `${chosenCandidate.icon} ${chosenCandidate.name}`
-                      : "Unresolved"}
-                </div>
-                <div className="cache-cell cache-candidates">
-                  {recipe.candidates.map((candidate) => (
-                    <span
-                      key={candidate.id}
-                      className={`cache-candidate-chip ${
-                        candidate.id === recipe.chosenCandidateId ? "active" : ""
-                      }`}
-                    >
-                      {candidate.icon} {candidate.name}
-                    </span>
-                  ))}
-                </div>
-                <div className="cache-cell cache-updated">
-                  {new Date(recipe.updatedAt).toLocaleString()}
-                </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        </>
       )}
     </div>
   );

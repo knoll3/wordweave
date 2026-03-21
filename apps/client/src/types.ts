@@ -162,6 +162,14 @@ export interface CacheRecipe {
   updatedAt: string;
 }
 
+export interface PaginatedCacheRecipes {
+  recipes: CacheRecipe[];
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
+ }
+
 export interface GeneratedCacheRecipe {
   recipeId: number;
   inputKey: string;

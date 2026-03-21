@@ -15,6 +15,7 @@ import {
 import {
   mapRecentRecipeRow,
 } from "../models";
+import { getLatestRecipeContext } from "../latestRecipeLookup";
 import { getOrCreateElementReference } from "../referenceLookup";
 
 const router = express.Router();
@@ -52,6 +53,26 @@ router.get("/:id/reference", async (req, res) => {
   } catch (err) {
     console.error("Error in GET /elements/:id/reference", err);
     return res.status(500).json({ error: "Failed to load item reference" });
+  }
+});
+
+router.get("/:id/latest-recipe", async (req, res) => {
+  const elementId = Number(req.params.id);
+  if (!Number.isInteger(elementId) || elementId <= 0) {
+    return res.status(400).json({ error: "Invalid element id" });
+  }
+
+  try {
+    const db = await getDb();
+    const latestRecipe = getLatestRecipeContext(db, elementId);
+    if (!latestRecipe) {
+      return res.status(404).json({ error: "Element not found" });
+    }
+
+    return res.json(latestRecipe);
+  } catch (err) {
+    console.error("Error in GET /elements/:id/latest-recipe", err);
+    return res.status(500).json({ error: "Failed to load latest recipe" });
   }
 });
 
@@ -146,9 +167,24 @@ router.get("/cache-stats", async (_req, res) => {
   }
 });
 
-router.get("/cache-recipes", async (_req, res) => {
+router.get("/cache-recipes", async (req, res) => {
+  const rawPage = Number(req.query.page ?? 1);
+  const rawLimit = Number(req.query.limit ?? 25);
+  const page = Number.isFinite(rawPage) ? Math.max(1, Math.floor(rawPage)) : 1;
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(100, Math.max(1, Math.floor(rawLimit)))
+    : 25;
+  const offset = (page - 1) * limit;
+
   try {
     const db = await getDb();
+    const countStmt = db.prepare("SELECT COUNT(*) AS total FROM recipes");
+    countStmt.step();
+    const countRow = countStmt.getAsObject() as Record<string, unknown>;
+    countStmt.free();
+    const total = Number(countRow.total ?? 0);
+    const totalPages = total === 0 ? 0 : Math.ceil(total / limit);
+
     const stmt = db.prepare(
       `
       SELECT
@@ -165,8 +201,10 @@ router.get("/cache-recipes", async (_req, res) => {
       FROM recipes r
       LEFT JOIN elements e ON e.id = r.result_element_id
       ORDER BY r.updated_at DESC, r.id DESC
+      LIMIT ? OFFSET ?
       `
     );
+    stmt.bind([limit, offset]);
 
     const recipes: Array<{
       id: number;
@@ -243,7 +281,13 @@ router.get("/cache-recipes", async (_req, res) => {
     }
     stmt.free();
 
-    return res.json(recipes);
+    return res.json({
+      recipes,
+      page,
+      limit,
+      total,
+      totalPages,
+    });
   } catch (err) {
     console.error("Error in GET /elements/cache-recipes", err);
     return res.status(500).json({ error: "Failed to load recipe cache" });
