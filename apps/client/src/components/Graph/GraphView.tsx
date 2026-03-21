@@ -9,6 +9,7 @@ import {
   Texture,
   TilingSprite,
 } from "pixi.js";
+import ItemInspector from "./ItemInspector";
 import {
   COMBINE_RESULT_PLACEHOLDER_ITEM,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
@@ -57,6 +58,8 @@ type DragState = {
   pointerId: number;
   offsetX: number;
   offsetY: number;
+  startX: number;
+  startY: number;
 };
 
 type PanState = {
@@ -116,6 +119,16 @@ const GRID_CELL_GAP_Y = 16;
 const SELECTION_PADDING = 14;
 const PLACEHOLDER_WIDTH = 120;
 const PAN_DRAG_THRESHOLD = 4;
+const DUPLICATE_OFFSET_X = 14;
+const DUPLICATE_OFFSET_Y = 14;
+const DOUBLE_CLICK_MS = 320;
+const CLICK_MOVE_THRESHOLD = 6;
+const TOOLTIP_OPEN_DELAY_MS = 350;
+const TOOLTIP_CLOSE_DELAY_MS = 120;
+const INSPECTOR_WIDTH = 318;
+const INSPECTOR_HEIGHT = 196;
+const INSPECTOR_GAP = 14;
+const INSPECTOR_PADDING = 12;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -139,6 +152,97 @@ function getNodeTint(itemId: number) {
   if (itemId === WORD_COMBINE_ITEM_ID) return 0xd8b4fe;
   if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x64748b;
   return 0x94a3b8;
+}
+
+function getItemInspectorCopy(item: Item) {
+  if (item.id === CREATIVE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Pushes a combination toward a more imaginative but still recognizable result.",
+      helperText:
+        "Drop it into a mix when you want a leap instead of the default literal answer.",
+    };
+  }
+  if (item.id === EVOLVE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Advances a concept into a stronger, newer, or more developed next form.",
+      helperText:
+        "Best when paired with one idea that already feels like it has room to grow.",
+    };
+  }
+  if (item.id === CRAFT_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Asks for the most plausible physical object or built thing the inputs could make together.",
+      helperText:
+        "Use it when the ingredients feel tangible, material, or mechanically buildable.",
+    };
+  }
+  if (item.id === POP_CULTURE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Resolves a combination into a specific entertainment, celebrity, or fandom reference.",
+      helperText:
+        "Best when the mix points toward an iconic character, franchise, song, or scene.",
+    };
+  }
+  if (item.id === SPLIT_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Removes one concept from another to expose a missing ingredient or what remains behind.",
+      helperText:
+        "Try it when one item feels like it contains, depends on, or is built from the other.",
+    };
+  }
+  if (item.id === OPPOSITE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Flips a concept toward its direct opposite, inverse, or counterpoint.",
+      helperText:
+        "Works best when the target idea has a strong, widely recognized opposite.",
+    };
+  }
+  if (item.id === RANDOMIZE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Transforms a single item into a nearby variation or sibling concept.",
+      helperText:
+        "Use it on one regular item when you want a lateral jump instead of a merge.",
+    };
+  }
+  if (item.id === WORD_COMBINE_ITEM_ID) {
+    return {
+      categoryLabel: "Catalyst",
+      description:
+        "Looks for a real established compound word or phrase formed by the inputs.",
+      helperText:
+        "It is strict, so it works best when the terms plausibly form a dictionary-style phrase.",
+    };
+  }
+
+  const isBaseItem =
+    item.normalizedName === "fire" ||
+    item.normalizedName === "water" ||
+    item.normalizedName === "earth" ||
+    item.normalizedName === "air";
+
+  return {
+    categoryLabel: isBaseItem ? "Base Element" : "",
+    description: isBaseItem
+      ? "One of the four starter materials. These are the foundation of the rest of the library."
+      : "A discovered concept that can be remixed with other items or combined with catalysts.",
+    helperText: isBaseItem
+      ? "A dependable starting point when you want broad, combinable ingredients."
+      : "",
+  };
 }
 
 function drawItemCard(
@@ -197,6 +301,13 @@ function GraphView({
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
   const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });
   const dragStateRef = useRef<DragState | null>(null);
+  const lastItemClickRef = useRef<{
+    nodeId: string;
+    time: number;
+  } | null>(null);
+  const tooltipTimerRef = useRef<number | null>(null);
+  const hoveredTooltipNodeIdRef = useRef<string | null>(null);
+  const hoveredItemNodeIdRef = useRef<string | null>(null);
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
@@ -234,6 +345,13 @@ function GraphView({
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
+  const selectedInspectorNodeIdRef = useRef<string | null>(null);
+  const [selectedInspectorNodeId, setSelectedInspectorNodeId] = useState<string | null>(null);
+  const [inspectorPosition, setInspectorPosition] = useState<{
+    left: number;
+    top: number;
+    placement: "left" | "right";
+  } | null>(null);
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -259,6 +377,7 @@ function GraphView({
   selectionModeRef.current = isSelectionMode;
   selectedNodeIdsRef.current = selectedNodeIds;
   selectionLayoutRef.current = selectionLayout;
+  selectedInspectorNodeIdRef.current = selectedInspectorNodeId;
 
   const updateViewportCenter = () => {
     const app = appRef.current;
@@ -284,6 +403,7 @@ function GraphView({
     }
     updateViewportCenter();
     refreshSelectionOverlay();
+    refreshInspectorPosition();
   };
 
   const frameWorkspaceItems = (
@@ -403,6 +523,44 @@ function GraphView({
     setSelectionOverlayRect(null);
   };
 
+  const clearTooltipTimer = () => {
+    if (tooltipTimerRef.current != null) {
+      window.clearTimeout(tooltipTimerRef.current);
+      tooltipTimerRef.current = null;
+    }
+  };
+
+  const hideInspector = () => {
+    clearTooltipTimer();
+    setSelectedInspectorNodeId(null);
+    setInspectorPosition(null);
+  };
+
+  const scheduleInspectorOpen = (nodeId: string) => {
+    clearTooltipTimer();
+    tooltipTimerRef.current = window.setTimeout(() => {
+      tooltipTimerRef.current = null;
+      if (
+        hoveredItemNodeIdRef.current === nodeId ||
+        hoveredTooltipNodeIdRef.current === nodeId
+      ) {
+        setSelectedInspectorNodeId(nodeId);
+      }
+    }, TOOLTIP_OPEN_DELAY_MS);
+  };
+
+  const scheduleInspectorClose = (nodeId: string) => {
+    clearTooltipTimer();
+    tooltipTimerRef.current = window.setTimeout(() => {
+      tooltipTimerRef.current = null;
+      const itemStillHovered = hoveredItemNodeIdRef.current === nodeId;
+      const tooltipStillHovered = hoveredTooltipNodeIdRef.current === nodeId;
+      if (!itemStillHovered && !tooltipStillHovered) {
+        hideInspector();
+      }
+    }, TOOLTIP_CLOSE_DELAY_MS);
+  };
+
   const beginSelectionDrag = (
     pointerId: number | null,
     screenX: number,
@@ -490,6 +648,53 @@ function GraphView({
     }
 
     setSelectionOverlayRect(worldRectToScreenRect(worldBounds));
+  };
+
+  const refreshInspectorPosition = () => {
+    const nodeId = selectedInspectorNodeIdRef.current;
+    const host = hostRef.current;
+    if (!nodeId || !host) {
+      setInspectorPosition(null);
+      return;
+    }
+
+    const view = itemViewsRef.current.get(nodeId);
+    if (!view) {
+      setInspectorPosition(null);
+      return;
+    }
+
+    const topLeft = getViewTopLeftPosition(view);
+    const anchorRect = worldRectToScreenRect({
+      x: topLeft.x,
+      y: topLeft.y,
+      width: view.width,
+      height: CARD_HEIGHT,
+    });
+    const placeRight =
+      anchorRect.left + anchorRect.width + INSPECTOR_GAP + INSPECTOR_WIDTH <=
+      host.clientWidth - INSPECTOR_PADDING;
+    const nextLeft = placeRight
+      ? anchorRect.left + anchorRect.width + INSPECTOR_GAP
+      : anchorRect.left - INSPECTOR_WIDTH - INSPECTOR_GAP;
+
+    setInspectorPosition({
+      left: Math.round(
+        clamp(
+          nextLeft,
+          INSPECTOR_PADDING,
+          host.clientWidth - INSPECTOR_WIDTH - INSPECTOR_PADDING
+        )
+      ),
+      top: Math.round(
+        clamp(
+          anchorRect.top - 10,
+          INSPECTOR_PADDING,
+          host.clientHeight - INSPECTOR_HEIGHT - INSPECTOR_PADDING
+        )
+      ),
+      placement: placeRight ? "right" : "left",
+    });
   };
 
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
@@ -639,6 +844,64 @@ function GraphView({
     a.y < b.y + b.height &&
     a.y + a.height > b.y;
 
+  const getItemViewAtWorldPosition = (position: { x: number; y: number }) => {
+    const world = worldRef.current;
+    if (!world) return null;
+
+    const candidates = Array.from(itemViewsRef.current.values())
+      .map((view) => ({
+        view,
+        zIndex: world.getChildIndex(view.container),
+      }))
+      .sort((left, right) => right.zIndex - left.zIndex);
+
+    return (
+      candidates.find(({ view }) => {
+        const topLeft = getViewTopLeftPosition(view);
+        return (
+          position.x >= topLeft.x &&
+          position.x <= topLeft.x + view.width &&
+          position.y >= topLeft.y &&
+          position.y <= topLeft.y + CARD_HEIGHT
+        );
+      })?.view ?? null
+    );
+  };
+
+  const duplicateWorkspaceItem = (nodeId: string) => {
+    const sourceItem = workspaceItemsRef.current.find((item) => item.nodeId === nodeId);
+    if (!sourceItem) return;
+
+    onWorkspaceItemsChangeRef.current((prev) => [
+      ...prev,
+      {
+        nodeId: `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
+        itemId: sourceItem.itemId,
+        position: {
+          x: sourceItem.position.x + DUPLICATE_OFFSET_X,
+          y: sourceItem.position.y + DUPLICATE_OFFSET_Y,
+        },
+        isNewDiscovery: false,
+      },
+    ]);
+  };
+
+  const handleTooltipMouseEnter = () => {
+    const nodeId = selectedInspectorNodeIdRef.current;
+    if (!nodeId) return;
+    hoveredTooltipNodeIdRef.current = nodeId;
+    clearTooltipTimer();
+  };
+
+  const handleTooltipMouseLeave = () => {
+    const nodeId = selectedInspectorNodeIdRef.current;
+    if (!nodeId) return;
+    hoveredTooltipNodeIdRef.current = null;
+    if (hoveredItemNodeIdRef.current !== nodeId) {
+      scheduleInspectorClose(nodeId);
+    }
+  };
+
   const updateHoverTarget = (draggedNodeId: string) => {
     const world = worldRef.current;
     const draggedView = itemViewsRef.current.get(draggedNodeId);
@@ -765,6 +1028,29 @@ function GraphView({
     }
 
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
+    container.on("pointerover", () => {
+      if (selectionModeRef.current || dragStateRef.current) {
+        return;
+      }
+      if (
+        hoveredTooltipNodeIdRef.current &&
+        hoveredTooltipNodeIdRef.current !== workspaceItem.nodeId
+      ) {
+        return;
+      }
+      hoveredItemNodeIdRef.current = workspaceItem.nodeId;
+      scheduleInspectorOpen(workspaceItem.nodeId);
+    });
+    container.on("pointerout", () => {
+      if (hoveredItemNodeIdRef.current === workspaceItem.nodeId) {
+        hoveredItemNodeIdRef.current = null;
+      }
+      if (selectedInspectorNodeIdRef.current === workspaceItem.nodeId) {
+        scheduleInspectorClose(workspaceItem.nodeId);
+      } else {
+        clearTooltipTimer();
+      }
+    });
     container.on("pointerdown", (event) => {
       if (selectionModeRef.current) {
         return;
@@ -801,6 +1087,8 @@ function GraphView({
         pointerId: event.pointerId,
         offsetX: pointerPosition.x - topLeftPosition.x,
         offsetY: pointerPosition.y - topLeftPosition.y,
+        startX: topLeftPosition.x,
+        startY: topLeftPosition.y,
       };
       container.cursor = "grabbing";
       container.alpha = 1;
@@ -844,6 +1132,14 @@ function GraphView({
     const removedCombiningNodeIds = removedNodeIds.filter((nodeId) =>
       previousCombiningNodeIds.includes(nodeId)
     );
+    if (
+      selectedInspectorNodeIdRef.current &&
+      !nextNodeIds.has(selectedInspectorNodeIdRef.current)
+    ) {
+      hoveredTooltipNodeIdRef.current = null;
+      hoveredItemNodeIdRef.current = null;
+      hideInspector();
+    }
 
     existingViews.forEach((view, nodeId) => {
       if (nextNodeIds.has(nodeId)) return;
@@ -912,6 +1208,7 @@ function GraphView({
     previousWorkspaceNodeIdsRef.current = nextWorkspaceItems.map((item) => item.nodeId);
     previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
     refreshSelectionOverlay();
+    refreshInspectorPosition();
   };
 
   useEffect(() => {
@@ -952,6 +1249,10 @@ function GraphView({
       if (event.target !== appRef.current?.stage && event.target !== backgroundRef.current) {
         return;
       }
+      lastItemClickRef.current = null;
+      hoveredItemNodeIdRef.current = null;
+      hoveredTooltipNodeIdRef.current = null;
+      hideInspector();
       panStateRef.current = {
         pointerId: event.pointerId,
         startClientX: event.nativeEvent.clientX,
@@ -1068,6 +1369,11 @@ function GraphView({
             x: Math.round(topLeftPosition.x),
             y: Math.round(topLeftPosition.y),
           };
+          const movedDistance = Math.hypot(
+            nextPosition.x - dragState.startX,
+            nextPosition.y - dragState.startY
+          );
+          const isClickRelease = movedDistance <= CLICK_MOVE_THRESHOLD;
           const dropTargetView = dropTargetNodeId
             ? itemViewsRef.current.get(dropTargetNodeId)
             : null;
@@ -1078,6 +1384,10 @@ function GraphView({
               }
             : undefined;
           if (releasedOutsideWorkspace) {
+            lastItemClickRef.current = null;
+            hoveredItemNodeIdRef.current = null;
+            hoveredTooltipNodeIdRef.current = null;
+            hideInspector();
             onWorkspaceItemsChangeRef.current((prev) =>
               prev.filter((item) => item.nodeId !== dragState.nodeId)
             );
@@ -1091,11 +1401,33 @@ function GraphView({
             )
           );
           if (dropTargetNodeId && dropTargetNodeId !== dragState.nodeId) {
+            lastItemClickRef.current = null;
+            hoveredItemNodeIdRef.current = null;
+            hoveredTooltipNodeIdRef.current = null;
+            hideInspector();
             onCombineWorkspaceItemsRef.current(
               dragState.nodeId,
               dropTargetNodeId,
               resultCenter
             );
+          } else if (isClickRelease) {
+            const now = Date.now();
+            const lastClick = lastItemClickRef.current;
+            if (
+              lastClick &&
+              lastClick.nodeId === dragState.nodeId &&
+              now - lastClick.time <= DOUBLE_CLICK_MS
+            ) {
+              duplicateWorkspaceItem(dragState.nodeId);
+              lastItemClickRef.current = null;
+            } else {
+              lastItemClickRef.current = {
+                nodeId: dragState.nodeId,
+                time: now,
+              };
+            }
+          } else {
+            lastItemClickRef.current = null;
           }
         }
       }
@@ -1138,6 +1470,14 @@ function GraphView({
       const rect = host.getBoundingClientRect();
       const screenX = event.clientX - rect.left;
       const screenY = event.clientY - rect.top;
+      const worldPosition = screenPointToWorld(screenX, screenY);
+      if (getItemViewAtWorldPosition(worldPosition)) {
+        return;
+      }
+      lastItemClickRef.current = null;
+      hoveredItemNodeIdRef.current = null;
+      hoveredTooltipNodeIdRef.current = null;
+      hideInspector();
       selectionDragRef.current = null;
       selectionDragRectRef.current = null;
       setSelectionDragRect(null);
@@ -1255,6 +1595,7 @@ function GraphView({
 
     return () => {
       cancelled = true;
+      clearTooltipTimer();
       window.removeEventListener("pointermove", handleWindowPointerMove);
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
@@ -1281,7 +1622,10 @@ function GraphView({
       backgroundRef.current = null;
       dragStateRef.current = null;
       hoverTargetNodeIdRef.current = null;
+      hoveredItemNodeIdRef.current = null;
+      hoveredTooltipNodeIdRef.current = null;
       panStateRef.current = null;
+      lastItemClickRef.current = null;
       selectionDragRef.current = null;
       selectionDragRectRef.current = null;
     };
@@ -1296,6 +1640,10 @@ function GraphView({
   }, [selectionLayout]);
 
   useEffect(() => {
+    refreshInspectorPosition();
+  }, [selectedInspectorNodeId]);
+
+  useEffect(() => {
     if (!selectionLayout) return;
     const stillCombining = [selectionLayout.placeholderNodeId, ...selectionLayout.nodeIds].some(
       (nodeId) => (combiningNodeIds ?? []).includes(nodeId)
@@ -1307,6 +1655,20 @@ function GraphView({
 
   const isSelectionCombining =
     selectionLayout?.nodeIds.some((nodeId) => (combiningNodeIds ?? []).includes(nodeId)) ?? false;
+  const selectedInspectorItem =
+    selectedInspectorNodeId == null
+      ? null
+      : (() => {
+          const workspaceItem = workspaceItems.find(
+            (item) => item.nodeId === selectedInspectorNodeId
+          );
+          if (!workspaceItem) return null;
+          if (workspaceItem.itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return null;
+          return itemById.get(workspaceItem.itemId) ?? null;
+        })();
+  const selectedInspectorCopy = selectedInspectorItem
+    ? getItemInspectorCopy(selectedInspectorItem)
+    : null;
 
   return (
     <div ref={hostRef} className="graph-pixi-host">
@@ -1314,6 +1676,17 @@ function GraphView({
         <div className="graph-placeholder">
           Click items in the library to place them into the workspace.
         </div>
+      ) : null}
+      {selectedInspectorItem && inspectorPosition && selectedInspectorCopy ? (
+        <ItemInspector
+          item={selectedInspectorItem}
+          categoryLabel={selectedInspectorCopy.categoryLabel}
+          description={selectedInspectorCopy.description}
+          helperText={selectedInspectorCopy.helperText}
+          position={inspectorPosition}
+          onMouseEnter={handleTooltipMouseEnter}
+          onMouseLeave={handleTooltipMouseLeave}
+        />
       ) : null}
       <button
         type="button"

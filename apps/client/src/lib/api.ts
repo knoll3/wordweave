@@ -10,6 +10,17 @@ import type {
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
+const itemReferenceCache = new Map<number, ItemReference | null>();
+
+export interface ItemReference {
+  id: number;
+  provider: string;
+  lookupName: string;
+  status: "resolved" | "missing";
+  title: string | null;
+  summary: string | null;
+  sourceUrl: string | null;
+}
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -184,4 +195,23 @@ export async function generateQuest(options?: {
     }),
   });
   return handleResponse<QuestLine>(res);
+}
+
+export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {
+  if (itemReferenceCache.has(elementId)) {
+    return itemReferenceCache.get(elementId) ?? null;
+  }
+
+  const res = await fetch(`${API_BASE}/elements/${elementId}/reference`);
+  if (!res.ok) {
+    if (res.status === 404) {
+      itemReferenceCache.set(elementId, null);
+      return null;
+    }
+    throw new Error(`Failed to load item reference (${res.status})`);
+  }
+
+  const reference = (await res.json()) as ItemReference;
+  itemReferenceCache.set(elementId, reference);
+  return reference;
 }

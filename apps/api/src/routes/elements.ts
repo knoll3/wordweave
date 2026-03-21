@@ -15,6 +15,7 @@ import {
 import {
   mapRecentRecipeRow,
 } from "../models";
+import { getOrCreateElementReference } from "../referenceLookup";
 
 const router = express.Router();
 
@@ -29,6 +30,28 @@ router.get("/", async (req, res) => {
   } catch (err) {
     console.error("Error in GET /elements", err);
     return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+router.get("/:id/reference", async (req, res) => {
+  const elementId = Number(req.params.id);
+  if (!Number.isInteger(elementId) || elementId <= 0) {
+    return res.status(400).json({ error: "Invalid element id" });
+  }
+
+  try {
+    const db = await getDb();
+    const reference = await getOrCreateElementReference(db, elementId);
+    persistDatabase(db);
+
+    if (!reference) {
+      return res.status(404).json({ error: "Element not found" });
+    }
+
+    return res.json(reference);
+  } catch (err) {
+    console.error("Error in GET /elements/:id/reference", err);
+    return res.status(500).json({ error: "Failed to load item reference" });
   }
 });
 
