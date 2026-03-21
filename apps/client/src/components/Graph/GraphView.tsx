@@ -142,6 +142,20 @@ const CLICK_MOVE_THRESHOLD = 6;
 const CELEBRATION_PROGRESS_STEP = 0.022;
 const CELEBRATION_TINT_FADE_STEP = 0.012;
 const CELEBRATION_TINT_HOLD_FRAMES = 150;
+
+function isCatalystItemId(itemId: number) {
+  return (
+    itemId === CREATIVE_ITEM_ID ||
+    itemId === EVOLVE_ITEM_ID ||
+    itemId === CRAFT_ITEM_ID ||
+    itemId === POP_CULTURE_ITEM_ID ||
+    itemId === SPLIT_ITEM_ID ||
+    itemId === OPPOSITE_ITEM_ID ||
+    itemId === RANDOMIZE_ITEM_ID ||
+    itemId === WORD_COMBINE_ITEM_ID
+  );
+}
+
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
@@ -189,27 +203,30 @@ function drawItemCard(
   celebrationPulse = 0
 ) {
   const isHighlighted = state === "highlight";
+  const nodeTint = getNodeTint(itemId);
+  const isCatalyst = isCatalystItemId(itemId);
   const celebrationFill = mixColor(0x5b2a86, 0x7c3aed, celebrationPulse);
   const celebrationStroke = mixColor(0xe9d5ff, 0xf3e8ff, celebrationPulse);
   const fillColor = mixColor(
     isHighlighted ? 0x132033 : 0x0f172a,
-    celebrationFill,
-    celebrationAmount
+    isCatalyst ? nodeTint : 0x0f172a,
+    isCatalyst ? 0.12 : 0
   );
+  const finalFillColor = mixColor(fillColor, celebrationFill, celebrationAmount);
   const strokeColor = mixColor(
-    getNodeTint(itemId),
+    nodeTint,
     celebrationStroke,
     celebrationAmount
   );
   background.clear();
   background
     .roundRect(0, 0, width, CARD_HEIGHT, CARD_RADIUS)
-    .fill({ color: fillColor, alpha: 1 })
-    .stroke({
-      width: 1.5,
-      color: strokeColor,
-      alpha: (isHighlighted ? 0.5 : 0.42) + celebrationAmount * 0.28,
-    });
+    .fill({ color: finalFillColor, alpha: 1 });
+  background.stroke({
+    width: 1.5,
+    color: strokeColor,
+    alpha: (isHighlighted ? 0.5 : 0.42) + celebrationAmount * 0.28,
+  });
 }
 
 function drawCelebrationBurst(graphic: Graphics, width: number) {
