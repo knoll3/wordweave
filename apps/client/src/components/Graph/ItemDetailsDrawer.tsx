@@ -1,11 +1,69 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  CRAFT_ITEM_ID,
+  CREATIVE_ITEM_ID,
+  EVOLVE_ITEM_ID,
+  OPPOSITE_ITEM_ID,
+  POP_CULTURE_ITEM_ID,
+  RANDOMIZE_ITEM_ID,
+  SPLIT_ITEM_ID,
+  WORD_COMBINE_ITEM_ID,
+} from "../../types";
+import type { Item } from "../../types";
+import {
   fetchItemReference,
   fetchLatestRecipeContext,
   type LatestRecipeCatalyst,
   type LatestRecipeInput,
 } from "../../lib/api";
-import type { Item } from "../../types";
+
+type CatalystGuide = {
+  description: string;
+  example: string;
+};
+
+const CATALYST_GUIDES: Record<number, CatalystGuide> = {
+  [CREATIVE_ITEM_ID]: {
+    description:
+      "Pushes the combination away from the most literal answer and toward a more vivid, inspired, and memorable real-world concept. It still tries to stay grounded in something recognizable rather than inventing nonsense.",
+    example: "Example: Sword + Creative Spark -> Excalibur",
+  },
+  [SPLIT_ITEM_ID]: {
+    description:
+      "Treats the inputs like a subtraction problem. It first looks for inverse-combination logic, asking what ingredient, source concept, or remaining part would make sense if one idea were removed from another.",
+    example: "Example: Sandcastle + Split + Sand -> Castle",
+  },
+  [OPPOSITE_ITEM_ID]: {
+    description:
+      "Looks for the clearest and most widely recognized opposite of the dominant input meaning. It favors a direct inverse over something poetic, clever, or loosely contrasting.",
+    example: "Example: Victory + Opposite -> Defeat",
+  },
+  [RANDOMIZE_ITEM_ID]: {
+    description:
+      "Transforms the input into a nearby variation, sibling concept, or category neighbor while staying in the same general semantic space. The result should feel closely related, not like a random jump to something unrelated.",
+    example: "Example: Sword + Randomize -> Spear",
+  },
+  [CRAFT_ITEM_ID]: {
+    description:
+      "Resolves the inputs as a physical outcome. It looks for the most plausible object, material, substance, compound, device, or structure that could come from combining or transforming the physical inputs together, while ignoring abstract or symbolic interpretations.",
+    example: "Example: Metal + Wood + Craft -> Shield",
+  },
+  [EVOLVE_ITEM_ID]: {
+    description:
+      "Pushes the input toward a stronger next stage. It favors progression, development, refinement, maturity, or upgrade over a sideways variation that is merely related.",
+    example: "Example: Hut + Evolve -> House",
+  },
+  [POP_CULTURE_ITEM_ID]: {
+    description:
+      "Treats the inputs as clues pointing toward one specific and recognizable pop culture reference. It prefers a named character, place, celebrity, franchise, scene, or entertainment concept over a broad genre.",
+    example: "Example: Billionaire + Suit + Pop Culture -> Iron Man",
+  },
+  [WORD_COMBINE_ITEM_ID]: {
+    description:
+      "Looks for a real established compound word or common phrase formed by the inputs. It is intentionally strict and should only resolve when the result feels like something you would actually find in a dictionary, encyclopedia, or common usage.",
+    example: "Example: Snow + Man + Compound -> Snowman",
+  },
+};
 
 interface Props {
   item: Item;
@@ -26,6 +84,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   onClose,
   onSelectItem,
 }) => {
+  const catalystGuide = item.id < 0 ? CATALYST_GUIDES[item.id] ?? null : null;
   const isBaseItem =
     item.normalizedName === "fire" ||
     item.normalizedName === "water" ||
@@ -148,7 +207,12 @@ const ItemDetailsDrawer: React.FC<Props> = ({
 
         <section className="item-drawer-section">
           <div className="item-drawer-section-label">Reference</div>
-          {isLoadingReference ? (
+          {catalystGuide ? (
+            <>
+              <p className="item-drawer-description">{catalystGuide.description}</p>
+              <div className="item-drawer-example">{catalystGuide.example}</div>
+            </>
+          ) : isLoadingReference ? (
             <div className="item-drawer-status" aria-live="polite">
               <span className="search-pending-spinner" aria-hidden="true" />
               <span>Loading reference…</span>
@@ -176,7 +240,11 @@ const ItemDetailsDrawer: React.FC<Props> = ({
 
         <section className="item-drawer-section">
           <div className="item-drawer-section-label">Latest recipe</div>
-          {isBaseItem ? (
+          {catalystGuide ? (
+            <p className="item-drawer-empty">
+              Catalysts are tools you combine with other items, not recipe results themselves.
+            </p>
+          ) : isBaseItem ? (
             <p className="item-drawer-empty">
               Base elements do not show recipe history here.
             </p>

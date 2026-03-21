@@ -815,8 +815,7 @@ function GraphView({
       : CARD_HORIZONTAL_PADDING * 2 +
         icon.width +
         10 +
-        label.width +
-        (badge ? badge.width + 12 : 0);
+        label.width;
     const cardWidth = contentWidth;
     drawItemCard(background, cardWidth, item.id, "default");
 
@@ -832,8 +831,8 @@ function GraphView({
     }
 
     if (badge) {
-      badge.x = cardWidth - CARD_HORIZONTAL_PADDING - badge.width;
-      badge.y = Math.round((CARD_HEIGHT - badge.height) / 2) - 1;
+      badge.x = cardWidth - badge.width - 6;
+      badge.y = CARD_HEIGHT - badge.height + 10;
     }
 
     container.addChild(background);

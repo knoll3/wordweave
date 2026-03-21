@@ -600,6 +600,7 @@ const App: React.FC = () => {
     if (
       !hasCreativeCatalyst &&
       !hasEvolveCatalyst &&
+      !hasPopCultureCatalyst &&
       !hasSplitCatalyst &&
       !hasOppositeCatalyst &&
       !hasRandomizeCatalyst &&

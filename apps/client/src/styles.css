@@ -915,6 +915,17 @@ body.page-scrollable {
   color: var(--text-soft);
 }
 
+.item-drawer-example {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  border: 1px solid rgba(96, 165, 250, 0.18);
+  background: rgba(30, 41, 59, 0.62);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--text-soft);
+}
+
 .item-drawer-link {
   margin-top: 12px;
   display: inline-flex;
