@@ -154,17 +154,42 @@ body.page-scrollable {
 }
 
 .library-toolbar {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto 104px;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
+  gap: 10px;
+  justify-content: end;
 }
 
 .sort-controls {
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  min-height: 34px;
+}
+
+.library-secondary-slot {
+  width: 104px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.library-mode-controls,
+.library-sort-controls {
+  padding: 3px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+
+.library-mode-controls {
+  background: rgba(15, 23, 42, 0.92);
+}
+
+.library-sort-controls {
+  background: rgba(30, 41, 59, 0.54);
+  border-color: rgba(148, 163, 184, 0.12);
+  width: auto;
+  justify-content: flex-start;
 }
 
 .sort-button {
@@ -176,6 +201,33 @@ body.page-scrollable {
   line-height: 1;
   padding: 4px 8px;
   cursor: pointer;
+}
+
+.library-mode-controls .sort-button,
+.library-sort-controls .sort-button {
+  border-color: transparent;
+}
+
+.library-sort-controls .sort-button {
+  background: transparent;
+}
+
+.library-tree-actions {
+  width: 100%;
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.library-action-button {
+  min-width: 32px;
+  padding: 6px 10px;
+}
+
+.library-action-button svg {
+  width: 14px;
+  height: 14px;
+  display: block;
 }
 
 .sort-button:hover {
