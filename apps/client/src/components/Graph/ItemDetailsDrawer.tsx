@@ -35,7 +35,7 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   },
   [SPLIT_ITEM_ID]: {
     description:
-      "Treats the inputs as something to split apart. It looks for the single most meaningful part, component, constituent element, or resulting piece that would plausibly appear if the item were divided, broken down, separated, or split into its underlying parts.",
+      "Treats the inputs as something to split apart. Two-word names split directly into those two words, and recognized compound words split directly into their component words. Otherwise it looks for the most meaningful part, component, constituent element, or resulting piece that would plausibly appear if the item were divided, broken down, separated, or split into its underlying parts.",
     example: "Example: Sandcastle + Split + Sand -> Castle",
   },
   [OPPOSITE_ITEM_ID]: {
