@@ -6,6 +6,16 @@ import type {
   Item,
 } from "../types";
 
+export type AchievementTestMatch = {
+  id: string;
+  title: string;
+  description: string;
+  points: number;
+  lookupName: string;
+  autoMatches: boolean;
+  score: number;
+};
+
 type AchievementDefinition = {
   id: string;
   title: string;
@@ -16,6 +26,7 @@ type AchievementDefinition = {
   requirement: {
     count: number;
     targets: string[];
+    aliases?: string[];
   };
 };
 
@@ -337,7 +348,11 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
     categoryId: "beasts",
     groupId: "beast-icons",
     points: 10,
-    requirement: { count: 1, targets: ["t-rex", "tyrannosaurus"] },
+    requirement: {
+      count: 1,
+      targets: ["t-rex"],
+      aliases: ["t rex", "trex", "tyrannosaurus", "tyrannosaurus rex"],
+    },
   },
   {
     id: "beasts-velociraptor",
@@ -381,10 +396,14 @@ const ACHIEVEMENT_DEFINITIONS_BY_ID = new Map(
   ACHIEVEMENTS.map((definition) => [definition.id, definition] as const)
 );
 
+function getRequirementNames(definition: AchievementDefinition) {
+  return [...definition.requirement.targets, ...(definition.requirement.aliases ?? [])];
+}
+
 const ACHIEVEMENT_IDS_BY_TARGET = (() => {
   const next = new Map<string, string[]>();
   for (const definition of ACHIEVEMENTS) {
-    for (const target of definition.requirement.targets) {
+    for (const target of getRequirementNames(definition)) {
       const normalizedTarget = normalizeAchievementText(target);
       if (!normalizedTarget) {
         continue;
@@ -399,8 +418,26 @@ const ACHIEVEMENT_IDS_BY_TARGET = (() => {
   return next;
 })();
 
+const ACHIEVEMENT_TARGETS = ACHIEVEMENTS.flatMap((definition) =>
+  getRequirementNames(definition)
+    .map((target) => {
+      const normalizedTarget = normalizeAchievementText(target);
+      if (!normalizedTarget) {
+        return null;
+      }
+      return {
+        achievementId: definition.id,
+        normalizedTarget,
+        tokenCount: normalizedTarget.split(/\s+/).filter(Boolean).length,
+      };
+    })
+    .filter((entry): entry is { achievementId: string; normalizedTarget: string; tokenCount: number } => entry != null)
+);
+
 function normalizeAchievementText(value: string) {
   return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
     .toLowerCase()
     .replace(/[’']/g, "")
@@ -408,6 +445,236 @@ function normalizeAchievementText(value: string) {
     .replace(/\b(the|a|an)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function singularizeToken(token: string) {
+  if (token.endsWith("ies") && token.length > 4) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.endsWith("ses") && token.length > 4) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && !token.endsWith("ss") && token.length > 3) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+function buildAchievementTestVariants(rawValues: Array<string | null | undefined>) {
+  const variants = new Set<string>();
+
+  for (const rawValue of rawValues) {
+    if (!rawValue) {
+      continue;
+    }
+    const normalized = normalizeAchievementText(rawValue);
+    if (!normalized) {
+      continue;
+    }
+    variants.add(normalized);
+
+    const singularized = normalized
+      .split(/\s+/)
+      .filter(Boolean)
+      .map(singularizeToken)
+      .join(" ");
+    if (singularized) {
+      variants.add(singularized);
+    }
+  }
+
+  return [...variants];
+}
+
+function computeTokenOverlapScore(left: string, right: string) {
+  const leftTokens = new Set(left.split(/\s+/).filter(Boolean));
+  const rightTokens = new Set(right.split(/\s+/).filter(Boolean));
+  if (leftTokens.size === 0 || rightTokens.size === 0) {
+    return 0;
+  }
+
+  let intersection = 0;
+  for (const token of leftTokens) {
+    if (rightTokens.has(token)) {
+      intersection += 1;
+    }
+  }
+
+  if (intersection === 0) {
+    return 0;
+  }
+
+  return intersection / Math.max(leftTokens.size, rightTokens.size);
+}
+
+function computeEditDistance(left: string, right: string) {
+  if (left === right) {
+    return 0;
+  }
+
+  const rows = left.length + 1;
+  const cols = right.length + 1;
+  const matrix = Array.from({ length: rows }, () => Array<number>(cols).fill(0));
+
+  for (let row = 0; row < rows; row += 1) {
+    matrix[row][0] = row;
+  }
+  for (let col = 0; col < cols; col += 1) {
+    matrix[0][col] = col;
+  }
+
+  for (let row = 1; row < rows; row += 1) {
+    for (let col = 1; col < cols; col += 1) {
+      const cost = left[row - 1] === right[col - 1] ? 0 : 1;
+      matrix[row][col] = Math.min(
+        matrix[row - 1][col] + 1,
+        matrix[row][col - 1] + 1,
+        matrix[row - 1][col - 1] + cost
+      );
+    }
+  }
+
+  return matrix[left.length][right.length];
+}
+
+function computeStringSimilarity(left: string, right: string) {
+  const longestLength = Math.max(left.length, right.length);
+  if (longestLength === 0) {
+    return 1;
+  }
+  return 1 - computeEditDistance(left, right) / longestLength;
+}
+
+function isContainedAchievementPhrase(itemName: string, targetName: string, targetTokenCount: number) {
+  if (targetTokenCount < 2) {
+    return false;
+  }
+
+  const itemTokens = itemName.split(/\s+/).filter(Boolean);
+  const targetTokens = targetName.split(/\s+/).filter(Boolean);
+  if (targetTokens.length !== targetTokenCount || itemTokens.length <= targetTokens.length) {
+    return false;
+  }
+
+  for (let start = 0; start <= itemTokens.length - targetTokens.length; start += 1) {
+    let matches = true;
+    for (let offset = 0; offset < targetTokens.length; offset += 1) {
+      if (itemTokens[start + offset] !== targetTokens[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function findMatchingAchievementIdsForItem(normalizedItemName: string) {
+  const exactMatches = ACHIEVEMENT_IDS_BY_TARGET.get(normalizedItemName) ?? [];
+  if (exactMatches.length > 0) {
+    return exactMatches;
+  }
+
+  const fallbackMatches: string[] = [];
+  for (const target of ACHIEVEMENT_TARGETS) {
+    if (
+      isContainedAchievementPhrase(
+        normalizedItemName,
+        target.normalizedTarget,
+        target.tokenCount
+      )
+    ) {
+      fallbackMatches.push(target.achievementId);
+    }
+  }
+
+  return fallbackMatches;
+}
+
+export function testItemAgainstAchievements(params: {
+  itemName: string;
+  referenceTitle?: string | null;
+}) {
+  const variants = buildAchievementTestVariants([
+    params.itemName,
+    params.referenceTitle ?? null,
+  ]);
+
+  if (variants.length === 0) {
+    return {
+      automaticMatches: [] as AchievementTestMatch[],
+      likelyMatches: [] as AchievementTestMatch[],
+    };
+  }
+
+  const automaticMatches: AchievementTestMatch[] = [];
+  const likelyMatches: AchievementTestMatch[] = [];
+
+  for (const definition of ACHIEVEMENTS) {
+    const targetVariants = buildAchievementTestVariants(getRequirementNames(definition));
+
+    let autoMatches = false;
+    let bestScore = 0;
+    for (const itemVariant of variants) {
+      for (const targetVariant of targetVariants) {
+        if (itemVariant === targetVariant) {
+          autoMatches = true;
+          bestScore = 1;
+          break;
+        }
+
+        const tokenOverlap = computeTokenOverlapScore(itemVariant, targetVariant);
+        const similarity = computeStringSimilarity(itemVariant, targetVariant);
+        const combinedScore = Math.max(
+          similarity,
+          tokenOverlap >= 0.8 ? 0.82 + tokenOverlap * 0.12 : 0
+        );
+        if (combinedScore > bestScore) {
+          bestScore = combinedScore;
+        }
+      }
+      if (autoMatches) {
+        break;
+      }
+    }
+
+    const match: AchievementTestMatch = {
+      id: definition.id,
+      title: definition.title,
+      description: definition.description,
+      points: definition.points,
+      lookupName: definition.requirement.targets[0] ?? definition.title,
+      autoMatches,
+      score: bestScore,
+    };
+
+    if (autoMatches) {
+      automaticMatches.push(match);
+    } else if (bestScore >= 0.86) {
+      likelyMatches.push(match);
+    }
+  }
+
+  const sortMatches = (left: AchievementTestMatch, right: AchievementTestMatch) => {
+    if (right.score !== left.score) {
+      return right.score - left.score;
+    }
+    if (right.points !== left.points) {
+      return right.points - left.points;
+    }
+    return left.title.localeCompare(right.title);
+  };
+
+  automaticMatches.sort(sortMatches);
+  likelyMatches.sort(sortMatches);
+
+  return {
+    automaticMatches,
+    likelyMatches: likelyMatches.slice(0, 5),
+  };
 }
 
 function buildAchievementProgress(
@@ -436,7 +703,7 @@ export function evaluateAchievements(items: Item[]): AchievementSummary {
     if (!normalizedItemName) {
       continue;
     }
-    const matchingAchievementIds = ACHIEVEMENT_IDS_BY_TARGET.get(normalizedItemName) ?? [];
+    const matchingAchievementIds = findMatchingAchievementIdsForItem(normalizedItemName);
     for (const achievementId of matchingAchievementIds) {
       if (ACHIEVEMENT_DEFINITIONS_BY_ID.has(achievementId)) {
         earnedAchievementIds.add(achievementId);

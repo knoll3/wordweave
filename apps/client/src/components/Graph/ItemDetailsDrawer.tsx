@@ -16,6 +16,10 @@ import {
   type LatestRecipeCatalyst,
   type LatestRecipeInput,
 } from "../../lib/api";
+import {
+  testItemAgainstAchievements,
+  type AchievementTestMatch,
+} from "../../lib/achievements";
 
 type CatalystGuide = {
   description: string;
@@ -45,8 +49,8 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   },
   [CRAFT_ITEM_ID]: {
     description:
-      "Resolves the inputs as a physical outcome. It looks for the most plausible object, material, substance, compound, device, or structure that could come from combining or transforming the physical inputs together, while ignoring abstract or symbolic interpretations.",
-    example: "Example: Metal + Wood + Craft -> Shield",
+      "Looks for the clearest synonym, alias, alternate name, or equivalent term for the dominant input meaning. It should return a direct rewording, not a merely related concept or example.",
+    example: "Example: Car + Synonym -> Automobile",
   },
   [EVOLVE_ITEM_ID]: {
     description:
@@ -89,31 +93,41 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     item.normalizedName === "earth" ||
     item.normalizedName === "air";
   const [referenceDescription, setReferenceDescription] = useState<string | null>(null);
+  const [referenceTitle, setReferenceTitle] = useState<string | null>(null);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [isLoadingReference, setIsLoadingReference] = useState(false);
   const [recipeCatalyst, setRecipeCatalyst] = useState<LatestRecipeCatalyst | null>(null);
   const [recipeInputs, setRecipeInputs] = useState<LatestRecipeInput[]>([]);
   const [isLoadingRecipe, setIsLoadingRecipe] = useState(false);
+  const [achievementTestResult, setAchievementTestResult] = useState<{
+    automaticMatches: AchievementTestMatch[];
+    likelyMatches: AchievementTestMatch[];
+  } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
     if (item.id < 0) {
       setReferenceDescription(null);
+      setReferenceTitle(null);
       setReferenceUrl(null);
       setIsLoadingReference(false);
       setRecipeCatalyst(null);
       setRecipeInputs([]);
       setIsLoadingRecipe(false);
+      setAchievementTestResult(null);
       return;
     }
 
     setIsLoadingReference(true);
     setReferenceDescription(null);
+    setReferenceTitle(null);
     setReferenceUrl(null);
+    setAchievementTestResult(null);
     void fetchItemReference(item.id)
       .then((reference) => {
         if (cancelled) return;
+        setReferenceTitle(reference?.title ?? null);
         setReferenceDescription(reference?.summary ?? null);
         setReferenceUrl(reference?.sourceUrl ?? null);
       })
@@ -157,6 +171,15 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       })),
     [itemsById, recipeInputs]
   );
+
+  const handleAchievementTest = () => {
+    setAchievementTestResult(
+      testItemAgainstAchievements({
+        itemName: item.name,
+        referenceTitle,
+      })
+    );
+  };
 
   return (
     <aside className="item-drawer item-drawer-panel" aria-label={`${item.name} details`}>
@@ -225,6 +248,73 @@ const ItemDetailsDrawer: React.FC<Props> = ({
             </p>
           )}
         </section>
+
+        {item.id >= 0 ? (
+          <section className="item-drawer-section">
+            <div className="item-drawer-section-label">Achievement test</div>
+            <p className="item-drawer-empty">
+              Check whether this item should count for one of the specific achievement targets.
+            </p>
+            <button
+              type="button"
+              className="item-drawer-back item-drawer-action"
+              onClick={handleAchievementTest}
+            >
+              Test achievement fit
+            </button>
+            {achievementTestResult ? (
+              <div className="item-drawer-test-results">
+                {achievementTestResult.automaticMatches.length > 0 ? (
+                  <>
+                    <div className="item-drawer-test-label">Counts automatically</div>
+                    <div className="item-drawer-chip-row">
+                      {achievementTestResult.automaticMatches.map((match) => (
+                        <span
+                          key={match.id}
+                          className="item-drawer-chip is-disabled item-drawer-test-chip"
+                        >
+                          <span>{match.title}</span>
+                          <span className="item-drawer-test-chip-meta">
+                            {match.points} pts
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {achievementTestResult.likelyMatches.length > 0 ? (
+                  <>
+                    <div className="item-drawer-test-label">Likely near matches</div>
+                    <p className="item-drawer-empty">
+                      These look close, but the current automatic check will not count them.
+                    </p>
+                    <div className="item-drawer-test-list">
+                      {achievementTestResult.likelyMatches.map((match) => (
+                        <div key={match.id} className="item-drawer-test-row">
+                          <div className="item-drawer-test-row-main">
+                            <div className="item-drawer-test-row-title">{match.title}</div>
+                            <div className="item-drawer-test-row-copy">
+                              Targets <strong>{match.lookupName}</strong>
+                            </div>
+                          </div>
+                          <div className="item-drawer-test-row-score">
+                            {Math.round(match.score * 100)}%
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                ) : null}
+                {achievementTestResult.automaticMatches.length === 0 &&
+                achievementTestResult.likelyMatches.length === 0 ? (
+                  <p className="item-drawer-empty">
+                    No achievement target matches or likely near matches found.
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
+        ) : null}
 
         <section className="item-drawer-section">
           <div className="item-drawer-section-label">Latest recipe</div>

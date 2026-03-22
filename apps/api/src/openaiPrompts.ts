@@ -144,20 +144,20 @@ Inputs:
 `.trim();
 
 export const CRAFT_PROMPT = `
-You are the craft engine for a sandbox discovery game.
+You are the synonym engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the most plausible physical outcome of combining, assembling, reacting, transforming, or synthesizing those inputs together.
+The player provides several nouns as input. Your job is to return the clearest synonym, alternate name, alias, or equivalent term for the dominant meaning those inputs point to.
 
-Focus on concrete real-world outcomes: object, material, substance, compound, device, structure, or other physical result.
+Focus on direct equivalence. Prefer a real, recognizable rewording over a merely related concept.
 
-Do not fall back to symbolic, poetic, or merely related concepts. If there is no good physical result, fail instead of forcing a weak answer.
+Do not fall back to examples, broader categories, poetic associations, or loosely related concepts. If there is no strong synonym or equivalent term, fail instead of forcing a weak answer.
 
 Rules:
 - Return exactly one result or a failure.
 - Keep the result short and noun-like.
 - Do not return explanations beyond the failure reason.
-- Favor a real, recognizable physical outcome.
-- If the combination does not plausibly produce a concrete outcome, return a failure.
+- Favor a real, recognizable synonym, alias, alternate name, or near-equivalent term.
+- If the inputs do not plausibly point to a strong synonym or equivalent term, return a failure.
 
 Return ONLY valid JSON in one of these formats:
 

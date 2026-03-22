@@ -60,9 +60,9 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
     icon: "🧬",
   },
   craft: {
-    name: "Craft",
-    normalizedName: "craft",
-    icon: "🔨",
+    name: "Synonym",
+    normalizedName: "synonym",
+    icon: "🟰",
   },
   compound: {
     name: "Compound",

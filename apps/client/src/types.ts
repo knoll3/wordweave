@@ -56,9 +56,9 @@ export const CRAFT_ITEM_ID = -5;
 
 export const CRAFT_ITEM: Item = {
   id: CRAFT_ITEM_ID,
-  name: "Craft",
-  normalizedName: "craft",
-  icon: "🔨",
+  name: "Synonym",
+  normalizedName: "synonym",
+  icon: "🟰",
 };
 
 export const EVOLVE_ITEM_ID = -6;

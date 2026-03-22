@@ -96,10 +96,10 @@ const UNLOCK_DISPLAY: Record<
     shortCopy: "Adds a modifier token that constrains another item by category.",
   },
   craft: {
-    name: "Craft",
-    icon: "🔨",
-    accentClass: "is-craft",
-    shortCopy: "Resolves inputs as a physical outcome, object, or material.",
+    name: "Synonym",
+    icon: "🟰",
+    accentClass: "is-synonym",
+    shortCopy: "Finds a direct synonym, alias, or equivalent term.",
   },
   evolve: {
     name: "Evolve",
@@ -304,11 +304,15 @@ const App: React.FC = () => {
     const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
     const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
     const celebrationNodeId =
-      newestDiscoveredItem == null
-        ? null
-        : [...workspaceItems]
+      newestDiscoveredItem != null
+        ? [...workspaceItems]
             .reverse()
-            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ?? null;
+            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ?? null
+        : drawerItemId == null
+          ? null
+          : [...workspaceItems]
+              .reverse()
+              .find((workspaceItem) => workspaceItem.itemId === drawerItemId)?.nodeId ?? null;
 
     if (newlyCompleted.length > 0) {
       const earnedPoints = newlyCompleted.reduce(
@@ -329,7 +333,7 @@ const App: React.FC = () => {
 
     initialAchievementSnapshotRef.current = completedIds;
     previousItemIdsRef.current = new Set(items.map((item) => item.id));
-  }, [achievementSummary, items, workspaceItems]);
+  }, [achievementSummary, drawerItemId, items, workspaceItems]);
 
   useEffect(() => {
     if (!isJournalOpen || journalTab !== "achievements") {
@@ -508,8 +512,8 @@ const App: React.FC = () => {
     if (isFeatureUnlocked("craft")) {
       actions.push({
         key: "craft",
-        title: "Craft",
-        icon: <Hammer size={16} strokeWidth={2} />,
+        title: "Synonym",
+        icon: <Link2 size={16} strokeWidth={2} />,
         tint: "rgba(245, 158, 11, 0.22)",
         iconTint: "#fde68a",
         onClick: () => addItemToWorkspace(CRAFT_ITEM_ID),
@@ -741,7 +745,7 @@ const App: React.FC = () => {
         (item): item is Item => !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id)
       );
     const catalystLabel = hasCraftCatalyst
-      ? "Craft"
+      ? "Synonym"
       : hasCreativeCatalyst
         ? "Creative Spark"
       : hasEvolveCatalyst
@@ -767,6 +771,7 @@ const App: React.FC = () => {
       return false;
     }
     if (
+      !hasCraftCatalyst &&
       !hasCreativeCatalyst &&
       !hasEvolveCatalyst &&
       !hasPopCultureCatalyst &&
