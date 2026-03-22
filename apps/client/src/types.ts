@@ -167,6 +167,48 @@ export interface TargetQuestList {
   quests: TargetQuest[];
 }
 
+export interface AchievementProgress {
+  id: string;
+  title: string;
+  description: string;
+  lookupName: string;
+  points: number;
+  completed: boolean;
+  progressCurrent: number;
+  progressTarget: number;
+}
+
+export interface AchievementGroupProgress {
+  id: string;
+  title: string;
+  summary: string;
+  achievements: AchievementProgress[];
+  earnedPoints: number;
+  totalPoints: number;
+  completedCount: number;
+  totalCount: number;
+}
+
+export interface AchievementCategoryProgress {
+  id: string;
+  title: string;
+  summary: string;
+  groups: AchievementGroupProgress[];
+  earnedPoints: number;
+  totalPoints: number;
+  completedCount: number;
+  totalCount: number;
+}
+
+export interface AchievementSummary {
+  categories: AchievementCategoryProgress[];
+  earnedPoints: number;
+  totalPoints: number;
+  completedCount: number;
+  totalCount: number;
+  featuredProgress: AchievementProgress[];
+}
+
 export interface CacheRecipe {
   id: number;
   inputKey: string;

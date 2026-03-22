@@ -30,95 +30,37 @@ import {
   WORD_COMBINE_ITEM_ID,
 } from "./types";
 import type {
+  AchievementSummary,
   AiModel,
   FeatureUnlockStatus,
   Item,
   SelectionCombineLayout,
-  TargetQuestList,
   UnlockKey,
   WorkspaceItem,
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import ItemDetailsDrawer from "./components/Graph/ItemDetailsDrawer";
+import { evaluateAchievements } from "./lib/achievements";
 import {
   combineElements,
-  fetchUnlockStatuses,
   fetchQuestTargetReference,
-  generateTargetQuests,
+  fetchUnlockStatuses,
   markUnlockIntroSeen,
+  type ItemReference,
 } from "./lib/api";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
-const TARGET_QUEST_LIST_STORAGE_KEY = "wordweave.target-quest-list";
-const TRACKED_TARGET_QUEST_STORAGE_KEY = "wordweave.tracked-target-quest";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
 const TOAST_DURATION_MS = 3500;
 const ITEM_DRAWER_EXIT_MS = 220;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
-
-function normalizeQuestMatchText(value: string) {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[’']/g, "")
-    .replace(/[^a-z0-9\s-]+/g, " ")
-    .replace(/\b(the|a|an)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokenizeQuestMatchText(value: string) {
-  return normalizeQuestMatchText(value)
-    .split(/[\s-]+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function normalizeQuestToken(token: string) {
-  if (token.endsWith("ies") && token.length > 3) {
-    return `${token.slice(0, -3)}y`;
-  }
-  if (token.endsWith("es") && token.length > 3) {
-    return token.slice(0, -2);
-  }
-  if (token.endsWith("s") && token.length > 3) {
-    return token.slice(0, -1);
-  }
-  return token;
-}
-
-function matchesQuestTarget(target: string, candidate: Item) {
-  const normalizedTarget = normalizeQuestMatchText(target);
-  const normalizedCandidate = normalizeQuestMatchText(
-    candidate.normalizedName || candidate.name
-  );
-
-  if (!normalizedTarget || !normalizedCandidate) {
-    return false;
-  }
-
-  if (normalizedTarget === normalizedCandidate) {
-    return true;
-  }
-  const targetTokens = tokenizeQuestMatchText(target);
-  const candidateTokens = tokenizeQuestMatchText(candidate.normalizedName || candidate.name);
-  if (!targetTokens.length || !candidateTokens.length) {
-    return false;
-  }
-
-  if (targetTokens.length !== candidateTokens.length) {
-    return false;
-  }
-
-  return targetTokens.every((token, index) => {
-    return normalizeQuestToken(token) === normalizeQuestToken(candidateTokens[index] ?? "");
-  });
-}
+const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
 
 type QuestCelebrationState = {
+  kicker: string;
   title: string;
   copy: string;
 };
@@ -213,37 +155,13 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   }
 };
 
-const loadStoredTargetQuestList = (): TargetQuestList | null => {
-  if (typeof window === "undefined") {
-    return null;
+function truncateAchievementReference(value: string, limit: number) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  if (normalized.length <= limit) {
+    return normalized;
   }
-
-  const storedQuestList = window.localStorage.getItem(TARGET_QUEST_LIST_STORAGE_KEY);
-  if (!storedQuestList) {
-    return null;
-  }
-
-  try {
-    const parsed = JSON.parse(storedQuestList) as TargetQuestList;
-    if (!parsed || !Array.isArray(parsed.quests)) {
-      return null;
-    }
-    return parsed;
-  } catch {
-    return null;
-  }
-};
-
-const loadStoredTrackedTargetQuestKey = (): string | null => {
-  if (typeof window === "undefined") {
-    return null;
-  }
-
-  const storedTrackedQuest = window.localStorage.getItem(
-    TRACKED_TARGET_QUEST_STORAGE_KEY
-  );
-  return storedTrackedQuest?.trim() || null;
-};
+  return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
@@ -259,19 +177,13 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
-  const [targetQuestList, setTargetQuestList] = useState<TargetQuestList | null>(
-    loadStoredTargetQuestList
+  const [isJournalOpen, setIsJournalOpen] = useState(false);
+  const [journalTab, setJournalTab] = useState<"achievements" | "quests">(
+    "achievements"
   );
-  const [trackedTargetQuestKey, setTrackedTargetQuestKey] = useState<string | null>(
-    loadStoredTrackedTargetQuestKey
-  );
-  const [isQuestDrawerOpen, setIsQuestDrawerOpen] = useState(false);
-  const [isGeneratingTargetQuests, setIsGeneratingTargetQuests] = useState(false);
-  const [targetQuestError, setTargetQuestError] = useState<string | null>(null);
-  const [trackedQuestDescription, setTrackedQuestDescription] = useState<string | null>(null);
-  const [trackedQuestUrl, setTrackedQuestUrl] = useState<string | null>(null);
-  const [isLoadingTrackedQuestReference, setIsLoadingTrackedQuestReference] =
-    useState(false);
+  const [achievementReferences, setAchievementReferences] = useState<
+    Record<string, ItemReference | null | undefined>
+  >({});
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
@@ -281,7 +193,8 @@ const App: React.FC = () => {
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
   const [renderedDrawerItemId, setRenderedDrawerItemId] = useState<number | null>(null);
   const [isDrawerClosing, setIsDrawerClosing] = useState(false);
-  const lastCelebratedQuestKeyRef = useRef<string | null>(null);
+  const initialAchievementSnapshotRef = useRef<Set<string> | null>(null);
+  const previousItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -302,14 +215,6 @@ const App: React.FC = () => {
       forceUnlocks ? "true" : "false"
     );
   }, [forceUnlocks]);
-
-  useEffect(() => {
-    if (!trackedTargetQuestKey) {
-      window.localStorage.removeItem(TRACKED_TARGET_QUEST_STORAGE_KEY);
-      return;
-    }
-    window.localStorage.setItem(TRACKED_TARGET_QUEST_STORAGE_KEY, trackedTargetQuestKey);
-  }, [trackedTargetQuestKey]);
 
   useEffect(() => {
     if (combiningNodeIds.length > 0) return;
@@ -333,7 +238,7 @@ const App: React.FC = () => {
 
   useEffect(() => {
     void loadFeatureUnlocks();
-  }, [items]);
+  }, []);
 
   useEffect(() => {
     const pendingUnlock = featureUnlocks.find((unlock) => unlock.introPending);
@@ -354,7 +259,8 @@ const App: React.FC = () => {
             .find((workspaceItem) => workspaceItem.itemId === sourceItemId)?.nodeId ?? null;
     const catalystName = UNLOCK_DISPLAY[pendingUnlock.key].name;
 
-    showQuestCelebration(
+    showProgressCelebration(
+      "Quest Complete",
       `${catalystName} unlocked`,
       pendingUnlock.summary,
       sourceNodeId
@@ -371,6 +277,109 @@ const App: React.FC = () => {
       .catch(() => {});
   }, [featureUnlocks, items, workspaceItems]);
 
+  const achievementSummary: AchievementSummary = useMemo(
+    () => evaluateAchievements(items),
+    [items]
+  );
+
+  useEffect(() => {
+    const completedIds = new Set(
+      achievementSummary.categories.flatMap((category) =>
+        category.groups.flatMap((group) =>
+          group.achievements.filter((achievement) => achievement.completed).map((achievement) => achievement.id)
+        )
+      )
+    );
+    const previousCompletedIds = initialAchievementSnapshotRef.current;
+    const previousItemIds = previousItemIdsRef.current;
+
+    if (previousCompletedIds == null || previousItemIds == null) {
+      initialAchievementSnapshotRef.current = completedIds;
+      previousItemIdsRef.current = new Set(items.map((item) => item.id));
+      return;
+    }
+
+    const newlyCompleted = achievementSummary.categories
+      .flatMap((category) => category.groups.flatMap((group) => group.achievements))
+      .filter(
+        (achievement) =>
+          achievement.completed && !previousCompletedIds.has(achievement.id)
+      );
+
+    const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
+    const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
+    const celebrationNodeId =
+      newestDiscoveredItem == null
+        ? null
+        : [...workspaceItems]
+            .reverse()
+            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ?? null;
+
+    if (newlyCompleted.length > 0) {
+      const earnedPoints = newlyCompleted.reduce(
+        (sum, achievement) => sum + achievement.points,
+        0
+      );
+      showProgressCelebration(
+        "Achievement Earned",
+        newlyCompleted.length === 1
+          ? newlyCompleted[0].title
+          : `${newlyCompleted.length} achievements earned`,
+        newlyCompleted.length === 1
+          ? `+${earnedPoints} achievement points`
+          : `+${earnedPoints} achievement points added to your total.`,
+        celebrationNodeId
+      );
+    }
+
+    initialAchievementSnapshotRef.current = completedIds;
+    previousItemIdsRef.current = new Set(items.map((item) => item.id));
+  }, [achievementSummary, items, workspaceItems]);
+
+  useEffect(() => {
+    if (!isJournalOpen || journalTab !== "achievements") {
+      return;
+    }
+
+    const visibleAchievements = achievementSummary.categories.flatMap((category) =>
+      category.groups.flatMap((group) => group.achievements)
+    );
+    const missing = visibleAchievements.filter(
+      (achievement) => achievementReferences[achievement.id] === undefined
+    );
+
+    if (missing.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      missing.map(async (achievement) => {
+        try {
+          const reference = await fetchQuestTargetReference(achievement.lookupName);
+          return [achievement.id, reference] as const;
+        } catch {
+          return [achievement.id, null] as const;
+        }
+      })
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      setAchievementReferences((prev) => {
+        const next = { ...prev };
+        for (const [achievementId, reference] of results) {
+          next[achievementId] = reference;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [achievementReferences, achievementSummary, isJournalOpen, journalTab]);
+
   function showError(message: string, err: unknown) {
     void err;
     setErrorMessage(message);
@@ -384,70 +393,10 @@ const App: React.FC = () => {
     }
   }
 
-  async function loadTargetQuestList() {
-    try {
-      setIsGeneratingTargetQuests(true);
-      setTargetQuestError(null);
-      const next = await generateTargetQuests({ count: 4 });
-      setTargetQuestList(next);
-      setTrackedTargetQuestKey((current) =>
-        current && next.quests.some((quest) => quest.normalizedTarget === current)
-          ? current
-          : next.quests[0]?.normalizedTarget ?? null
-      );
-    } catch (err) {
-      setTargetQuestError(
-        err instanceof Error ? err.message : "Failed to generate target quests."
-      );
-    } finally {
-      setIsGeneratingTargetQuests(false);
-    }
-  }
-
   function isFeatureUnlocked(key: UnlockKey) {
     if (forceUnlocks) return true;
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
-
-  const quests = useMemo(
-    () =>
-      (targetQuestList?.quests ?? []).map((quest) => ({
-        ...quest,
-        completed: items.some((item) => matchesQuestTarget(quest.target, item)),
-      })),
-    [items, targetQuestList]
-  );
-
-  useEffect(() => {
-    if (trackedTargetQuestKey && quests.some((quest) => quest.normalizedTarget === trackedTargetQuestKey)) {
-      return;
-    }
-    setTrackedTargetQuestKey(quests[0]?.normalizedTarget ?? null);
-  }, [quests, trackedTargetQuestKey]);
-
-  const trackedQuest =
-    quests.find((quest) => quest.normalizedTarget === trackedTargetQuestKey) ??
-    quests[0] ??
-    null;
-
-  const trackedQuestCompletionKey = trackedQuest?.completed
-    ? trackedQuest.normalizedTarget
-    : null;
-  const trackedQuestWorkspaceNodeId = useMemo(() => {
-    if (!trackedQuest) {
-      return null;
-    }
-    const trackedItemId =
-      items.find((item) => matchesQuestTarget(trackedQuest.target, item))?.id ?? null;
-    if (trackedItemId == null) {
-      return null;
-    }
-    return (
-      [...workspaceItems]
-        .reverse()
-        .find((workspaceItem) => workspaceItem.itemId === trackedItemId)?.nodeId ?? null
-    );
-  }, [items, trackedQuest, workspaceItems]);
   const catalystUnlockQuests = useMemo(
     () =>
       featureUnlocks.map((unlock) => ({
@@ -458,24 +407,20 @@ const App: React.FC = () => {
   );
   const nextLockedCatalystKey =
     catalystUnlockQuests.find((unlock) => !unlock.unlocked)?.key ?? null;
+  const unlockedCatalystCount = catalystUnlockQuests.filter(
+    (unlock) => unlock.unlocked
+  ).length;
+  const featuredAchievement = achievementSummary.featuredProgress[0] ?? null;
+  const nextLockedCatalyst =
+    catalystUnlockQuests.find((unlock) => !unlock.unlocked) ?? null;
 
-  function trackNextAvailableQuest() {
-    if (!trackedQuest) {
-      setTrackedTargetQuestKey(quests[0]?.normalizedTarget ?? null);
-      return;
-    }
-
-    const nextQuest =
-      quests.find(
-        (quest) =>
-          !quest.completed &&
-          quest.normalizedTarget !== trackedQuest.normalizedTarget
-      ) ?? null;
-
-    setTrackedTargetQuestKey(nextQuest?.normalizedTarget ?? null);
+  function openJournal(tab: "achievements" | "quests") {
+    setJournalTab(tab);
+    setIsJournalOpen(true);
   }
 
-  function showQuestCelebration(
+  function showProgressCelebration(
+    kicker: string,
     title: string,
     copy: string,
     nodeId: string | null
@@ -483,7 +428,7 @@ const App: React.FC = () => {
     if (celebrationTimeoutRef.current != null) {
       window.clearTimeout(celebrationTimeoutRef.current);
     }
-    setQuestCelebration({ title, copy });
+    setQuestCelebration({ kicker, title, copy });
     setIsQuestCelebrating(true);
     setCelebratedQuestNodeId(nodeId);
     celebrationTimeoutRef.current = window.setTimeout(() => {
@@ -494,56 +439,6 @@ const App: React.FC = () => {
     }, QUEST_CELEBRATION_DURATION_MS);
   }
 
-  useEffect(() => {
-    let cancelled = false;
-
-    if (!trackedQuest) {
-      setTrackedQuestDescription(null);
-      setTrackedQuestUrl(null);
-      setIsLoadingTrackedQuestReference(false);
-      return;
-    }
-
-    setIsLoadingTrackedQuestReference(true);
-    setTrackedQuestDescription(null);
-    setTrackedQuestUrl(null);
-    void fetchQuestTargetReference(trackedQuest.target)
-      .then((reference) => {
-        if (cancelled) return;
-        setTrackedQuestDescription(reference?.summary ?? null);
-        setTrackedQuestUrl(reference?.sourceUrl ?? null);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setTrackedQuestDescription(null);
-        setTrackedQuestUrl(null);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setIsLoadingTrackedQuestReference(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [trackedQuest]);
-
-  useEffect(() => {
-    if (!trackedQuestCompletionKey || !trackedQuest) {
-      lastCelebratedQuestKeyRef.current = null;
-      return;
-    }
-    if (lastCelebratedQuestKeyRef.current === trackedQuestCompletionKey) {
-      return;
-    }
-    lastCelebratedQuestKeyRef.current = trackedQuestCompletionKey;
-    showQuestCelebration(
-      `Target complete: ${trackedQuest.target}`,
-      "Your tracked target has been discovered.",
-      trackedQuestWorkspaceNodeId
-    );
-  }, [trackedQuest?.target, trackedQuestCompletionKey, trackedQuestWorkspaceNodeId]);
-
   useEffect(
     () => () => {
       if (celebrationTimeoutRef.current != null) {
@@ -552,17 +447,6 @@ const App: React.FC = () => {
     },
     []
   );
-
-  useEffect(() => {
-    if (!targetQuestList) {
-      window.localStorage.removeItem(TARGET_QUEST_LIST_STORAGE_KEY);
-      return;
-    }
-    window.localStorage.setItem(
-      TARGET_QUEST_LIST_STORAGE_KEY,
-      JSON.stringify(targetQuestList)
-    );
-  }, [targetQuestList]);
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
     next.set(CRAFT_ITEM.id, CRAFT_ITEM);
@@ -963,6 +847,9 @@ const App: React.FC = () => {
         item: producedItem,
         isNewDiscovery: !items.some((el) => el.id === producedItem.id),
       }));
+      const hasNewDiscovery = producedItemsWithDiscovery.some(
+        (produced) => produced.isNewDiscovery
+      );
 
       if (selectionLayout) {
         setWorkspaceItems((prev) => {
@@ -1030,6 +917,9 @@ const App: React.FC = () => {
           return [...withoutInputs, ...spawned];
         });
       }
+      if (hasNewDiscovery) {
+        void loadFeatureUnlocks();
+      }
       return true;
     } catch (err) {
       if (options?.selectionLayout) {
@@ -1085,7 +975,7 @@ const App: React.FC = () => {
       )}
       {questCelebration ? (
         <div className="quest-complete-toast" aria-live="assertive" role="status">
-          <div className="quest-complete-toast-kicker">Quest Complete</div>
+          <div className="quest-complete-toast-kicker">{questCelebration.kicker}</div>
           <div className="quest-complete-toast-title">{questCelebration.title}</div>
           <div className="quest-complete-toast-copy">{questCelebration.copy}</div>
         </div>
@@ -1140,43 +1030,47 @@ const App: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="quest-hub quest-hub-inline">
+            <div className="journal-summary-strip">
               <button
                 type="button"
-                className={`quest-hub-trigger${isQuestCelebrating ? " is-celebrating" : ""}`}
-                onClick={() => setIsQuestDrawerOpen((prev) => !prev)}
-                aria-expanded={isQuestDrawerOpen}
-                aria-label="Open target quests"
+                className={`journal-summary-card${isQuestCelebrating ? " is-celebrating" : ""}`}
+                onClick={() => openJournal("achievements")}
+                aria-expanded={isJournalOpen && journalTab === "achievements"}
+                aria-label="Open achievements journal"
               >
-                <span
-                  className={`quest-status-dot ${
-                    trackedQuest?.completed ? "is-complete" : "is-active"
-                  }`}
-                  aria-hidden="true"
-                />
-                  <span className="quest-hub-label">Target</span>
-                <span className="quest-hub-copy">
-                  <span className="quest-hub-current">
-                    {isGeneratingTargetQuests
-                      ? "Generating targets..."
-                      : targetQuestError
-                        ? "Quest generation failed"
-                        : trackedQuest?.completed
-                          ? `${trackedQuest.target} complete`
-                          : trackedQuest?.target ?? "Generate targets"}
-                  </span>
-                  {trackedQuest ? (
-                    <span className="quest-hub-summary">
-                      {trackedQuest.completed
-                        ? "Target discovered. Choose another one when you're ready."
-                        : isLoadingTrackedQuestReference
-                          ? "Loading description..."
-                          : trackedQuestDescription ?? trackedQuest.teaser}
-                    </span>
-                  ) : null}
+                <span className="journal-summary-card-kicker">Achievements</span>
+                <span className="journal-summary-card-value">
+                  {achievementSummary.earnedPoints} points
                 </span>
-                <span className="quest-hub-chevron" aria-hidden="true">
-                  {isQuestDrawerOpen ? "▴" : "▾"}
+                <span className="journal-summary-card-meta">
+                  {achievementSummary.completedCount}/{achievementSummary.totalCount} earned
+                </span>
+                <span className="journal-summary-card-copy">
+                  {featuredAchievement
+                    ? `${featuredAchievement.title} • ${featuredAchievement.progressCurrent}/${featuredAchievement.progressTarget}`
+                    : "Every visible achievement in this set is complete."}
+                </span>
+              </button>
+              <button
+                type="button"
+                className="journal-summary-card journal-summary-card-secondary"
+                onClick={() => openJournal("quests")}
+                aria-expanded={isJournalOpen && journalTab === "quests"}
+                aria-label="Open catalyst quests"
+              >
+                <span className="journal-summary-card-kicker">Quests</span>
+                <span className="journal-summary-card-value">
+                  {unlockedCatalystCount}/{catalystUnlockQuests.length} catalysts
+                </span>
+                <span className="journal-summary-card-meta">
+                  {nextLockedCatalyst ? "Next unlock" : "All catalysts unlocked"}
+                </span>
+                <span className="journal-summary-card-copy">
+                  {nextLockedCatalyst
+                    ? `${nextLockedCatalyst.display.name} • ${nextLockedCatalyst.exampleWords
+                        .slice(0, 2)
+                        .join(", ")}`
+                    : "Your full catalyst kit is available in the workspace."}
                 </span>
               </button>
               {questCelebration ? (
@@ -1214,224 +1108,292 @@ const App: React.FC = () => {
           onSelectItem={openItemDetails}
         />
       ) : null}
-      {isQuestDrawerOpen ? (
-        <div className="quest-popover-layer" role="presentation">
+      {isJournalOpen ? (
+        <div className="journal-panel-layer" role="presentation">
           <button
             type="button"
-            className="quest-popover-backdrop"
-            aria-label="Close target quests"
-            onClick={() => setIsQuestDrawerOpen(false)}
+            className="journal-panel-backdrop"
+            aria-label="Close journal"
+            onClick={() => setIsJournalOpen(false)}
           />
-          <div className="quest-popover" role="dialog" aria-label="Target quests">
+          <aside className="journal-panel" role="dialog" aria-label="Journal">
             <div className="quest-drawer-header">
-              <div className="quest-drawer-title">Targets</div>
+              <div className="quest-drawer-title">Journal</div>
               <div className="quest-drawer-subtitle">
-                AI-generated target terms to chase next. Generated with{" "}
-                {targetQuestList?.model ?? "gpt-5-nano"}.
+                Permanent achievements and catalyst unlock quests, following a
+                category-first journal flow.
               </div>
-              {targetQuestList?.cost ? (
-                <div className="quest-drawer-subtitle">
-                  Last generation cost about ${targetQuestList.cost.totalCostUsd.toFixed(5)}
-                  {" "}using {targetQuestList.cost.promptTokens} prompt tokens and{" "}
-                  {targetQuestList.cost.completionTokens} output tokens.
-                </div>
-              ) : null}
             </div>
-            {trackedQuest ? (
-              <article
-                className={`quest-card quest-card-featured${
-                  trackedQuest.completed ? " is-complete" : ""
-                }`}
-              >
-                <div className="quest-card-top">
-                  <div>
-                    <div className="quest-card-title">{trackedQuest.target}</div>
-                    <div className="quest-card-description">
-                      {trackedQuest.completed
-                        ? "You discovered this target. Pick another one to keep the run going."
-                        : isLoadingTrackedQuestReference
-                          ? "Loading target description..."
-                          : trackedQuestDescription ?? trackedQuest.teaser}
-                    </div>
-                  </div>
-                  <span
-                    className={`quest-card-badge ${
-                      trackedQuest.completed ? "is-complete" : "is-tracked"
-                    }`}
-                  >
-                    {trackedQuest.completed ? "Complete" : trackedQuest.difficulty}
-                  </span>
-                </div>
-                <div className="quest-card-criteria">{trackedQuest.flavor}</div>
-                {trackedQuestUrl ? (
-                  <div className="quest-card-link-row">
-                    <a
-                      className="item-drawer-link"
-                      href={trackedQuestUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Open Wikipedia article
-                    </a>
-                  </div>
-                ) : null}
-                {trackedQuest.completed ? (
-                  <div className="quest-card-actions quest-card-actions-complete">
-                    <button
-                      type="button"
-                      className="button primary"
-                      onClick={trackNextAvailableQuest}
-                      disabled={!quests.some((quest) => !quest.completed)}
-                    >
-                      {quests.some((quest) => !quest.completed)
-                        ? "Choose Next Target"
-                        : "All Current Targets Complete"}
-                    </button>
-                  </div>
-                ) : null}
-              </article>
-            ) : null}
-            <div className="quest-card-actions quest-card-actions-top">
+            <div className="journal-tab-row" role="tablist" aria-label="Journal sections">
               <button
                 type="button"
-                className="button secondary"
-                onClick={() => void loadTargetQuestList()}
-                disabled={isGeneratingTargetQuests}
+                role="tab"
+                aria-selected={journalTab === "achievements"}
+                className={`journal-tab${
+                  journalTab === "achievements" ? " is-active" : ""
+                }`}
+                onClick={() => setJournalTab("achievements")}
               >
-                {isGeneratingTargetQuests ? "Generating..." : "Refresh Targets"}
+                Achievements
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={journalTab === "quests"}
+                className={`journal-tab${journalTab === "quests" ? " is-active" : ""}`}
+                onClick={() => setJournalTab("quests")}
+              >
+                Quests
               </button>
             </div>
-            {targetQuestError ? (
+            {journalTab === "achievements" ? (
               <div className="quest-card-list">
-                <article className="quest-card">
-                  <div className="quest-card-description">{targetQuestError}</div>
+                <article className="quest-card achievement-overview-card">
+                  <div className="quest-card-top">
+                    <div>
+                      <div className="quest-card-title">Achievement Points</div>
+                      <div className="quest-card-description">
+                        Curated long-term goals with permanent progress across the library.
+                      </div>
+                    </div>
+                    <span className="quest-card-badge is-tracked">
+                      {achievementSummary.earnedPoints} pts
+                    </span>
+                  </div>
+                  <div className="achievement-overview-stats">
+                    <div className="achievement-overview-stat">
+                      <span className="achievement-overview-stat-value">
+                        {achievementSummary.completedCount}
+                      </span>
+                      <span className="achievement-overview-stat-label">earned</span>
+                    </div>
+                    <div className="achievement-overview-stat">
+                      <span className="achievement-overview-stat-value">
+                        {achievementSummary.totalCount - achievementSummary.completedCount}
+                      </span>
+                      <span className="achievement-overview-stat-label">remaining</span>
+                    </div>
+                    <div className="achievement-overview-stat">
+                      <span className="achievement-overview-stat-value">
+                        {achievementSummary.totalPoints}
+                      </span>
+                      <span className="achievement-overview-stat-label">total points</span>
+                    </div>
+                  </div>
+                  {achievementSummary.featuredProgress.length > 0 ? (
+                    <div className="achievement-feature-list">
+                      {achievementSummary.featuredProgress.map((achievement) => (
+                        <div
+                          key={achievement.id}
+                          className="achievement-feature-chip"
+                        >
+                          <span>{achievement.title}</span>
+                          <span>
+                            {achievement.progressCurrent}/{achievement.progressTarget}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </article>
+                {achievementSummary.categories.map((category) => (
+                  <section key={category.id} className="achievement-category">
+                    <div className="achievement-category-header">
+                      <div>
+                        <div className="quest-section-title">{category.title}</div>
+                        <div className="quest-section-subtitle">{category.summary}</div>
+                      </div>
+                      <div className="achievement-category-stats">
+                        <span className="quest-card-badge">
+                          {category.completedCount}/{category.totalCount}
+                        </span>
+                        <span className="quest-card-badge is-tracked">
+                          {category.earnedPoints}/{category.totalPoints} pts
+                        </span>
+                      </div>
+                    </div>
+                    <div className="achievement-group-list">
+                      {category.groups.map((group) => (
+                        <article key={group.id} className="achievement-group">
+                          <div className="achievement-group-header">
+                            <div>
+                              <div className="quest-card-title">{group.title}</div>
+                              <div className="quest-card-description">{group.summary}</div>
+                            </div>
+                            <span className="quest-card-badge">
+                              {group.completedCount}/{group.totalCount}
+                            </span>
+                          </div>
+                          <div className="achievement-row-list">
+                            {group.achievements.map((achievement) => {
+                              const achievementReference =
+                                achievementReferences[achievement.id];
+                              const progressRatio =
+                                achievement.progressTarget > 0
+                                  ? achievement.progressCurrent / achievement.progressTarget
+                                  : 0;
+                              return (
+                                <div
+                                  key={achievement.id}
+                                  className={`achievement-row${
+                                    achievement.completed ? " is-complete" : ""
+                                  }`}
+                                >
+                                  <div className="achievement-row-main">
+                                    <div className="achievement-row-copy">
+                                      <div className="achievement-row-title">
+                                        {achievement.title}
+                                      </div>
+                                      <div className="achievement-row-description">
+                                        {achievementReference === undefined
+                                          ? "Loading reference..."
+                                          : achievementReference?.summary
+                                            ? truncateAchievementReference(
+                                                achievementReference.summary,
+                                                ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT
+                                              )
+                                            : achievement.description}
+                                      </div>
+                                    </div>
+                                    <div className="achievement-row-meta">
+                                      <span
+                                        className={`quest-card-badge${
+                                          achievement.completed ? " is-complete" : ""
+                                        }`}
+                                      >
+                                        {achievement.completed
+                                          ? "Complete"
+                                          : `${achievement.progressCurrent}/${achievement.progressTarget}`}
+                                      </span>
+                                      <span className="achievement-row-points">
+                                        {achievement.points} pts
+                                      </span>
+                                    </div>
+                                  </div>
+                                  {achievementReference?.sourceUrl ? (
+                                    <div className="achievement-row-link">
+                                      <a
+                                        className="item-drawer-link"
+                                        href={achievementReference.sourceUrl}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                      >
+                                        Open Wikipedia article
+                                      </a>
+                                    </div>
+                                  ) : null}
+                                  <div className="achievement-progress-bar">
+                                    <span
+                                      className="achievement-progress-bar-fill"
+                                      style={{
+                                        width: `${Math.max(
+                                          0,
+                                          Math.min(progressRatio, 1)
+                                        ) * 100}%`,
+                                      }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </section>
+                ))}
               </div>
             ) : (
-              <div className="quest-card-list">
-                {quests.map((quest) => {
-                  const isTracked =
-                    trackedTargetQuestKey === quest.normalizedTarget;
-                  return (
-                    <article
-                      key={quest.normalizedTarget}
-                      className={`quest-card${quest.completed ? " is-complete" : ""}${
-                        isTracked ? " is-tracked" : ""
-                      }`}
-                    >
-                      <div className="quest-card-top">
-                        <div>
-                          <div className="quest-card-title">{quest.target}</div>
-                          <div className="quest-card-description">{quest.teaser}</div>
-                        </div>
-                        <span
-                          className={`quest-card-badge ${
-                            quest.completed
-                              ? "is-complete"
-                              : isTracked
-                                ? "is-tracked"
-                                : "is-available"
-                          }`}
-                        >
-                          {quest.completed
-                            ? "Complete"
-                            : isTracked
-                              ? "Tracking"
-                              : quest.difficulty}
-                        </span>
-                      </div>
-                      <div className="quest-card-criteria">{quest.flavor}</div>
-                      <div className="quest-card-actions">
-                        {quest.completed ? (
-                          <span className="quest-card-action-note">Completed</span>
-                        ) : (
-                          <button
-                            type="button"
-                            className={`button ${isTracked ? "secondary" : "primary"}`}
-                            onClick={() => {
-                              setTrackedTargetQuestKey(quest.normalizedTarget);
-                              setIsQuestDrawerOpen(false);
-                            }}
-                          >
-                            {isTracked ? "Tracking" : "Track"}
-                          </button>
-                        )}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-            <div className="quest-section">
-              <div className="quest-section-header">
-                <div className="quest-section-title">Catalyst Unlocks</div>
-                <div className="quest-section-subtitle">
-                  Permanent mechanic unlocks that expand the workspace.
+              <div className="quest-section">
+                <div className="quest-section-header">
+                  <div className="quest-section-title">Catalyst Unlock Quests</div>
+                  <div className="quest-section-subtitle">
+                    Permanent mechanic unlocks that expand the workspace.
+                  </div>
                 </div>
-              </div>
-              <div className="quest-card-list">
-                {catalystUnlockQuests.map((unlock) => {
-                  const isNextLocked =
-                    !unlock.unlocked && unlock.key === nextLockedCatalystKey;
-                  return (
-                    <article
-                      key={unlock.key}
-                      className={`quest-card quest-card-unlock ${unlock.display.accentClass}${
-                        unlock.unlocked ? " is-complete" : ""
-                      }${isNextLocked ? " is-featured-unlock" : ""}`}
-                    >
-                      <div className="quest-card-top">
-                        <div className="quest-card-title-wrap">
-                          <span className="quest-card-icon" aria-hidden="true">
-                            {unlock.display.icon}
-                          </span>
-                          <div>
-                            <div className="quest-card-title">{unlock.display.name}</div>
-                            <div className="quest-card-description">
-                              {unlock.display.shortCopy}
+                <article className="quest-card quest-card-featured">
+                  <div className="quest-card-top">
+                    <div>
+                      <div className="quest-card-title">Catalyst Progress</div>
+                      <div className="quest-card-description">
+                        Quests are now reserved for unlocking new catalysts and expanding what
+                        the workspace can do.
+                      </div>
+                    </div>
+                    <span className="quest-card-badge is-tracked">
+                      {unlockedCatalystCount}/{catalystUnlockQuests.length}
+                    </span>
+                  </div>
+                  <div className="quest-card-criteria">
+                    {nextLockedCatalyst
+                      ? `${nextLockedCatalyst.display.name} is your next unlock target.`
+                      : "Every catalyst is unlocked."}
+                  </div>
+                </article>
+                <div className="quest-card-list">
+                  {catalystUnlockQuests.map((unlock) => {
+                    const isNextLocked =
+                      !unlock.unlocked && unlock.key === nextLockedCatalystKey;
+                    return (
+                      <article
+                        key={unlock.key}
+                        className={`quest-card quest-card-unlock ${unlock.display.accentClass}${
+                          unlock.unlocked ? " is-complete" : ""
+                        }${isNextLocked ? " is-featured-unlock" : ""}`}
+                      >
+                        <div className="quest-card-top">
+                          <div className="quest-card-title-wrap">
+                            <span className="quest-card-icon" aria-hidden="true">
+                              {unlock.display.icon}
+                            </span>
+                            <div>
+                              <div className="quest-card-title">{unlock.display.name}</div>
+                              <div className="quest-card-description">
+                                {unlock.display.shortCopy}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                        <span
-                          className={`quest-card-badge ${
-                            unlock.unlocked
-                              ? "is-complete"
+                          <span
+                            className={`quest-card-badge ${
+                              unlock.unlocked
+                                ? "is-complete"
+                                : isNextLocked
+                                  ? "is-tracked"
+                                  : "is-available"
+                            }`}
+                          >
+                            {unlock.unlocked
+                              ? "Unlocked"
                               : isNextLocked
-                                ? "is-tracked"
-                                : "is-available"
-                          }`}
-                        >
-                          {unlock.unlocked
-                            ? "Unlocked"
-                            : isNextLocked
-                              ? "Next"
-                              : "Locked"}
-                        </span>
-                      </div>
-                      <div className="quest-card-criteria">{unlock.summary}</div>
-                      <div className="quest-card-meta">
-                        Example unlock words: {unlock.exampleWords.join(", ")}
-                      </div>
-                      {unlock.sourceItemName ? (
-                        <div className="quest-card-meta">
-                          Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
-                          {unlock.sourceMatchedWord &&
-                          unlock.sourceMatchedWord.toLowerCase() !==
-                            unlock.sourceItemName.toLowerCase()
-                            ? `, which matched "${unlock.sourceMatchedWord}".`
-                            : "."}
+                                ? "Next"
+                                : "Locked"}
+                          </span>
                         </div>
-                      ) : !unlock.unlocked ? (
+                        <div className="quest-card-criteria">{unlock.summary}</div>
                         <div className="quest-card-meta">
-                          This catalyst is still locked. Discover related concepts to reveal it.
+                          Example unlock words: {unlock.exampleWords.join(", ")}
                         </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
+                        {unlock.sourceItemName ? (
+                          <div className="quest-card-meta">
+                            Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
+                            {unlock.sourceMatchedWord &&
+                            unlock.sourceMatchedWord.toLowerCase() !==
+                              unlock.sourceItemName.toLowerCase()
+                              ? `, which matched "${unlock.sourceMatchedWord}".`
+                              : "."}
+                          </div>
+                        ) : !unlock.unlocked ? (
+                          <div className="quest-card-meta">
+                            This catalyst is still locked. Discover related concepts to reveal it.
+                          </div>
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
               </div>
-            </div>
-          </div>
+            )}
+          </aside>
         </div>
       ) : null}
     </>

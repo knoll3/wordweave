@@ -1,0 +1,660 @@
+import type {
+  AchievementCategoryProgress,
+  AchievementGroupProgress,
+  AchievementProgress,
+  AchievementSummary,
+  Item,
+} from "../types";
+
+type AchievementDefinition = {
+  id: string;
+  title: string;
+  description: string;
+  categoryId: string;
+  groupId: string;
+  points: number;
+  requirement: {
+    count: number;
+    targets: string[];
+  };
+};
+
+type CategoryDefinition = {
+  id: string;
+  title: string;
+  summary: string;
+};
+
+type GroupDefinition = {
+  id: string;
+  categoryId: string;
+  title: string;
+  summary: string;
+};
+
+const POKEMON_TARGETS = [
+  "pikachu",
+  "mewtwo",
+  "charizard",
+  "eevee",
+  "snorlax",
+  "bulbasaur",
+  "squirtle",
+  "jigglypuff",
+  "meowth",
+  "psyduck",
+  "gengar",
+  "dragonite",
+  "lapras",
+  "mew",
+  "magikarp",
+  "vulpix",
+  "raichu",
+  "ditto",
+  "blastoise",
+  "venusaur",
+] as const;
+
+const MYTH_TARGETS = [
+  "excalibur",
+  "mjolnir",
+  "kraken",
+  "medusa",
+  "phoenix",
+  "pegasus",
+  "hydra",
+  "minotaur",
+  "cerberus",
+  "odin",
+  "thor",
+  "zeus",
+  "athena",
+  "poseidon",
+  "merlin",
+] as const;
+
+const SCIENCE_TARGETS = [
+  "black hole",
+  "quark",
+  "nebula",
+  "dna",
+  "antimatter",
+  "photon",
+  "gravity",
+  "atom",
+  "molecule",
+  "laser",
+  "robot",
+  "comet",
+  "supernova",
+  "galaxy",
+  "telescope",
+] as const;
+
+const WORLD_TARGETS = [
+  "pyramid",
+  "stonehenge",
+  "eiffel tower",
+  "great wall",
+  "colosseum",
+  "machu picchu",
+  "taj mahal",
+  "sphinx",
+  "statue of liberty",
+  "atlantis",
+  "volcano",
+  "island",
+  "ocean",
+  "castle",
+  "temple",
+] as const;
+
+const SCREEN_TARGETS = [
+  "batman",
+  "godzilla",
+  "shrek",
+  "harry potter",
+  "lightsaber",
+  "jurassic park",
+  "sherlock holmes",
+  "indiana jones",
+  "terminator",
+  "matrix",
+  "totoro",
+  "spongebob",
+  "dracula",
+  "delorean",
+  "ghostbusters",
+] as const;
+
+const BEAST_TARGETS = [
+  "t-rex",
+  "tyrannosaurus",
+  "velociraptor",
+  "triceratops",
+  "stegosaurus",
+  "brontosaurus",
+  "pterodactyl",
+  "megalodon",
+  "mammoth",
+  "saber-toothed tiger",
+  "yeti",
+  "griffin",
+  "dragon",
+  "werewolf",
+  "unicorn",
+] as const;
+
+const CATEGORIES: CategoryDefinition[] = [
+  {
+    id: "pokemon",
+    title: "Pokemon",
+    summary: "A long-tail chain for creatures, icons, and legendary favorites.",
+  },
+  {
+    id: "myth",
+    title: "Myth & Legend",
+    summary: "Mythic figures, artifacts, and monsters that feel great to chase.",
+  },
+  {
+    id: "science",
+    title: "Science & Space",
+    summary: "Famous scientific ideas and space terms with a bit of gravitas.",
+  },
+  {
+    id: "world",
+    title: "World Icons",
+    summary: "Landmarks, wonders, and places that read instantly at a glance.",
+  },
+  {
+    id: "screen",
+    title: "Screens & Stories",
+    summary: "Recognizable fictional references, props, and big-screen icons.",
+  },
+  {
+    id: "beasts",
+    title: "Beasts & Giants",
+    summary: "Dinosaurs, colossal creatures, and legendary heavy-hitters.",
+  },
+];
+
+const GROUPS: GroupDefinition[] = [
+  {
+    id: "pokemon-icons",
+    categoryId: "pokemon",
+    title: "Iconic Pokemon",
+    summary: "Specific standouts worth calling out on their own.",
+  },
+  {
+    id: "myth-icons",
+    categoryId: "myth",
+    title: "Mythic Staples",
+    summary: "Land the names and objects people instantly recognize.",
+  },
+  {
+    id: "science-icons",
+    categoryId: "science",
+    title: "Signal Finds",
+    summary: "Big-ticket science terms that feel especially satisfying.",
+  },
+  {
+    id: "world-icons",
+    categoryId: "world",
+    title: "Postcard Moments",
+    summary: "Specific landmarks and places with immediate recognition.",
+  },
+  {
+    id: "screen-icons",
+    categoryId: "screen",
+    title: "Headline References",
+    summary: "Specific names and props that feel especially good to land.",
+  },
+  {
+    id: "beast-icons",
+    categoryId: "beasts",
+    title: "Big Finds",
+    summary: "Signature creatures that deserve their own stamp.",
+  },
+];
+
+const ACHIEVEMENTS: AchievementDefinition[] = [
+  {
+    id: "pokemon-pikachu",
+    title: "Discover Pikachu",
+    description: "Land the mascot itself.",
+    categoryId: "pokemon",
+    groupId: "pokemon-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["pikachu"] },
+  },
+  {
+    id: "pokemon-mewtwo",
+    title: "Discover Mewtwo",
+    description: "Hit one of the most iconic legendary Pokemon.",
+    categoryId: "pokemon",
+    groupId: "pokemon-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["mewtwo"] },
+  },
+  {
+    id: "pokemon-charizard",
+    title: "Discover Charizard",
+    description: "Find a heavyweight fan favorite.",
+    categoryId: "pokemon",
+    groupId: "pokemon-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["charizard"] },
+  },
+  {
+    id: "pokemon-eevee",
+    title: "Discover Eevee",
+    description: "Track down one of the series' most versatile icons.",
+    categoryId: "pokemon",
+    groupId: "pokemon-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["eevee"] },
+  },
+  {
+    id: "pokemon-snorlax",
+    title: "Discover Snorlax",
+    description: "Wake up a crowd-pleasing classic.",
+    categoryId: "pokemon",
+    groupId: "pokemon-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["snorlax"] },
+  },
+  {
+    id: "myth-excalibur",
+    title: "Discover Excalibur",
+    description: "Find one of fantasy's most famous blades.",
+    categoryId: "myth",
+    groupId: "myth-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["excalibur"] },
+  },
+  {
+    id: "myth-mjolnir",
+    title: "Discover Mjolnir",
+    description: "Bring Thor's hammer into the library.",
+    categoryId: "myth",
+    groupId: "myth-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["mjolnir"] },
+  },
+  {
+    id: "myth-medusa",
+    title: "Discover Medusa",
+    description: "Land a mythic figure players instantly recognize.",
+    categoryId: "myth",
+    groupId: "myth-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["medusa"] },
+  },
+  {
+    id: "myth-kraken",
+    title: "Discover Kraken",
+    description: "Find a monster that always feels good to unlock.",
+    categoryId: "myth",
+    groupId: "myth-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["kraken"] },
+  },
+  {
+    id: "myth-phoenix",
+    title: "Discover Phoenix",
+    description: "Add a legendary creature with serious staying power.",
+    categoryId: "myth",
+    groupId: "myth-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["phoenix"] },
+  },
+  {
+    id: "science-black-hole",
+    title: "Discover Black Hole",
+    description: "Land one of the biggest science-fiction-adjacent science terms.",
+    categoryId: "science",
+    groupId: "science-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["black hole"] },
+  },
+  {
+    id: "science-quark",
+    title: "Discover Quark",
+    description: "Find a classic small-but-mighty science term.",
+    categoryId: "science",
+    groupId: "science-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["quark"] },
+  },
+  {
+    id: "science-nebula",
+    title: "Discover Nebula",
+    description: "Add a beautiful space term with instant mood.",
+    categoryId: "science",
+    groupId: "science-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["nebula"] },
+  },
+  {
+    id: "science-dna",
+    title: "Discover DNA",
+    description: "Hit a term with huge cultural and scientific reach.",
+    categoryId: "science",
+    groupId: "science-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["dna"] },
+  },
+  {
+    id: "science-antimatter",
+    title: "Discover Antimatter",
+    description: "Land a harder science concept with strong flavor.",
+    categoryId: "science",
+    groupId: "science-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["antimatter"] },
+  },
+  {
+    id: "world-pyramid",
+    title: "Discover Pyramid",
+    description: "Land one of the all-time classic world targets.",
+    categoryId: "world",
+    groupId: "world-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["pyramid"] },
+  },
+  {
+    id: "world-stonehenge",
+    title: "Discover Stonehenge",
+    description: "Find a world icon with instant mystery attached.",
+    categoryId: "world",
+    groupId: "world-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["stonehenge"] },
+  },
+  {
+    id: "world-eiffel-tower",
+    title: "Discover Eiffel Tower",
+    description: "Add a landmark people recognize in one glance.",
+    categoryId: "world",
+    groupId: "world-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["eiffel tower"] },
+  },
+  {
+    id: "world-great-wall",
+    title: "Discover Great Wall",
+    description: "Track down one of the biggest place achievements around.",
+    categoryId: "world",
+    groupId: "world-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["great wall"] },
+  },
+  {
+    id: "world-atlantis",
+    title: "Discover Atlantis",
+    description: "Mix world icon energy with a touch of legend.",
+    categoryId: "world",
+    groupId: "world-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["atlantis"] },
+  },
+  {
+    id: "screen-batman",
+    title: "Discover Batman",
+    description: "Find a franchise icon with broad recognition.",
+    categoryId: "screen",
+    groupId: "screen-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["batman"] },
+  },
+  {
+    id: "screen-godzilla",
+    title: "Discover Godzilla",
+    description: "Bring in a giant of monster cinema.",
+    categoryId: "screen",
+    groupId: "screen-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["godzilla"] },
+  },
+  {
+    id: "screen-shrek",
+    title: "Discover Shrek",
+    description: "Land a reference that proves the system can stay playful.",
+    categoryId: "screen",
+    groupId: "screen-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["shrek"] },
+  },
+  {
+    id: "screen-harry-potter",
+    title: "Discover Harry Potter",
+    description: "Hit one of the biggest named story references around.",
+    categoryId: "screen",
+    groupId: "screen-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["harry potter"] },
+  },
+  {
+    id: "screen-lightsaber",
+    title: "Discover Lightsaber",
+    description: "Find an iconic prop that everyone recognizes immediately.",
+    categoryId: "screen",
+    groupId: "screen-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["lightsaber"] },
+  },
+  {
+    id: "beasts-t-rex",
+    title: "Discover T-Rex",
+    description: "Find the headliner.",
+    categoryId: "beasts",
+    groupId: "beast-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["t-rex", "tyrannosaurus"] },
+  },
+  {
+    id: "beasts-velociraptor",
+    title: "Discover Velociraptor",
+    description: "Land a dino with instant chase appeal.",
+    categoryId: "beasts",
+    groupId: "beast-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["velociraptor"] },
+  },
+  {
+    id: "beasts-megalodon",
+    title: "Discover Megalodon",
+    description: "Pull in a creature that feels big even as a word.",
+    categoryId: "beasts",
+    groupId: "beast-icons",
+    points: 10,
+    requirement: { count: 1, targets: ["megalodon"] },
+  },
+  {
+    id: "beasts-mammoth",
+    title: "Discover Mammoth",
+    description: "Find a prehistoric giant with great recognizability.",
+    categoryId: "beasts",
+    groupId: "beast-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["mammoth"] },
+  },
+  {
+    id: "beasts-triceratops",
+    title: "Discover Triceratops",
+    description: "Add another dino classic to the shelf.",
+    categoryId: "beasts",
+    groupId: "beast-icons",
+    points: 5,
+    requirement: { count: 1, targets: ["triceratops"] },
+  },
+];
+
+function normalizeAchievementText(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\b(the|a|an)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeAchievementText(value: string) {
+  return normalizeAchievementText(value)
+    .split(/[\s-]+/)
+    .map((token) => token.trim())
+    .filter(Boolean);
+}
+
+function normalizeAchievementToken(token: string) {
+  if (token.endsWith("ies") && token.length > 3) {
+    return `${token.slice(0, -3)}y`;
+  }
+  if (token.endsWith("es") && token.length > 3) {
+    return token.slice(0, -2);
+  }
+  if (token.endsWith("s") && token.length > 3) {
+    return token.slice(0, -1);
+  }
+  return token;
+}
+
+export function matchesAchievementTarget(target: string, candidate: Item) {
+  const normalizedTarget = normalizeAchievementText(target);
+  const normalizedCandidate = normalizeAchievementText(
+    candidate.normalizedName || candidate.name
+  );
+
+  if (!normalizedTarget || !normalizedCandidate) {
+    return false;
+  }
+
+  if (normalizedTarget === normalizedCandidate) {
+    return true;
+  }
+
+  const targetTokens = tokenizeAchievementText(target);
+  const candidateTokens = tokenizeAchievementText(candidate.normalizedName || candidate.name);
+
+  if (targetTokens.length !== candidateTokens.length || targetTokens.length === 0) {
+    return false;
+  }
+
+  return targetTokens.every((token, index) => {
+    return normalizeAchievementToken(token) === normalizeAchievementToken(candidateTokens[index] ?? "");
+  });
+}
+
+function buildAchievementProgress(
+  discoveredNames: Set<string>,
+  definition: AchievementDefinition
+): AchievementProgress {
+  const matchedTargets = definition.requirement.targets.filter((target, index, targets) => {
+    if (targets.indexOf(target) !== index) {
+      return false;
+    }
+    return discoveredNames.has(normalizeAchievementText(target));
+  });
+  const progressCurrent = Math.min(matchedTargets.length, definition.requirement.count);
+  const progressTarget = definition.requirement.count;
+  const completed = progressCurrent >= progressTarget;
+  return {
+    id: definition.id,
+    title: definition.title,
+    description: definition.description,
+    lookupName: definition.requirement.targets[0] ?? definition.title,
+    points: definition.points,
+    completed,
+    progressCurrent,
+    progressTarget,
+  };
+}
+
+export function evaluateAchievements(items: Item[]): AchievementSummary {
+  const discoveredNames = new Set<string>();
+  for (const item of items) {
+    discoveredNames.add(normalizeAchievementText(item.normalizedName || item.name));
+  }
+
+  const progressByGroup = new Map<string, AchievementProgress[]>();
+  for (const definition of ACHIEVEMENTS) {
+    const progress = buildAchievementProgress(discoveredNames, definition);
+    const bucket = progressByGroup.get(definition.groupId) ?? [];
+    bucket.push(progress);
+    progressByGroup.set(definition.groupId, bucket);
+  }
+
+  const categories: AchievementCategoryProgress[] = CATEGORIES.map((category) => {
+    const groups: AchievementGroupProgress[] = GROUPS.filter(
+      (group) => group.categoryId === category.id
+    ).map((group) => {
+      const achievements = progressByGroup.get(group.id) ?? [];
+      const earnedPoints = achievements
+        .filter((achievement) => achievement.completed)
+        .reduce((sum, achievement) => sum + achievement.points, 0);
+      const totalPoints = achievements.reduce((sum, achievement) => sum + achievement.points, 0);
+      const completedCount = achievements.filter((achievement) => achievement.completed).length;
+      return {
+        id: group.id,
+        title: group.title,
+        summary: group.summary,
+        achievements,
+        earnedPoints,
+        totalPoints,
+        completedCount,
+        totalCount: achievements.length,
+      };
+    });
+
+    const earnedPoints = groups.reduce((sum, group) => sum + group.earnedPoints, 0);
+    const totalPoints = groups.reduce((sum, group) => sum + group.totalPoints, 0);
+    const completedCount = groups.reduce((sum, group) => sum + group.completedCount, 0);
+    const totalCount = groups.reduce((sum, group) => sum + group.totalCount, 0);
+
+    return {
+      id: category.id,
+      title: category.title,
+      summary: category.summary,
+      groups,
+      earnedPoints,
+      totalPoints,
+      completedCount,
+      totalCount,
+    };
+  });
+
+  const allAchievements = categories.flatMap((category) =>
+    category.groups.flatMap((group) => group.achievements)
+  );
+  const totalPoints = allAchievements.reduce((sum, achievement) => sum + achievement.points, 0);
+  const earnedPoints = allAchievements
+    .filter((achievement) => achievement.completed)
+    .reduce((sum, achievement) => sum + achievement.points, 0);
+  const completedCount = allAchievements.filter((achievement) => achievement.completed).length;
+
+  const featuredProgress = allAchievements
+    .filter((achievement) => !achievement.completed && achievement.progressCurrent > 0)
+    .sort((left, right) => {
+      const leftRatio = left.progressCurrent / left.progressTarget;
+      const rightRatio = right.progressCurrent / right.progressTarget;
+      if (rightRatio !== leftRatio) {
+        return rightRatio - leftRatio;
+      }
+      if (right.points !== left.points) {
+        return right.points - left.points;
+      }
+      return left.title.localeCompare(right.title);
+    })
+    .slice(0, 3);
+
+  return {
+    categories,
+    earnedPoints,
+    totalPoints,
+    completedCount,
+    totalCount: allAchievements.length,
+    featuredProgress,
+  };
+}
