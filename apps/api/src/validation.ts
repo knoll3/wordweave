@@ -15,14 +15,6 @@ export const combineRequestSchema = z.object({
     .optional(),
 });
 
-export const generateQuestRequestSchema = z.object({
-  discoveredItems: z.array(z.string()).optional().default([]),
-});
-
-export const generateTargetQuestRequestSchema = z.object({
-  count: z.number().int().min(1).max(6).optional().default(4),
-});
-
 export const selectRequestSchema = z.object({
   candidateId: z.number().int().positive(),
 });
@@ -51,20 +43,6 @@ export const craftLlmResultSchema = z.union([
   }),
 ]);
 
-export const targetQuestSelectionSchema = z.object({
-  quests: z
-    .array(
-      z.object({
-        target: z.string().min(1).max(64),
-        difficulty: z.enum(["easy", "medium", "hard"]),
-        flavor: z.string().min(1).max(48),
-        teaser: z.string().min(1).max(140),
-      })
-    )
-    .min(1)
-    .max(8),
-});
-
 export const recipeBatchStepSchema = z.object({
   left: z.string().min(1).max(64),
   right: z.string().min(1).max(64),
@@ -80,4 +58,3 @@ export type LlmResult = z.infer<typeof llmResultSchema>;
 export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;
 export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;
-export type TargetQuestSelection = z.infer<typeof targetQuestSelectionSchema>;

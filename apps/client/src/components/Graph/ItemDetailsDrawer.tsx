@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   CATEGORY_MODIFIER_ITEM_ID,
   CRAFT_ITEM_ID,
@@ -72,7 +72,6 @@ interface Props {
   onBack: () => void;
   onClose: () => void;
   onSelectItem: (item: Item) => void;
-  embedded?: boolean;
 }
 
 const ItemDetailsDrawer: React.FC<Props> = ({
@@ -82,9 +81,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   onBack,
   onClose,
   onSelectItem,
-  embedded = false,
 }) => {
-  const drawerRef = useRef<HTMLElement | null>(null);
   const catalystGuide = item.id < 0 ? CATALYST_GUIDES[item.id] ?? null : null;
   const isBaseItem =
     item.normalizedName === "fire" ||
@@ -144,27 +141,6 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     };
   }, [item.id]);
 
-  useEffect(() => {
-    if (embedded) {
-      return;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Node)) {
-        return;
-      }
-      if (drawerRef.current?.contains(target)) {
-        return;
-      }
-      onClose();
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [embedded, onClose]);
-
   const linkedRecipeInputs = useMemo(
     () =>
       recipeInputs.map((input) => ({
@@ -182,13 +158,8 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     [itemsById, recipeInputs]
   );
 
-  const drawerBody = (
-    <aside
-      ref={drawerRef}
-      className={`item-drawer${embedded ? " item-drawer-embedded" : ""}`}
-      role="dialog"
-      aria-label={`${item.name} details`}
-    >
+  return (
+    <aside className="item-drawer item-drawer-panel" aria-label={`${item.name} details`}>
         <div className="item-drawer-header">
           <div className="item-drawer-header-actions">
             {canGoBack ? (
@@ -331,14 +302,8 @@ const ItemDetailsDrawer: React.FC<Props> = ({
             </p>
           )}
         </section>
-      </aside>
+    </aside>
   );
-
-  if (embedded) {
-    return drawerBody;
-  }
-
-  return <div className="item-drawer-layer" role="presentation">{drawerBody}</div>;
 };
 
 export default ItemDetailsDrawer;

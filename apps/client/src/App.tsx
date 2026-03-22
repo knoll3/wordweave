@@ -8,26 +8,16 @@ import {
   Link2,
   Split,
   ArrowLeftRight,
-  PanelRightClose,
 } from "lucide-react";
 import {
-  CATEGORY_MODIFIER_ITEM,
   CATEGORY_MODIFIER_ITEM_ID,
-  COMBINE_RESULT_PLACEHOLDER_ITEM,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-  CRAFT_ITEM,
   CRAFT_ITEM_ID,
-  CREATIVE_ITEM,
   CREATIVE_ITEM_ID,
-  EVOLVE_ITEM,
   EVOLVE_ITEM_ID,
-  POP_CULTURE_ITEM,
   POP_CULTURE_ITEM_ID,
-  OPPOSITE_ITEM,
   OPPOSITE_ITEM_ID,
-  SPLIT_ITEM,
   SPLIT_ITEM_ID,
-  WORD_COMBINE_ITEM,
   WORD_COMBINE_ITEM_ID,
 } from "./types";
 import type {
@@ -41,7 +31,9 @@ import type {
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
-import ItemDetailsDrawer from "./components/Graph/ItemDetailsDrawer";
+import type { CatalystAction } from "./components/Graph/CatalystDock";
+import JournalDock from "./components/Journal/JournalDock";
+import JournalSummaryStrip from "./components/Journal/JournalSummaryStrip";
 import { evaluateAchievements } from "./lib/achievements";
 import {
   combineElements,
@@ -50,6 +42,11 @@ import {
   markUnlockIntroSeen,
   type ItemReference,
 } from "./lib/api";
+import {
+  NON_INGREDIENT_ITEM_IDS,
+  SPECIAL_ITEM_BY_ID,
+  SPECIAL_ITEMS,
+} from "./lib/specialItems";
 
 const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
@@ -448,14 +445,9 @@ const App: React.FC = () => {
   );
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
-    next.set(CATEGORY_MODIFIER_ITEM.id, CATEGORY_MODIFIER_ITEM);
-    next.set(CRAFT_ITEM.id, CRAFT_ITEM);
-    next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
-    next.set(EVOLVE_ITEM.id, EVOLVE_ITEM);
-    next.set(POP_CULTURE_ITEM.id, POP_CULTURE_ITEM);
-    next.set(SPLIT_ITEM.id, SPLIT_ITEM);
-    next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
-    next.set(WORD_COMBINE_ITEM.id, WORD_COMBINE_ITEM);
+    for (const item of SPECIAL_ITEMS) {
+      next.set(item.id, item);
+    }
     return next;
   }, [items]);
   const drawerItem = drawerItemId == null ? null : itemById.get(drawerItemId) ?? null;
@@ -570,18 +562,7 @@ const App: React.FC = () => {
   }
 
   function findItemById(itemId: number) {
-    if (itemId === CATEGORY_MODIFIER_ITEM_ID) return CATEGORY_MODIFIER_ITEM;
-    if (itemId === CRAFT_ITEM_ID) return CRAFT_ITEM;
-    if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) {
-      return COMBINE_RESULT_PLACEHOLDER_ITEM;
-    }
-    if (itemId === CREATIVE_ITEM_ID) return CREATIVE_ITEM;
-    if (itemId === EVOLVE_ITEM_ID) return EVOLVE_ITEM;
-    if (itemId === POP_CULTURE_ITEM_ID) return POP_CULTURE_ITEM;
-    if (itemId === SPLIT_ITEM_ID) return SPLIT_ITEM;
-    if (itemId === OPPOSITE_ITEM_ID) return OPPOSITE_ITEM;
-    if (itemId === WORD_COMBINE_ITEM_ID) return WORD_COMBINE_ITEM;
-    return items.find((item) => item.id === itemId);
+    return SPECIAL_ITEM_BY_ID.get(itemId) ?? items.find((item) => item.id === itemId);
   }
 
   function addItemToWorkspace(
@@ -724,15 +705,11 @@ const App: React.FC = () => {
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
     const hasEvolveCatalyst = selectedItems.some((item) => item.id === EVOLVE_ITEM_ID);
-    const hasPopCultureCatalyst = selectedItems.some(
-      (item) => item.id === POP_CULTURE_ITEM_ID
-    );
+    const hasPopCultureCatalyst = selectedItems.some((item) => item.id === POP_CULTURE_ITEM_ID);
     const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
     const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
     const hasCraftCatalyst = selectedItems.some((item) => item.id === CRAFT_ITEM_ID);
-    const hasWordCombineCatalyst = selectedItems.some(
-      (item) => item.id === WORD_COMBINE_ITEM_ID
-    );
+    const hasWordCombineCatalyst = selectedItems.some((item) => item.id === WORD_COMBINE_ITEM_ID);
     const categoryAnchors = selectedNodes.filter(
       (node) => node.categoryConstraintName && node.categoryConstraintNormalizedName
     );
@@ -755,30 +732,13 @@ const App: React.FC = () => {
     }
     const categoryAnchor = categoryAnchors[0] ?? null;
     const actualInputItems = selectedItems.filter(
-      (item) =>
-        item.id !== CATEGORY_MODIFIER_ITEM_ID &&
-        item.id !== CRAFT_ITEM_ID &&
-        item.id !== CREATIVE_ITEM_ID &&
-        item.id !== EVOLVE_ITEM_ID &&
-        item.id !== POP_CULTURE_ITEM_ID &&
-        item.id !== SPLIT_ITEM_ID &&
-        item.id !== OPPOSITE_ITEM_ID &&
-        item.id !== WORD_COMBINE_ITEM_ID
+      (item) => !NON_INGREDIENT_ITEM_IDS.has(item.id)
     );
     const effectiveInputItems = selectedNodes
       .filter((node) => node.nodeId !== categoryAnchor?.nodeId)
       .map((node) => findItemById(node.itemId))
       .filter(
-        (item): item is Item =>
-          !!item &&
-          item.id !== CATEGORY_MODIFIER_ITEM_ID &&
-          item.id !== CRAFT_ITEM_ID &&
-          item.id !== CREATIVE_ITEM_ID &&
-          item.id !== EVOLVE_ITEM_ID &&
-          item.id !== POP_CULTURE_ITEM_ID &&
-          item.id !== SPLIT_ITEM_ID &&
-          item.id !== OPPOSITE_ITEM_ID &&
-          item.id !== WORD_COMBINE_ITEM_ID
+        (item): item is Item => !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id)
       );
     const catalystLabel = hasCraftCatalyst
       ? "Craft"
@@ -1070,55 +1030,18 @@ const App: React.FC = () => {
                   </div>
                 </div>
               </div>
-              <div className="journal-summary-strip">
-                <button
-                  type="button"
-                  className={`journal-summary-card${isQuestCelebrating ? " is-celebrating" : ""}`}
-                  onClick={() => openJournal("achievements")}
-                  aria-expanded={isJournalOpen && journalTab === "achievements"}
-                  aria-label="Open achievements journal"
-                >
-                  <span className="journal-summary-card-kicker">Achievements</span>
-                  <span className="journal-summary-card-value">
-                    {achievementSummary.earnedPoints} points
-                  </span>
-                  <span className="journal-summary-card-meta">
-                    {achievementSummary.completedCount}/{achievementSummary.totalCount} earned
-                  </span>
-                  <span className="journal-summary-card-copy">
-                    {featuredAchievement
-                      ? `${featuredAchievement.title} • ${featuredAchievement.progressCurrent}/${featuredAchievement.progressTarget}`
-                      : "Every visible achievement in this set is complete."}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className="journal-summary-card journal-summary-card-secondary"
-                  onClick={() => openJournal("quests")}
-                  aria-expanded={isJournalOpen && journalTab === "quests"}
-                  aria-label="Open catalyst quests"
-                >
-                  <span className="journal-summary-card-kicker">Quests</span>
-                  <span className="journal-summary-card-value">
-                    {unlockedCatalystCount}/{catalystUnlockQuests.length} catalysts
-                  </span>
-                  <span className="journal-summary-card-meta">
-                    {nextLockedCatalyst ? "Next unlock" : "All catalysts unlocked"}
-                  </span>
-                  <span className="journal-summary-card-copy">
-                    {nextLockedCatalyst
-                      ? `${nextLockedCatalyst.display.name} • ${nextLockedCatalyst.exampleWords
-                          .slice(0, 2)
-                          .join(", ")}`
-                      : "Your full catalyst kit is available in the workspace."}
-                  </span>
-                </button>
-                {questCelebration ? (
-                  <div className="quest-hub-celebration" aria-live="polite">
-                    {questCelebration.title}
-                  </div>
-                ) : null}
-              </div>
+              <JournalSummaryStrip
+                achievementSummary={achievementSummary}
+                catalystUnlockQuests={catalystUnlockQuests}
+                nextLockedCatalyst={nextLockedCatalyst}
+                unlockedCatalystCount={unlockedCatalystCount}
+                featuredAchievement={featuredAchievement}
+                isQuestCelebrating={isQuestCelebrating}
+                isJournalOpen={isJournalOpen}
+                journalTab={journalTab}
+                questCelebrationTitle={questCelebration?.title ?? null}
+                onOpenJournal={openJournal}
+              />
               <div className="graph-canvas">
                 <GraphView
                   items={items}
@@ -1137,314 +1060,27 @@ const App: React.FC = () => {
                 />
               </div>
             </div>
-              <aside className={`journal-dock${isJournalOpen ? "" : " is-collapsed"}`}>
-                {isJournalOpen ? (
-                <div className="journal-dock-shell">
-              {rightPanelMode === "item" && drawerItem ? (
-                <ItemDetailsDrawer
-                  item={drawerItem}
-                  itemsById={itemById}
-                  canGoBack={drawerHistory.length > 0}
-                  onBack={goBackInItemDetails}
-                  onClose={closeItemDetails}
-                  onSelectItem={openItemDetails}
-                  embedded
-                />
-              ) : (
-                <>
-              <div className="quest-drawer-header">
-                <div className="journal-dock-header-row">
-                  <div>
-                    <div className="quest-drawer-title">Journal</div>
-                    <div className="quest-drawer-subtitle">
-                      Permanent achievements and catalyst unlock quests.
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className="journal-dock-collapse"
-                    onClick={() => setIsJournalOpen(false)}
-                    aria-label="Collapse journal"
-                    title="Collapse journal"
-                  >
-                    <PanelRightClose size={16} strokeWidth={2} />
-                  </button>
-                </div>
-              </div>
-              <div className="journal-tab-row" role="tablist" aria-label="Journal sections">
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={journalTab === "achievements"}
-                  className={`journal-tab${
-                    journalTab === "achievements" ? " is-active" : ""
-                  }`}
-                  onClick={() => setJournalTab("achievements")}
-                >
-                  Achievements
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={journalTab === "quests"}
-                  className={`journal-tab${journalTab === "quests" ? " is-active" : ""}`}
-                  onClick={() => setJournalTab("quests")}
-                >
-                  Quests
-                </button>
-              </div>
-              {journalTab === "achievements" ? (
-                <div className="quest-card-list">
-                  <article className="quest-card achievement-overview-card">
-                    <div className="quest-card-top">
-                      <div>
-                        <div className="quest-card-title">Achievement Points</div>
-                        <div className="quest-card-description">
-                          Curated long-term goals with permanent progress across the library.
-                        </div>
-                      </div>
-                      <span className="quest-card-badge is-tracked">
-                        {achievementSummary.earnedPoints} pts
-                      </span>
-                    </div>
-                    <div className="achievement-overview-stats">
-                      <div className="achievement-overview-stat">
-                        <span className="achievement-overview-stat-value">
-                          {achievementSummary.completedCount}
-                        </span>
-                        <span className="achievement-overview-stat-label">earned</span>
-                      </div>
-                      <div className="achievement-overview-stat">
-                        <span className="achievement-overview-stat-value">
-                          {achievementSummary.totalCount - achievementSummary.completedCount}
-                        </span>
-                        <span className="achievement-overview-stat-label">remaining</span>
-                      </div>
-                      <div className="achievement-overview-stat">
-                        <span className="achievement-overview-stat-value">
-                          {achievementSummary.totalPoints}
-                        </span>
-                        <span className="achievement-overview-stat-label">total points</span>
-                      </div>
-                    </div>
-                    {achievementSummary.featuredProgress.length > 0 ? (
-                      <div className="achievement-feature-list">
-                        {achievementSummary.featuredProgress.map((achievement) => (
-                          <div
-                            key={achievement.id}
-                            className="achievement-feature-chip"
-                          >
-                            <span>{achievement.title}</span>
-                            <span>
-                              {achievement.progressCurrent}/{achievement.progressTarget}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ) : null}
-                  </article>
-                  {achievementSummary.categories.map((category) => (
-                    <section key={category.id} className="achievement-category">
-                      <div className="achievement-category-header">
-                        <div>
-                          <div className="quest-section-title">{category.title}</div>
-                          <div className="quest-section-subtitle">{category.summary}</div>
-                        </div>
-                        <div className="achievement-category-stats">
-                          <span className="quest-card-badge">
-                            {category.completedCount}/{category.totalCount}
-                          </span>
-                          <span className="quest-card-badge is-tracked">
-                            {category.earnedPoints}/{category.totalPoints} pts
-                          </span>
-                        </div>
-                      </div>
-                      <div className="achievement-group-list">
-                        {category.groups.map((group) => (
-                          <article key={group.id} className="achievement-group">
-                            <div className="achievement-group-header">
-                              <div>
-                                <div className="quest-card-title">{group.title}</div>
-                                <div className="quest-card-description">{group.summary}</div>
-                              </div>
-                              <span className="quest-card-badge">
-                                {group.completedCount}/{group.totalCount}
-                              </span>
-                            </div>
-                            <div className="achievement-row-list">
-                              {group.achievements.map((achievement) => {
-                                const achievementReference =
-                                  achievementReferences[achievement.id];
-                                const progressRatio =
-                                  achievement.progressTarget > 0
-                                    ? achievement.progressCurrent / achievement.progressTarget
-                                    : 0;
-                                return (
-                                  <div
-                                    key={achievement.id}
-                                    className={`achievement-row${
-                                      achievement.completed ? " is-complete" : ""
-                                    }`}
-                                  >
-                                    <div className="achievement-row-main">
-                                      <div className="achievement-row-copy">
-                                        <div className="achievement-row-title">
-                                          {achievement.title}
-                                        </div>
-                                        <div className="achievement-row-description">
-                                          {achievementReference === undefined
-                                            ? "Loading reference..."
-                                            : achievementReference?.summary
-                                              ? truncateAchievementReference(
-                                                  achievementReference.summary,
-                                                  ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT
-                                                )
-                                              : achievement.description}
-                                        </div>
-                                      </div>
-                                      <div className="achievement-row-meta">
-                                        <span
-                                          className={`quest-card-badge${
-                                            achievement.completed ? " is-complete" : ""
-                                          }`}
-                                        >
-                                          {achievement.completed
-                                            ? "Complete"
-                                            : `${achievement.progressCurrent}/${achievement.progressTarget}`}
-                                        </span>
-                                        <span className="achievement-row-points">
-                                          {achievement.points} pts
-                                        </span>
-                                      </div>
-                                    </div>
-                                    {achievementReference?.sourceUrl ? (
-                                      <div className="achievement-row-link">
-                                        <a
-                                          className="item-drawer-link"
-                                          href={achievementReference.sourceUrl}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          Open Wikipedia article
-                                        </a>
-                                      </div>
-                                    ) : null}
-                                    <div className="achievement-progress-bar">
-                                      <span
-                                        className="achievement-progress-bar-fill"
-                                        style={{
-                                          width: `${Math.max(
-                                            0,
-                                            Math.min(progressRatio, 1)
-                                          ) * 100}%`,
-                                        }}
-                                      />
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </article>
-                        ))}
-                      </div>
-                    </section>
-                  ))}
-                </div>
-              ) : (
-                <div className="quest-section">
-                  <div className="quest-section-header">
-                    <div className="quest-section-title">Catalyst Unlock Quests</div>
-                    <div className="quest-section-subtitle">
-                      Permanent mechanic unlocks that expand the workspace.
-                    </div>
-                  </div>
-                  <article className="quest-card quest-card-featured">
-                    <div className="quest-card-top">
-                      <div>
-                        <div className="quest-card-title">Catalyst Progress</div>
-                        <div className="quest-card-description">
-                          Quests are now reserved for unlocking new catalysts and expanding what
-                          the workspace can do.
-                        </div>
-                      </div>
-                      <span className="quest-card-badge is-tracked">
-                        {unlockedCatalystCount}/{catalystUnlockQuests.length}
-                      </span>
-                    </div>
-                    <div className="quest-card-criteria">
-                      {nextLockedCatalyst
-                        ? `${nextLockedCatalyst.display.name} is your next unlock target.`
-                        : "Every catalyst is unlocked."}
-                    </div>
-                  </article>
-                  <div className="quest-card-list">
-                    {catalystUnlockQuests.map((unlock) => {
-                      const isNextLocked =
-                        !unlock.unlocked && unlock.key === nextLockedCatalystKey;
-                      return (
-                        <article
-                          key={unlock.key}
-                          className={`quest-card quest-card-unlock ${unlock.display.accentClass}${
-                            unlock.unlocked ? " is-complete" : ""
-                          }${isNextLocked ? " is-featured-unlock" : ""}`}
-                        >
-                          <div className="quest-card-top">
-                            <div className="quest-card-title-wrap">
-                              <span className="quest-card-icon" aria-hidden="true">
-                                {unlock.display.icon}
-                              </span>
-                              <div>
-                                <div className="quest-card-title">{unlock.display.name}</div>
-                                <div className="quest-card-description">
-                                  {unlock.display.shortCopy}
-                                </div>
-                              </div>
-                            </div>
-                            <span
-                              className={`quest-card-badge ${
-                                unlock.unlocked
-                                  ? "is-complete"
-                                  : isNextLocked
-                                    ? "is-tracked"
-                                    : "is-available"
-                              }`}
-                            >
-                              {unlock.unlocked
-                                ? "Unlocked"
-                                : isNextLocked
-                                  ? "Next"
-                                  : "Locked"}
-                            </span>
-                          </div>
-                          <div className="quest-card-criteria">{unlock.summary}</div>
-                          <div className="quest-card-meta">
-                            Example unlock words: {unlock.exampleWords.join(", ")}
-                          </div>
-                          {unlock.sourceItemName ? (
-                            <div className="quest-card-meta">
-                              Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
-                              {unlock.sourceMatchedWord &&
-                              unlock.sourceMatchedWord.toLowerCase() !==
-                                unlock.sourceItemName.toLowerCase()
-                                ? `, which matched "${unlock.sourceMatchedWord}".`
-                                : "."}
-                            </div>
-                          ) : !unlock.unlocked ? (
-                            <div className="quest-card-meta">
-                              This catalyst is still locked. Discover related concepts to reveal it.
-                            </div>
-                          ) : null}
-                        </article>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-                </>
-              )}
-            </div>
-                ) : null}
-              </aside>
+              <JournalDock
+                isOpen={isJournalOpen}
+                mode={rightPanelMode}
+                journalTab={journalTab}
+                achievementSummary={achievementSummary}
+                achievementReferences={achievementReferences}
+                achievementReferencePreviewLimit={ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT}
+                catalystUnlockQuests={catalystUnlockQuests}
+                nextLockedCatalystKey={nextLockedCatalystKey}
+                nextLockedCatalyst={nextLockedCatalyst}
+                unlockedCatalystCount={unlockedCatalystCount}
+                item={drawerItem}
+                itemsById={itemById}
+                canGoBack={drawerHistory.length > 0}
+                onBack={goBackInItemDetails}
+                onCloseItem={closeItemDetails}
+                onSelectItem={openItemDetails}
+                onCollapse={() => setIsJournalOpen(false)}
+                onSetJournalTab={setJournalTab}
+                truncateAchievementReference={truncateAchievementReference}
+              />
           </section>
         </main>
       </div>

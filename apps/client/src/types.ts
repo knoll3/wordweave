@@ -141,34 +141,6 @@ export interface SelectionCombineLayout {
   placeholderPosition: { x: number; y: number };
 }
 
-export interface TargetQuest {
-  target: string;
-  normalizedTarget: string;
-  difficulty: "easy" | "medium" | "hard";
-  flavor: string;
-  teaser: string;
-}
-
-export interface TargetQuestCostSummary {
-  pricingModel: string;
-  promptTokens: number;
-  cachedPromptTokens: number;
-  uncachedPromptTokens: number;
-  completionTokens: number;
-  promptCostUsd: number;
-  completionCostUsd: number;
-  totalCostUsd: number;
-}
-
-export interface TargetQuestList {
-  generatedAt: string;
-  model: string;
-  retryCount: number;
-  recentExclusionCount: number;
-  cost: TargetQuestCostSummary | null;
-  quests: TargetQuest[];
-}
-
 export interface AchievementProgress {
   id: string;
   title: string;

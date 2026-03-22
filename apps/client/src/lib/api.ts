@@ -8,7 +8,6 @@ import type {
   Recipe,
   RecentRecipe,
   SemanticClustersResponse,
-  TargetQuestList,
 } from "../types";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
@@ -211,21 +210,6 @@ export async function selectCandidate(
     body: JSON.stringify({ candidateId }),
   });
   return handleResponse(res);
-}
-
-export async function generateTargetQuests(options?: {
-  count?: number;
-}): Promise<TargetQuestList> {
-  const res = await fetch(`${API_BASE}/quests/targets`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      count: options?.count ?? 4,
-    }),
-  });
-  return handleResponse<TargetQuestList>(res);
 }
 
 export async function fetchQuestTargetReference(

@@ -32,119 +32,6 @@ type GroupDefinition = {
   summary: string;
 };
 
-const POKEMON_TARGETS = [
-  "pikachu",
-  "mewtwo",
-  "charizard",
-  "eevee",
-  "snorlax",
-  "bulbasaur",
-  "squirtle",
-  "jigglypuff",
-  "meowth",
-  "psyduck",
-  "gengar",
-  "dragonite",
-  "lapras",
-  "mew",
-  "magikarp",
-  "vulpix",
-  "raichu",
-  "ditto",
-  "blastoise",
-  "venusaur",
-] as const;
-
-const MYTH_TARGETS = [
-  "excalibur",
-  "mjolnir",
-  "kraken",
-  "medusa",
-  "phoenix",
-  "pegasus",
-  "hydra",
-  "minotaur",
-  "cerberus",
-  "odin",
-  "thor",
-  "zeus",
-  "athena",
-  "poseidon",
-  "merlin",
-] as const;
-
-const SCIENCE_TARGETS = [
-  "black hole",
-  "quark",
-  "nebula",
-  "dna",
-  "antimatter",
-  "photon",
-  "gravity",
-  "atom",
-  "molecule",
-  "laser",
-  "robot",
-  "comet",
-  "supernova",
-  "galaxy",
-  "telescope",
-] as const;
-
-const WORLD_TARGETS = [
-  "pyramid",
-  "stonehenge",
-  "eiffel tower",
-  "great wall",
-  "colosseum",
-  "machu picchu",
-  "taj mahal",
-  "sphinx",
-  "statue of liberty",
-  "atlantis",
-  "volcano",
-  "island",
-  "ocean",
-  "castle",
-  "temple",
-] as const;
-
-const SCREEN_TARGETS = [
-  "batman",
-  "godzilla",
-  "shrek",
-  "harry potter",
-  "lightsaber",
-  "jurassic park",
-  "sherlock holmes",
-  "indiana jones",
-  "terminator",
-  "matrix",
-  "totoro",
-  "spongebob",
-  "dracula",
-  "delorean",
-  "ghostbusters",
-] as const;
-
-const BEAST_TARGETS = [
-  "t-rex",
-  "tyrannosaurus",
-  "velociraptor",
-  "triceratops",
-  "stegosaurus",
-  "brontosaurus",
-  "pterodactyl",
-  "megalodon",
-  "mammoth",
-  "saber-toothed tiger",
-  "yeti",
-  "griffin",
-  "dragon",
-  "werewolf",
-  "unicorn",
-] as const;
-
 const CATEGORIES: CategoryDefinition[] = [
   {
     id: "pokemon",
@@ -490,6 +377,28 @@ const ACHIEVEMENTS: AchievementDefinition[] = [
   },
 ];
 
+const ACHIEVEMENT_DEFINITIONS_BY_ID = new Map(
+  ACHIEVEMENTS.map((definition) => [definition.id, definition] as const)
+);
+
+const ACHIEVEMENT_IDS_BY_TARGET = (() => {
+  const next = new Map<string, string[]>();
+  for (const definition of ACHIEVEMENTS) {
+    for (const target of definition.requirement.targets) {
+      const normalizedTarget = normalizeAchievementText(target);
+      if (!normalizedTarget) {
+        continue;
+      }
+      const bucket = next.get(normalizedTarget) ?? [];
+      if (!bucket.includes(definition.id)) {
+        bucket.push(definition.id);
+      }
+      next.set(normalizedTarget, bucket);
+    }
+  }
+  return next;
+})();
+
 function normalizeAchievementText(value: string) {
   return value
     .trim()
@@ -501,63 +410,11 @@ function normalizeAchievementText(value: string) {
     .trim();
 }
 
-function tokenizeAchievementText(value: string) {
-  return normalizeAchievementText(value)
-    .split(/[\s-]+/)
-    .map((token) => token.trim())
-    .filter(Boolean);
-}
-
-function normalizeAchievementToken(token: string) {
-  if (token.endsWith("ies") && token.length > 3) {
-    return `${token.slice(0, -3)}y`;
-  }
-  if (token.endsWith("es") && token.length > 3) {
-    return token.slice(0, -2);
-  }
-  if (token.endsWith("s") && token.length > 3) {
-    return token.slice(0, -1);
-  }
-  return token;
-}
-
-export function matchesAchievementTarget(target: string, candidate: Item) {
-  const normalizedTarget = normalizeAchievementText(target);
-  const normalizedCandidate = normalizeAchievementText(
-    candidate.normalizedName || candidate.name
-  );
-
-  if (!normalizedTarget || !normalizedCandidate) {
-    return false;
-  }
-
-  if (normalizedTarget === normalizedCandidate) {
-    return true;
-  }
-
-  const targetTokens = tokenizeAchievementText(target);
-  const candidateTokens = tokenizeAchievementText(candidate.normalizedName || candidate.name);
-
-  if (targetTokens.length !== candidateTokens.length || targetTokens.length === 0) {
-    return false;
-  }
-
-  return targetTokens.every((token, index) => {
-    return normalizeAchievementToken(token) === normalizeAchievementToken(candidateTokens[index] ?? "");
-  });
-}
-
 function buildAchievementProgress(
-  discoveredNames: Set<string>,
+  earnedAchievementIds: Set<string>,
   definition: AchievementDefinition
 ): AchievementProgress {
-  const matchedTargets = definition.requirement.targets.filter((target, index, targets) => {
-    if (targets.indexOf(target) !== index) {
-      return false;
-    }
-    return discoveredNames.has(normalizeAchievementText(target));
-  });
-  const progressCurrent = Math.min(matchedTargets.length, definition.requirement.count);
+  const progressCurrent = earnedAchievementIds.has(definition.id) ? definition.requirement.count : 0;
   const progressTarget = definition.requirement.count;
   const completed = progressCurrent >= progressTarget;
   return {
@@ -573,14 +430,23 @@ function buildAchievementProgress(
 }
 
 export function evaluateAchievements(items: Item[]): AchievementSummary {
-  const discoveredNames = new Set<string>();
+  const earnedAchievementIds = new Set<string>();
   for (const item of items) {
-    discoveredNames.add(normalizeAchievementText(item.normalizedName || item.name));
+    const normalizedItemName = normalizeAchievementText(item.normalizedName || item.name);
+    if (!normalizedItemName) {
+      continue;
+    }
+    const matchingAchievementIds = ACHIEVEMENT_IDS_BY_TARGET.get(normalizedItemName) ?? [];
+    for (const achievementId of matchingAchievementIds) {
+      if (ACHIEVEMENT_DEFINITIONS_BY_ID.has(achievementId)) {
+        earnedAchievementIds.add(achievementId);
+      }
+    }
   }
 
   const progressByGroup = new Map<string, AchievementProgress[]>();
   for (const definition of ACHIEVEMENTS) {
-    const progress = buildAchievementProgress(discoveredNames, definition);
+    const progress = buildAchievementProgress(earnedAchievementIds, definition);
     const bucket = progressByGroup.get(definition.groupId) ?? [];
     bucket.push(progress);
     progressByGroup.set(definition.groupId, bucket);

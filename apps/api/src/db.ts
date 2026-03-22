@@ -125,16 +125,6 @@ function createSchema(db: Database): void {
       source_matched_word TEXT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS target_quest_history (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      target TEXT NOT NULL,
-      normalized_target TEXT NOT NULL,
-      difficulty TEXT NOT NULL,
-      flavor TEXT NOT NULL,
-      teaser TEXT NOT NULL,
-      model TEXT NOT NULL,
-      generated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
   `);
 
   ensureColumn(db, "elements", "reference_record_id", "INTEGER NULL");
