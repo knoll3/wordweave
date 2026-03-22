@@ -115,8 +115,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
   {
     key: "random_tools",
     title: "Random Tools Unlocked",
-    summary:
-      "You can now add random library items to the workspace and use Randomize as a catalyst to turn an item into another nearby variation.",
+    summary: "You can now add random library items to the workspace.",
     acceptedWords: [
       "random",
       "chance",

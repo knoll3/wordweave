@@ -154,19 +154,20 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
-const RANDOMIZE_PROMPT = `
-You are the randomize engine for a sandbox discovery game.
+const CATEGORY_PROMPT = `
+You are the category constraint engine for a sandbox discovery game.
 
-The player provides one or more nouns as input. Your job is to return a different but closely related real-world item of the same general type.
+The player has chosen a category anchor: {{CATEGORY_CONSTRAINT}}.
 
-Think of this as changing the input into another nearby variation, category member, or sibling concept, while keeping it recognizable and grounded in reality.
+They also provide one or more clue nouns. Your job is to return one real, recognizable example, member, or type of {{CATEGORY_CONSTRAINT}} that best matches the clue nouns.
 
 Rules:
 - Return exactly one result.
+- The result must be a real and recognizable example, member, or kind of {{CATEGORY_CONSTRAINT}}.
+- Use the clue nouns to steer toward the closest fitting answer.
 - Keep the result short and noun-like.
-- Do not return explanations, descriptions, sentences.
-- Stay close to the input concept instead of drifting to something unrelated.
-- The result should be a real and recognizable thing, not an invented term.
+- Do not return explanations, descriptions, or sentences.
+- Stay within the category even if the clues would normally point elsewhere.
 
 Return ONLY valid JSON in this format:
 
@@ -453,11 +454,11 @@ function getOpenAI(): OpenAI {
 export async function generateResult(
   inputs: string[],
   options?: {
+    categoryConstraint?: string;
     creative?: boolean;
     subtractive?: boolean;
     opposite?: boolean;
     popCulture?: boolean;
-    randomize?: boolean;
     crafting?: boolean;
     wordCombine?: boolean;
     evolve?: boolean;
@@ -469,14 +470,17 @@ export async function generateResult(
 
   const promptTemplate = options?.subtractive
     ? SUBTRACTIVE_PROMPT
+    : options?.categoryConstraint
+      ? CATEGORY_PROMPT.replace(
+          /{{CATEGORY_CONSTRAINT}}/g,
+          options.categoryConstraint
+        )
     : options?.opposite
       ? OPPOSITE_PROMPT
       : options?.popCulture
         ? POP_CULTURE_PROMPT
       : options?.evolve
         ? EVOLVE_PROMPT
-      : options?.randomize
-        ? RANDOMIZE_PROMPT
       : options?.crafting
         ? CRAFT_PROMPT
       : options?.wordCombine
@@ -492,12 +496,12 @@ export async function generateResult(
   console.log("[openai] sending request", {
     model,
     inputs,
+    categoryConstraint: options?.categoryConstraint ?? null,
     creative: options?.creative ?? false,
     subtractive: options?.subtractive ?? false,
     opposite: options?.opposite ?? false,
     popCulture: options?.popCulture ?? false,
     evolve: options?.evolve ?? false,
-    randomize: options?.randomize ?? false,
     crafting: options?.crafting ?? false,
     wordCombine: options?.wordCombine ?? false,
     temperature: 1,

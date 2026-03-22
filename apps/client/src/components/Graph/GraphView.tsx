@@ -11,6 +11,8 @@ import {
   TilingSprite,
 } from "pixi.js";
 import {
+  CATEGORY_MODIFIER_ITEM,
+  CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CRAFT_ITEM,
@@ -23,8 +25,6 @@ import {
   OPPOSITE_ITEM_ID,
   POP_CULTURE_ITEM,
   POP_CULTURE_ITEM_ID,
-  RANDOMIZE_ITEM,
-  RANDOMIZE_ITEM_ID,
   SPLIT_ITEM,
   SPLIT_ITEM_ID,
   WORD_COMBINE_ITEM,
@@ -36,9 +36,11 @@ interface Props {
   items: Item[];
   workspaceItems: WorkspaceItem[];
   celebratedNodeId?: string | null;
+  onAttachCategoryModifier: (sourceNodeId: string, targetNodeId: string) => void;
   onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
+  onClearCategoryModifier: (nodeId: string) => void;
   onClearWorkspace: () => void;
   onCombineWorkspaceItems: (
     sourceNodeId: string,
@@ -95,9 +97,11 @@ type ItemView = {
   icon: Text;
   label: Text;
   badge: Text | null;
+  categoryBadge: Container | null;
   celebration: Graphics | null;
   celebrationParticles: Graphics | null;
   itemId: number;
+  hasCategoryModifier: boolean;
   width: number;
   targetX: number;
   targetY: number;
@@ -120,6 +124,8 @@ const ZOOM_STEP = 0.12;
 const CARD_HEIGHT = 42;
 const CARD_HORIZONTAL_PADDING = 18;
 const CARD_RADIUS = 10;
+const CATEGORY_MODIFIER_RADIUS = CARD_HEIGHT / 2;
+const CATEGORY_MODIFIER_HEIGHT = 34;
 const GRID_SPACING = 28;
 const GRID_RADIUS = 1.15;
 const HOVER_SCALE_STEP = 0.012;
@@ -145,13 +151,13 @@ const CELEBRATION_TINT_HOLD_FRAMES = 150;
 
 function isCatalystItemId(itemId: number) {
   return (
+    itemId === CATEGORY_MODIFIER_ITEM_ID ||
     itemId === CREATIVE_ITEM_ID ||
     itemId === EVOLVE_ITEM_ID ||
     itemId === CRAFT_ITEM_ID ||
     itemId === POP_CULTURE_ITEM_ID ||
     itemId === SPLIT_ITEM_ID ||
     itemId === OPPOSITE_ITEM_ID ||
-    itemId === RANDOMIZE_ITEM_ID ||
     itemId === WORD_COMBINE_ITEM_ID
   );
 }
@@ -168,13 +174,13 @@ function moveToward(current: number, target: number, step: number) {
 }
 
 function getNodeTint(itemId: number) {
+  if (itemId === CATEGORY_MODIFIER_ITEM_ID) return 0x5eead4;
   if (itemId === CREATIVE_ITEM_ID) return 0xa78bfa;
   if (itemId === EVOLVE_ITEM_ID) return 0xf472b6;
   if (itemId === CRAFT_ITEM_ID) return 0xf59e0b;
   if (itemId === POP_CULTURE_ITEM_ID) return 0xfacc15;
   if (itemId === SPLIT_ITEM_ID) return 0xfb923c;
   if (itemId === OPPOSITE_ITEM_ID) return 0x93c5fd;
-  if (itemId === RANDOMIZE_ITEM_ID) return 0x6ee7b7;
   if (itemId === WORD_COMBINE_ITEM_ID) return 0xd8b4fe;
   if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x64748b;
   return 0x94a3b8;
@@ -199,12 +205,14 @@ function drawItemCard(
   width: number,
   itemId: number,
   state: ItemVisualState,
+  hasCategoryModifier = false,
   celebrationAmount = 0,
   celebrationPulse = 0
 ) {
   const isHighlighted = state === "highlight";
   const nodeTint = getNodeTint(itemId);
   const isCatalyst = isCatalystItemId(itemId);
+  const isCategoryModifier = itemId === CATEGORY_MODIFIER_ITEM_ID;
   const celebrationFill = mixColor(0x5b2a86, 0x7c3aed, celebrationPulse);
   const celebrationStroke = mixColor(0xe9d5ff, 0xf3e8ff, celebrationPulse);
   const fillColor = mixColor(
@@ -214,19 +222,44 @@ function drawItemCard(
   );
   const finalFillColor = mixColor(fillColor, celebrationFill, celebrationAmount);
   const strokeColor = mixColor(
-    nodeTint,
+    hasCategoryModifier ? 0x5eead4 : nodeTint,
     celebrationStroke,
     celebrationAmount
   );
   background.clear();
-  background
-    .roundRect(0, 0, width, CARD_HEIGHT, CARD_RADIUS)
-    .fill({ color: finalFillColor, alpha: 1 });
-  background.stroke({
-    width: 1.5,
-    color: strokeColor,
-    alpha: (isHighlighted ? 0.5 : 0.42) + celebrationAmount * 0.28,
-  });
+  if (isCategoryModifier) {
+    const modifierY = Math.round((CARD_HEIGHT - CATEGORY_MODIFIER_HEIGHT) / 2);
+    background.roundRect(0, modifierY, width, CATEGORY_MODIFIER_HEIGHT, CATEGORY_MODIFIER_HEIGHT / 2).fill({
+      color: finalFillColor,
+      alpha: 1,
+    });
+    background.roundRect(
+      1,
+      modifierY + 1,
+      width - 2,
+      CATEGORY_MODIFIER_HEIGHT - 2,
+      CATEGORY_MODIFIER_HEIGHT / 2 - 1
+    ).stroke({
+      width: 1.5,
+      color: 0x5eead4,
+      alpha: 0.72,
+    });
+    background.circle(18, CARD_HEIGHT / 2, 3).fill({
+      color: 0x0f172a,
+      alpha: 0.62,
+    });
+  } else {
+    background
+      .roundRect(0, 0, width, CARD_HEIGHT, CARD_RADIUS)
+      .fill({ color: finalFillColor, alpha: 1 });
+  }
+  if (!isCategoryModifier) {
+    background.stroke({
+      width: hasCategoryModifier || isHighlighted ? 1.9 : 1.5,
+      color: strokeColor,
+      alpha: ((isHighlighted || hasCategoryModifier) ? 0.56 : 0.42) + celebrationAmount * 0.28,
+    });
+  }
 }
 
 function drawCelebrationBurst(graphic: Graphics, width: number) {
@@ -302,9 +335,11 @@ function GraphView({
   items,
   workspaceItems,
   celebratedNodeId = null,
+  onAttachCategoryModifier,
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
+  onClearCategoryModifier,
   onClearWorkspace,
   onCombineWorkspaceItems,
   onCombineWorkspaceSelection,
@@ -336,9 +371,11 @@ function GraphView({
   const workspaceItemsRef = useRef<WorkspaceItem[]>(workspaceItems);
   const itemByIdRef = useRef<Map<number, Item>>(new Map());
   const onWorkspaceItemsChangeRef = useRef(onWorkspaceItemsChange);
+  const onAttachCategoryModifierRef = useRef(onAttachCategoryModifier);
   const onViewportCenterChangeRef = useRef(onViewportCenterChange);
   const onCombineWorkspaceItemsRef = useRef(onCombineWorkspaceItems);
   const onCombineWorkspaceSelectionRef = useRef(onCombineWorkspaceSelection);
+  const onClearCategoryModifierRef = useRef(onClearCategoryModifier);
   const onOpenItemDetailsRef = useRef(onOpenItemDetails);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectionDragRect, setSelectionDragRect] = useState<{
@@ -369,6 +406,7 @@ function GraphView({
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
+    next.set(CATEGORY_MODIFIER_ITEM.id, CATEGORY_MODIFIER_ITEM);
     next.set(CRAFT_ITEM.id, CRAFT_ITEM);
     next.set(COMBINE_RESULT_PLACEHOLDER_ITEM.id, COMBINE_RESULT_PLACEHOLDER_ITEM);
     next.set(CREATIVE_ITEM.id, CREATIVE_ITEM);
@@ -376,7 +414,6 @@ function GraphView({
     next.set(POP_CULTURE_ITEM.id, POP_CULTURE_ITEM);
     next.set(SPLIT_ITEM.id, SPLIT_ITEM);
     next.set(OPPOSITE_ITEM.id, OPPOSITE_ITEM);
-    next.set(RANDOMIZE_ITEM.id, RANDOMIZE_ITEM);
     next.set(WORD_COMBINE_ITEM.id, WORD_COMBINE_ITEM);
     return next;
   }, [items]);
@@ -385,9 +422,11 @@ function GraphView({
   workspaceItemsRef.current = workspaceItems;
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
+  onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onViewportCenterChangeRef.current = onViewportCenterChange;
   onCombineWorkspaceItemsRef.current = onCombineWorkspaceItems;
   onCombineWorkspaceSelectionRef.current = onCombineWorkspaceSelection;
+  onClearCategoryModifierRef.current = onClearCategoryModifier;
   onOpenItemDetailsRef.current = onOpenItemDetails;
   selectionModeRef.current = isSelectionMode;
   selectedNodeIdsRef.current = selectedNodeIds;
@@ -506,6 +545,7 @@ function GraphView({
       view.width,
       view.itemId,
       state,
+      view.hasCategoryModifier,
       view.celebrationTintProgress
     );
     view.targetScale = scale;
@@ -834,6 +874,9 @@ function GraphView({
     );
   };
 
+  const canAttachCategoryModifierToView = (view: ItemView) =>
+    view.itemId > 0 && view.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
+
   const duplicateWorkspaceItem = (nodeId: string) => {
     const sourceItem = workspaceItemsRef.current.find((item) => item.nodeId === nodeId);
     if (!sourceItem) return;
@@ -910,13 +953,17 @@ function GraphView({
     container.eventMode = "static";
     container.cursor = "grab";
     const isPlaceholder = item.id === COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
+    const hasCategoryModifier = Boolean(
+      workspaceItem.categoryConstraintName && workspaceItem.categoryConstraintNormalizedName
+    );
 
+    const isCategoryModifierItem = item.id === CATEGORY_MODIFIER_ITEM_ID;
     const icon = new Text({
       text: isPlaceholder ? "" : item.icon || "•",
       style: {
         fill: 0xe5e7eb,
         fontFamily: "Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif",
-        fontSize: 20,
+        fontSize: isCategoryModifierItem ? 17 : 20,
         fontWeight: "600",
         wordWrap: false,
         breakWords: false,
@@ -928,7 +975,7 @@ function GraphView({
       style: {
         fill: 0xe5e7eb,
         fontFamily: "Trebuchet MS, Verdana, sans-serif",
-        fontSize: 17,
+        fontSize: isCategoryModifierItem ? 15 : 17,
         fontWeight: "600",
         wordWrap: false,
         breakWords: false,
@@ -946,6 +993,9 @@ function GraphView({
           },
         })
       : null;
+    const categoryBadge = hasCategoryModifier
+      ? new Container()
+      : null;
     const celebration = isPlaceholder ? null : new Graphics();
     const celebrationParticles = isPlaceholder ? null : new Graphics();
 
@@ -959,15 +1009,15 @@ function GraphView({
       ? PLACEHOLDER_WIDTH
       : CARD_HORIZONTAL_PADDING * 2 +
         icon.width +
-        10 +
+        (isCategoryModifierItem ? 8 : 10) +
         label.width;
     const cardWidth = contentWidth;
-    drawItemCard(background, cardWidth, item.id, "default");
+    drawItemCard(background, cardWidth, item.id, "default", hasCategoryModifier);
 
-    icon.x = CARD_HORIZONTAL_PADDING;
+    icon.x = isCategoryModifierItem ? 14 : CARD_HORIZONTAL_PADDING;
     icon.y = Math.round((CARD_HEIGHT - icon.height) / 2) - 1;
 
-    label.x = icon.x + icon.width + 10;
+    label.x = icon.x + icon.width + (isCategoryModifierItem ? 8 : 10);
     label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
 
     if (loader) {
@@ -978,6 +1028,34 @@ function GraphView({
     if (badge) {
       badge.x = cardWidth - badge.width - 6;
       badge.y = CARD_HEIGHT - badge.height + 10;
+    }
+    if (categoryBadge) {
+      const chipBg = new Graphics();
+      const chipLabel = new Text({
+        text: "Category ×",
+        style: {
+          fill: 0xccfbf1,
+          fontFamily: "Trebuchet MS, Verdana, sans-serif",
+          fontSize: 10,
+          fontWeight: "700",
+        },
+      });
+      const chipWidth = chipLabel.width + 12;
+      chipBg
+        .roundRect(0, 0, chipWidth, 18, 9)
+        .fill({ color: 0x134e4a, alpha: 0.96 })
+        .stroke({ width: 1, color: 0x5eead4, alpha: 0.8 });
+      chipLabel.x = 6;
+      chipLabel.y = Math.round((18 - chipLabel.height) / 2) - 1;
+      categoryBadge.addChild(chipBg, chipLabel);
+      categoryBadge.x = Math.max(6, cardWidth - chipWidth - 8);
+      categoryBadge.y = -9;
+      categoryBadge.eventMode = "static";
+      categoryBadge.cursor = "pointer";
+      categoryBadge.on("pointerdown", (event) => {
+        event.stopPropagation();
+        onClearCategoryModifierRef.current(workspaceItem.nodeId);
+      });
     }
     if (celebration) {
       drawCelebrationBurst(celebration, cardWidth);
@@ -1002,6 +1080,9 @@ function GraphView({
     }
     if (badge) {
       container.addChild(badge);
+    }
+    if (categoryBadge) {
+      container.addChild(categoryBadge);
     }
     if (celebration) {
       container.addChild(celebration);
@@ -1031,9 +1112,11 @@ function GraphView({
         icon,
         label,
         badge,
+        categoryBadge,
         celebration,
         celebrationParticles,
         itemId: item.id,
+        hasCategoryModifier,
         width: cardWidth,
         targetX: container.x,
         targetY: container.y,
@@ -1057,7 +1140,7 @@ function GraphView({
       };
       container.cursor = "grabbing";
       container.alpha = 1;
-      drawItemCard(background, cardWidth, item.id, "highlight");
+      drawItemCard(background, cardWidth, item.id, "highlight", hasCategoryModifier);
     });
 
     const view = {
@@ -1068,9 +1151,11 @@ function GraphView({
       icon,
       label,
       badge,
+      categoryBadge,
       celebration,
       celebrationParticles,
       itemId: item.id,
+      hasCategoryModifier,
       width: cardWidth,
       targetX: 0,
       targetY: 0,
@@ -1121,7 +1206,15 @@ function GraphView({
       let view = existingViews.get(workspaceItem.nodeId);
       if (
         view &&
-        (view.itemId !== item.id || Boolean(view.badge) !== Boolean(workspaceItem.isNewDiscovery))
+        (
+          view.itemId !== item.id ||
+          Boolean(view.badge) !== Boolean(workspaceItem.isNewDiscovery) ||
+          view.hasCategoryModifier !==
+            Boolean(
+              workspaceItem.categoryConstraintName &&
+                workspaceItem.categoryConstraintNormalizedName
+            )
+        )
       ) {
         const currentPosition = getViewTopLeftPosition(view);
         const currentScale = view.container.scale.x;
@@ -1355,6 +1448,21 @@ function GraphView({
                 : item
             )
           );
+          if (
+            view.itemId === CATEGORY_MODIFIER_ITEM_ID &&
+            dropTargetNodeId &&
+            dropTargetNodeId !== dragState.nodeId
+          ) {
+            const dropTargetView = itemViewsRef.current.get(dropTargetNodeId);
+            if (dropTargetView && canAttachCategoryModifierToView(dropTargetView)) {
+              lastItemClickRef.current = null;
+              onAttachCategoryModifierRef.current(
+                dragState.nodeId,
+                dropTargetNodeId
+              );
+              return;
+            }
+          }
           if (dropTargetNodeId && dropTargetNodeId !== dragState.nodeId) {
             lastItemClickRef.current = null;
             onCombineWorkspaceItemsRef.current(
@@ -1548,6 +1656,7 @@ function GraphView({
               view.width,
               view.itemId,
               "highlight",
+              view.hasCategoryModifier,
               view.celebrationTintProgress
             );
             view.celebration.visible = true;
@@ -1591,6 +1700,7 @@ function GraphView({
               view.width,
               view.itemId,
               selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
+              view.hasCategoryModifier,
               view.celebrationTintProgress,
               tintPulsePhase
             );

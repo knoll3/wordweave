@@ -30,39 +30,43 @@ const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
 const CACHE_BATCH_SIZE = 25;
 const CATALYST_RUN_KEY_PREFIXES = new Set([
   "creative",
+  "category",
   "subtract",
   "opposite",
   "pop",
   "evolve",
-  "randomize",
   "craft",
   "compound",
 ]);
 
 function buildRecipeInputKey(params: {
   inputKey: string;
+  categoryConstraint: string | null;
   creative: boolean;
   subtractive: boolean;
   opposite: boolean;
   popCulture: boolean;
   evolve: boolean;
-  randomize: boolean;
   crafting: boolean;
   wordCombine: boolean;
 }): string {
   const {
     inputKey,
+    categoryConstraint,
     creative,
     subtractive,
     opposite,
     popCulture,
     evolve,
-    randomize,
     crafting,
     wordCombine,
   } = params;
 
-  return creative
+  const normalizedCategoryConstraint = categoryConstraint?.trim().toLowerCase() ?? null;
+
+  return normalizedCategoryConstraint
+    ? `category:${normalizedCategoryConstraint}|${inputKey}`
+    : creative
     ? `creative|${inputKey}`
     : subtractive
       ? `subtract|${inputKey}`
@@ -70,11 +74,9 @@ function buildRecipeInputKey(params: {
         ? `opposite|${inputKey}`
         : popCulture
           ? `pop|${inputKey}`
-          : evolve
-            ? `evolve|${inputKey}`
-            : randomize
-              ? `randomize|${inputKey}`
-              : crafting
+        : evolve
+          ? `evolve|${inputKey}`
+            : crafting
                 ? `craft|${inputKey}`
                 : wordCombine
                   ? `compound|${inputKey}`
@@ -95,7 +97,7 @@ function buildSecondaryStoredRecipeInputKey(baseStoredInputKey: string, outputIn
 
 function isCatalystRecipeInputKey(inputKey: string): boolean {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
-  return CATALYST_RUN_KEY_PREFIXES.has(modeKey);
+  return modeKey.startsWith("category:") || CATALYST_RUN_KEY_PREFIXES.has(modeKey);
 }
 
 async function syncSearchIndex(
@@ -382,22 +384,22 @@ router.post("/combine", async (req, res) => {
   }
 
   const creative = parsedBody.data.creative ?? false;
+  const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
   const subtractive = parsedBody.data.subtractive ?? false;
   const opposite = parsedBody.data.opposite ?? false;
   const popCulture = parsedBody.data.popCulture ?? false;
   const evolve = parsedBody.data.evolve ?? false;
-  const randomize = parsedBody.data.randomize ?? false;
   const crafting = parsedBody.data.crafting ?? false;
   const wordCombine = parsedBody.data.wordCombine ?? false;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
 
   const activeModeCount = [
     creative,
+    Boolean(categoryConstraint),
     subtractive,
     opposite,
     popCulture,
     evolve,
-    randomize,
     crafting,
     wordCombine,
   ].filter(Boolean).length;
@@ -427,12 +429,12 @@ router.post("/combine", async (req, res) => {
 
     const recipeInputKey = buildRecipeInputKey({
       inputKey,
+      categoryConstraint,
       creative: effectiveCreative,
       subtractive: effectiveSubtractive,
       opposite: effectiveOpposite,
       popCulture: effectivePopCulture,
       evolve: effectiveEvolve,
-      randomize,
       crafting: effectiveCrafting,
       wordCombine: effectiveWordCombine,
     });
@@ -443,11 +445,11 @@ router.post("/combine", async (req, res) => {
       recipeInputKey,
       bypassCache,
       creative: effectiveCreative,
+      categoryConstraint,
       subtractive: effectiveSubtractive,
       opposite: effectiveOpposite,
       popCulture: effectivePopCulture,
       evolve: effectiveEvolve,
-      randomize,
       crafting: effectiveCrafting,
       wordCombine: effectiveWordCombine,
     });
@@ -466,11 +468,11 @@ router.post("/combine", async (req, res) => {
       console.log("[api][combine] cache hit", {
         inputKey: recipeInputKey,
         creative,
+        categoryConstraint,
         subtractive: effectiveSubtractive,
         opposite: effectiveOpposite,
         popCulture: effectivePopCulture,
         evolve: effectiveEvolve,
-        randomize,
         crafting: effectiveCrafting,
         wordCombine: effectiveWordCombine,
         recipeId: recipeRow.id,
@@ -536,11 +538,11 @@ router.post("/combine", async (req, res) => {
             normalizedInputs.map((i) => i.name),
             {
               creative: effectiveCreative,
+              categoryConstraint: categoryConstraint ?? undefined,
               subtractive: effectiveSubtractive,
               opposite: effectiveOpposite,
               popCulture: effectivePopCulture,
               evolve: effectiveEvolve,
-              randomize,
               crafting: effectiveCrafting,
               wordCombine: effectiveWordCombine,
               model,
@@ -630,11 +632,11 @@ router.post("/combine", async (req, res) => {
         storedRecipeInputKey,
         bypassCache,
         creative,
+        categoryConstraint,
         subtractive: effectiveSubtractive,
         opposite: effectiveOpposite,
         popCulture: effectivePopCulture,
         evolve: effectiveEvolve,
-        randomize,
         crafting: effectiveCrafting,
         wordCombine: effectiveWordCombine,
         inputs: normalizedInputs.map((i) => i.name),
@@ -646,11 +648,11 @@ router.post("/combine", async (req, res) => {
         normalizedInputs.map((i) => i.name),
         {
           creative: effectiveCreative,
+          categoryConstraint: categoryConstraint ?? undefined,
           subtractive: effectiveSubtractive,
           opposite: effectiveOpposite,
           popCulture: effectivePopCulture,
           evolve: effectiveEvolve,
-          randomize,
           crafting: effectiveCrafting,
           wordCombine: effectiveWordCombine,
           model,
@@ -664,7 +666,16 @@ router.post("/combine", async (req, res) => {
       return res.status(502).json({ error: message });
     }
 
-    const inputDisplayJson = JSON.stringify(normalizedInputs);
+    const displayInputs = categoryConstraint
+      ? [
+          {
+            name: categoryConstraint,
+            normalized: categoryConstraint.trim().toLowerCase(),
+          },
+          ...normalizedInputs,
+        ]
+      : normalizedInputs;
+    const inputDisplayJson = JSON.stringify(displayInputs);
     const generatedResults = ("results" in llmResult ? llmResult.results : [llmResult]).map(
       (entry) => ({
         name: toTitleCaseWords(entry.name),

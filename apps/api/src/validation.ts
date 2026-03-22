@@ -2,11 +2,11 @@ import { z } from "zod";
 
 export const combineRequestSchema = z.object({
   inputs: z.array(z.string()).nonempty(),
+  categoryConstraint: z.string().min(1).max(64).nullable().optional(),
   creative: z.boolean().optional().default(false),
   subtractive: z.boolean().optional().default(false),
   opposite: z.boolean().optional().default(false),
   popCulture: z.boolean().optional().default(false),
-  randomize: z.boolean().optional().default(false),
   crafting: z.boolean().optional().default(false),
   wordCombine: z.boolean().optional().default(false),
   evolve: z.boolean().optional().default(false),

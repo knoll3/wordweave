@@ -59,11 +59,6 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
     normalizedName: "evolve",
     icon: "🧬",
   },
-  randomize: {
-    name: "Randomize",
-    normalizedName: "randomize",
-    icon: "🔀",
-  },
   craft: {
     name: "Craft",
     normalizedName: "craft",
@@ -78,6 +73,13 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
 
 function getCatalystFromInputKey(inputKey: string): LatestRecipeCatalyst | null {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
+  if (modeKey.startsWith("category:")) {
+    return {
+      name: "Category",
+      normalizedName: "category",
+      icon: "🏷️",
+    };
+  }
   return CATALYST_BY_MODE_KEY[modeKey] ?? null;
 }
 

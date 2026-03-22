@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  CATEGORY_MODIFIER_ITEM_ID,
   CRAFT_ITEM_ID,
   CREATIVE_ITEM_ID,
   EVOLVE_ITEM_ID,
   OPPOSITE_ITEM_ID,
   POP_CULTURE_ITEM_ID,
-  RANDOMIZE_ITEM_ID,
   SPLIT_ITEM_ID,
   WORD_COMBINE_ITEM_ID,
 } from "../../types";
@@ -23,6 +23,11 @@ type CatalystGuide = {
 };
 
 const CATALYST_GUIDES: Record<number, CatalystGuide> = {
+  [CATEGORY_MODIFIER_ITEM_ID]: {
+    description:
+      "Category is a modifier token. Drop it onto an item to turn that item into a category constraint, then combine that modified item with clue items to get something that stays inside that category.",
+    example: "Example: Category -> Pokemon, then Pokemon + Bird -> a bird-like Pokemon",
+  },
   [CREATIVE_ITEM_ID]: {
     description:
       "Pushes the combination away from the most literal answer and toward a more vivid, inspired, and memorable real-world concept. It still tries to stay grounded in something recognizable rather than inventing nonsense.",
@@ -37,11 +42,6 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
     description:
       "Looks for the clearest and most widely recognized opposite of the dominant input meaning. It favors a direct inverse over something poetic, clever, or loosely contrasting.",
     example: "Example: Victory + Opposite -> Defeat",
-  },
-  [RANDOMIZE_ITEM_ID]: {
-    description:
-      "Transforms the input into a nearby variation, sibling concept, or category neighbor while staying in the same general semantic space. The result should feel closely related, not like a random jump to something unrelated.",
-    example: "Example: Sword + Randomize -> Spear",
   },
   [CRAFT_ITEM_ID]: {
     description:
@@ -69,20 +69,20 @@ interface Props {
   item: Item;
   itemsById: Map<number, Item>;
   canGoBack: boolean;
-  isClosing: boolean;
   onBack: () => void;
   onClose: () => void;
   onSelectItem: (item: Item) => void;
+  embedded?: boolean;
 }
 
 const ItemDetailsDrawer: React.FC<Props> = ({
   item,
   itemsById,
   canGoBack,
-  isClosing,
   onBack,
   onClose,
   onSelectItem,
+  embedded = false,
 }) => {
   const drawerRef = useRef<HTMLElement | null>(null);
   const catalystGuide = item.id < 0 ? CATALYST_GUIDES[item.id] ?? null : null;
@@ -145,6 +145,9 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   }, [item.id]);
 
   useEffect(() => {
+    if (embedded) {
+      return;
+    }
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) {
@@ -160,7 +163,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     return () => {
       document.removeEventListener("pointerdown", handlePointerDown);
     };
-  }, [onClose]);
+  }, [embedded, onClose]);
 
   const linkedRecipeInputs = useMemo(
     () =>
@@ -179,17 +182,13 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     [itemsById, recipeInputs]
   );
 
-  return (
-    <div
-      className={`item-drawer-layer${isClosing ? " is-closing" : ""}`}
-      role="presentation"
+  const drawerBody = (
+    <aside
+      ref={drawerRef}
+      className={`item-drawer${embedded ? " item-drawer-embedded" : ""}`}
+      role="dialog"
+      aria-label={`${item.name} details`}
     >
-      <aside
-        ref={drawerRef}
-        className="item-drawer"
-        role="dialog"
-        aria-label={`${item.name} details`}
-      >
         <div className="item-drawer-header">
           <div className="item-drawer-header-actions">
             {canGoBack ? (
@@ -333,8 +332,13 @@ const ItemDetailsDrawer: React.FC<Props> = ({
           )}
         </section>
       </aside>
-    </div>
   );
+
+  if (embedded) {
+    return drawerBody;
+  }
+
+  return <div className="item-drawer-layer" role="presentation">{drawerBody}</div>;
 };
 
 export default ItemDetailsDrawer;

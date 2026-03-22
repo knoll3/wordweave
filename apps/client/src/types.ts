@@ -43,13 +43,13 @@ export const OPPOSITE_ITEM: Item = {
   icon: "↔️",
 };
 
-export const RANDOMIZE_ITEM_ID = -4;
+export const CATEGORY_MODIFIER_ITEM_ID = -4;
 
-export const RANDOMIZE_ITEM: Item = {
-  id: RANDOMIZE_ITEM_ID,
-  name: "Randomize",
-  normalizedName: "randomize",
-  icon: "🔀",
+export const CATEGORY_MODIFIER_ITEM: Item = {
+  id: CATEGORY_MODIFIER_ITEM_ID,
+  name: "Category",
+  normalizedName: "category",
+  icon: "🏷️",
 };
 
 export const CRAFT_ITEM_ID = -5;
@@ -127,6 +127,8 @@ export interface WorkspaceItem {
   itemId: number;
   position: { x: number; y: number };
   isNewDiscovery?: boolean;
+  categoryConstraintName?: string | null;
+  categoryConstraintNormalizedName?: string | null;
 }
 
 export interface SelectionCombineLayout {

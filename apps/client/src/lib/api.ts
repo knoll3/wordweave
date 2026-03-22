@@ -168,7 +168,7 @@ export async function combineElements(
     opposite?: boolean;
     popCulture?: boolean;
     evolve?: boolean;
-    randomize?: boolean;
+    categoryConstraint?: string;
     crafting?: boolean;
     wordCombine?: boolean;
     model?: AiModel;
@@ -186,7 +186,7 @@ export async function combineElements(
       opposite: options?.opposite ?? false,
       popCulture: options?.popCulture ?? false,
       evolve: options?.evolve ?? false,
-      randomize: options?.randomize ?? false,
+      categoryConstraint: options?.categoryConstraint ?? null,
       crafting: options?.crafting ?? false,
       wordCombine: options?.wordCombine ?? false,
       model: options?.model,
