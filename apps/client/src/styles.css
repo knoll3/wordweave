@@ -973,67 +973,6 @@ body.page-scrollable {
   line-height: 1;
 }
 
-.item-drawer-test-results {
-  margin-top: 14px;
-}
-
-.item-drawer-test-label {
-  margin-top: 14px;
-  font-size: 0.72rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.item-drawer-test-chip {
-  cursor: default;
-}
-
-.item-drawer-test-chip-meta {
-  color: var(--text-muted);
-  font-size: 0.72rem;
-}
-
-.item-drawer-test-list {
-  margin-top: 12px;
-  display: grid;
-  gap: 10px;
-}
-
-.item-drawer-test-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.14);
-  background: rgba(15, 23, 42, 0.4);
-}
-
-.item-drawer-test-row-main {
-  min-width: 0;
-}
-
-.item-drawer-test-row-title {
-  font-size: 0.84rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.item-drawer-test-row-copy {
-  margin-top: 4px;
-  font-size: 0.76rem;
-  color: var(--text-soft);
-}
-
-.item-drawer-test-row-score {
-  flex-shrink: 0;
-  font-size: 0.78rem;
-  font-weight: 600;
-  color: #c4b5fd;
-}
-
 .item-inspector-path-block {
   margin-top: 14px;
   padding-top: 12px;

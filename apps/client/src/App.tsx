@@ -75,7 +75,7 @@ const UNLOCK_DISPLAY: Record<
     name: "Creative Spark",
     icon: "✨",
     accentClass: "is-creative",
-    shortCopy: "Pushes results toward imaginative, memorable concepts.",
+    shortCopy: "Pushes results toward sillier, wilder, more memorable ideas.",
   },
   split: {
     name: "Split",
