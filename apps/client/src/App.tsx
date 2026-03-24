@@ -1,24 +1,13 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Zap,
   Tags,
-  Hammer,
-  Sparkles,
-  TrendingUp,
-  Theater,
-  Link2,
-  Split,
-  ArrowLeftRight,
 } from "lucide-react";
 import {
+  ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-  CRAFT_ITEM_ID,
   CREATIVE_ITEM_ID,
-  EVOLVE_ITEM_ID,
-  POP_CULTURE_ITEM_ID,
-  OPPOSITE_ITEM_ID,
-  SPLIT_ITEM_ID,
-  WORD_COMBINE_ITEM_ID,
 } from "./types";
 import type {
   AchievementSummary,
@@ -31,7 +20,6 @@ import type {
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
-import type { CatalystAction } from "./components/Graph/CatalystDock";
 import JournalDock from "./components/Journal/JournalDock";
 import JournalSummaryStrip from "./components/Journal/JournalSummaryStrip";
 import { evaluateAchievements } from "./lib/achievements";
@@ -62,6 +50,8 @@ type QuestCelebrationState = {
   copy: string;
 };
 
+const VISIBLE_UNLOCK_KEYS: UnlockKey[] = ["random_tools"];
+
 const UNLOCK_DISPLAY: Record<
   UnlockKey,
   {
@@ -75,49 +65,19 @@ const UNLOCK_DISPLAY: Record<
     name: "Creative Spark",
     icon: "✨",
     accentClass: "is-creative",
-    shortCopy: "Pushes results toward sillier, wilder, more memorable ideas.",
-  },
-  split: {
-    name: "Split",
-    icon: "✂️",
-    accentClass: "is-split",
-    shortCopy: "Subtracts one concept from another to reveal what remains.",
-  },
-  opposite: {
-    name: "Opposite",
-    icon: "↔️",
-    accentClass: "is-opposite",
-    shortCopy: "Finds the clearest opposite of the selected idea.",
+    shortCopy: "Pushes combinations toward sillier, wilder, more memorable ideas.",
   },
   random_tools: {
-    name: "Category",
+    name: "Random",
     icon: "🔀",
-    accentClass: "is-category",
-    shortCopy: "Adds a modifier token that constrains another item by category.",
+    accentClass: "is-randomize",
+    shortCopy: "Lets you drop a random discovered library item into the workspace.",
   },
-  craft: {
-    name: "Synonym",
-    icon: "🟰",
-    accentClass: "is-synonym",
-    shortCopy: "Finds a direct synonym, alias, or equivalent term.",
-  },
-  evolve: {
-    name: "Evolve",
-    icon: "🧬",
-    accentClass: "is-evolve",
-    shortCopy: "Pushes an item toward its next stronger or more advanced form.",
-  },
-  pop_culture: {
-    name: "Pop Culture",
-    icon: "🎬",
-    accentClass: "is-pop-culture",
-    shortCopy: "Turns clues into a specific entertainment reference.",
-  },
-  word_combine: {
-    name: "Compound",
-    icon: "🔗",
-    accentClass: "is-compound",
-    shortCopy: "Builds a real established compound word or phrase.",
+  action: {
+    name: "Action",
+    icon: "⚡",
+    accentClass: "is-action",
+    shortCopy: "Adds a modifier token that turns another item into an action anchor.",
   },
 };
 
@@ -142,6 +102,7 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
         !!item &&
         typeof item.nodeId === "string" &&
         typeof item.itemId === "number" &&
+        (item.itemId > 0 || SPECIAL_ITEM_BY_ID.has(item.itemId)) &&
         item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID &&
         !!item.position &&
         typeof item.position.x === "number" &&
@@ -236,7 +197,9 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const pendingUnlock = featureUnlocks.find((unlock) => unlock.introPending);
+    const pendingUnlock = featureUnlocks.find(
+      (unlock) => unlock.introPending && VISIBLE_UNLOCK_KEYS.includes(unlock.key)
+    );
     if (!pendingUnlock) {
       return;
     }
@@ -398,7 +361,9 @@ const App: React.FC = () => {
   }
   const catalystUnlockQuests = useMemo(
     () =>
-      featureUnlocks.map((unlock) => ({
+      featureUnlocks
+        .filter((unlock) => VISIBLE_UNLOCK_KEYS.includes(unlock.key))
+        .map((unlock) => ({
         ...unlock,
         display: UNLOCK_DISPLAY[unlock.key],
       })),
@@ -409,7 +374,6 @@ const App: React.FC = () => {
   const unlockedCatalystCount = catalystUnlockQuests.filter(
     (unlock) => unlock.unlocked
   ).length;
-  const featuredAchievement = achievementSummary.featuredProgress[0] ?? null;
   const nextLockedCatalyst =
     catalystUnlockQuests.find((unlock) => !unlock.unlocked) ?? null;
 
@@ -465,101 +429,32 @@ const App: React.FC = () => {
       onClick: () => void;
     }> = [];
 
-    if (isFeatureUnlocked("creative")) {
-      actions.push({
-        key: "creative",
-        title: "Creative Spark",
-        icon: <Sparkles size={16} strokeWidth={2} />,
-        tint: "rgba(168, 85, 247, 0.22)",
-        iconTint: "#ddd6fe",
-        onClick: () => addItemToWorkspace(CREATIVE_ITEM_ID),
-      });
-    }
+    actions.push({
+      key: "category",
+      title: "Category",
+      icon: <Tags size={16} strokeWidth={2} />,
+      tint: "rgba(20, 184, 166, 0.22)",
+      iconTint: "#99f6e4",
+      onClick: () => addItemToWorkspace(CATEGORY_MODIFIER_ITEM_ID),
+    });
 
-    if (isFeatureUnlocked("split")) {
-      actions.push({
-        key: "split",
-        title: "Split",
-        icon: <Split size={16} strokeWidth={2} />,
-        tint: "rgba(249, 115, 22, 0.22)",
-        iconTint: "#fdba74",
-        onClick: () => addItemToWorkspace(SPLIT_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("opposite")) {
-      actions.push({
-        key: "opposite",
-        title: "Opposite",
-        icon: <ArrowLeftRight size={16} strokeWidth={2} />,
-        tint: "rgba(59, 130, 246, 0.22)",
-        iconTint: "#bfdbfe",
-        onClick: () => addItemToWorkspace(OPPOSITE_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("random_tools")) {
-      actions.push({
-        key: "category",
-        title: "Category",
-        icon: <Tags size={16} strokeWidth={2} />,
-        tint: "rgba(20, 184, 166, 0.22)",
-        iconTint: "#99f6e4",
-        onClick: () => addItemToWorkspace(CATEGORY_MODIFIER_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("craft")) {
-      actions.push({
-        key: "craft",
-        title: "Synonym",
-        icon: <Link2 size={16} strokeWidth={2} />,
-        tint: "rgba(245, 158, 11, 0.22)",
-        iconTint: "#fde68a",
-        onClick: () => addItemToWorkspace(CRAFT_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("evolve")) {
-      actions.push({
-        key: "evolve",
-        title: "Evolve",
-        icon: <TrendingUp size={16} strokeWidth={2} />,
-        tint: "rgba(236, 72, 153, 0.22)",
-        iconTint: "#fbcfe8",
-        onClick: () => addItemToWorkspace(EVOLVE_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("pop_culture")) {
-      actions.push({
-        key: "pop_culture",
-        title: "Pop Culture",
-        icon: <Theater size={16} strokeWidth={2} />,
-        tint: "rgba(234, 179, 8, 0.22)",
-        iconTint: "#fde047",
-        onClick: () => addItemToWorkspace(POP_CULTURE_ITEM_ID),
-      });
-    }
-
-    if (isFeatureUnlocked("word_combine")) {
-      actions.push({
-        key: "compound",
-        title: "Compound",
-        icon: <Link2 size={16} strokeWidth={2} />,
-        tint: "rgba(192, 132, 252, 0.22)",
-        iconTint: "#e9d5ff",
-        onClick: () => addItemToWorkspace(WORD_COMBINE_ITEM_ID),
-      });
-    }
+    actions.push({
+      key: "action",
+      title: "Action",
+      icon: <Zap size={16} strokeWidth={2} />,
+      tint: "rgba(251, 191, 36, 0.22)",
+      iconTint: "#fde68a",
+      onClick: () => {
+        addItemToWorkspace(ACTION_MODIFIER_ITEM_ID);
+        const actionItem = findItemById(ACTION_MODIFIER_ITEM_ID);
+        if (actionItem) {
+          openItemDetails(actionItem);
+        }
+      },
+    });
 
     return actions;
-  }, [
-    featureUnlocks,
-    forceUnlocks,
-    viewportCenter,
-    items,
-  ]);
+  }, [viewportCenter, items]);
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -608,6 +503,33 @@ const App: React.FC = () => {
     addItemToWorkspace(item.id);
   }
 
+  function addLibraryItemToWorkspaceAsActionAnchor(item: Item) {
+    setItems((prev) =>
+      prev.some((existing) => existing.id === item.id) ? prev : [...prev, item]
+    );
+
+    const anchorPosition =
+      viewportCenter ??
+      ({
+        x: 260,
+        y: 180,
+      } as const);
+
+    setWorkspaceItems((prev) => [
+      ...prev,
+      {
+        nodeId: makeWorkspaceNodeId(),
+        itemId: item.id,
+        position: {
+          x: anchorPosition.x + (Math.random() - 0.5) * 160,
+          y: anchorPosition.y + (Math.random() - 0.5) * 120,
+        },
+        actionConstraintName: item.name,
+        actionConstraintNormalizedName: item.normalizedName,
+      },
+    ]);
+  }
+
   function attachCategoryModifier(sourceNodeId: string, targetNodeId: string) {
     setWorkspaceItems((prev) => {
       const targetNode = prev.find((item) => item.nodeId === targetNodeId);
@@ -629,6 +551,27 @@ const App: React.FC = () => {
     });
   }
 
+  function attachActionModifier(sourceNodeId: string, targetNodeId: string) {
+    setWorkspaceItems((prev) => {
+      const targetNode = prev.find((item) => item.nodeId === targetNodeId);
+      const targetItem = targetNode ? findItemById(targetNode.itemId) : null;
+      if (!targetNode || !targetItem || targetItem.id < 0) {
+        return prev;
+      }
+      return prev
+        .filter((item) => item.nodeId !== sourceNodeId)
+        .map((item) =>
+          item.nodeId === targetNodeId
+            ? {
+                ...item,
+                actionConstraintName: targetItem.name,
+                actionConstraintNormalizedName: targetItem.normalizedName,
+              }
+            : item
+        );
+    });
+  }
+
   function clearCategoryModifier(nodeId: string) {
     setWorkspaceItems((prev) =>
       prev.map((item) =>
@@ -637,6 +580,20 @@ const App: React.FC = () => {
               ...item,
               categoryConstraintName: null,
               categoryConstraintNormalizedName: null,
+            }
+          : item
+      )
+    );
+  }
+
+  function clearActionModifier(nodeId: string) {
+    setWorkspaceItems((prev) =>
+      prev.map((item) =>
+        item.nodeId === nodeId
+          ? {
+              ...item,
+              actionConstraintName: null,
+              actionConstraintNormalizedName: null,
             }
           : item
       )
@@ -708,24 +665,13 @@ const App: React.FC = () => {
     if (selectedItems.length < 2) return false;
 
     const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
-    const hasEvolveCatalyst = selectedItems.some((item) => item.id === EVOLVE_ITEM_ID);
-    const hasPopCultureCatalyst = selectedItems.some((item) => item.id === POP_CULTURE_ITEM_ID);
-    const hasSplitCatalyst = selectedItems.some((item) => item.id === SPLIT_ITEM_ID);
-    const hasOppositeCatalyst = selectedItems.some((item) => item.id === OPPOSITE_ITEM_ID);
-    const hasCraftCatalyst = selectedItems.some((item) => item.id === CRAFT_ITEM_ID);
-    const hasWordCombineCatalyst = selectedItems.some((item) => item.id === WORD_COMBINE_ITEM_ID);
     const categoryAnchors = selectedNodes.filter(
       (node) => node.categoryConstraintName && node.categoryConstraintNormalizedName
     );
-    const activeCatalystCount = [
-      hasCraftCatalyst,
-      hasCreativeCatalyst,
-      hasEvolveCatalyst,
-      hasPopCultureCatalyst,
-      hasSplitCatalyst,
-      hasOppositeCatalyst,
-      hasWordCombineCatalyst,
-    ].filter(Boolean).length;
+    const actionAnchors = selectedNodes.filter(
+      (node) => node.actionConstraintName && node.actionConstraintNormalizedName
+    );
+    const activeCatalystCount = [hasCreativeCatalyst].filter(Boolean).length;
     if (activeCatalystCount > 1) {
       showError("Use only one catalyst at a time.", null);
       return false;
@@ -734,32 +680,32 @@ const App: React.FC = () => {
       showError("Use only one Category modifier at a time.", null);
       return false;
     }
+    if (actionAnchors.length > 1) {
+      showError("Use only one Action modifier at a time.", null);
+      return false;
+    }
     const categoryAnchor = categoryAnchors[0] ?? null;
+    const actionAnchor = actionAnchors[0] ?? null;
     const actualInputItems = selectedItems.filter(
       (item) => !NON_INGREDIENT_ITEM_IDS.has(item.id)
     );
     const effectiveInputItems = selectedNodes
-      .filter((node) => node.nodeId !== categoryAnchor?.nodeId)
+      .filter(
+        (node) =>
+          node.nodeId !== categoryAnchor?.nodeId && node.nodeId !== actionAnchor?.nodeId
+      )
       .map((node) => findItemById(node.itemId))
       .filter(
         (item): item is Item => !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id)
       );
-    const catalystLabel = hasCraftCatalyst
-      ? "Synonym"
-      : hasCreativeCatalyst
-        ? "Creative Spark"
-      : hasEvolveCatalyst
-        ? "Evolve"
-      : hasPopCultureCatalyst
-        ? "Pop Culture"
-      : hasSplitCatalyst
-        ? "Split"
-      : hasOppositeCatalyst
-        ? "Opposite"
+    const catalystLabel = hasCreativeCatalyst
+      ? "Creative Spark"
+      : categoryAnchor && actionAnchor
+        ? "Category + Action"
       : categoryAnchor
         ? "Category"
-      : hasWordCombineCatalyst
-        ? "Compound"
+      : actionAnchor
+        ? "Action"
         : null;
     if (effectiveInputItems.length === 0) {
       showError(
@@ -771,13 +717,9 @@ const App: React.FC = () => {
       return false;
     }
     if (
-      !hasCraftCatalyst &&
       !hasCreativeCatalyst &&
-      !hasEvolveCatalyst &&
-      !hasPopCultureCatalyst &&
-      !hasSplitCatalyst &&
-      !hasOppositeCatalyst &&
       !categoryAnchor &&
+      !actionAnchor &&
       actualInputItems.length < 2
     ) {
       return false;
@@ -815,14 +757,9 @@ const App: React.FC = () => {
         Array.from(new Set([...prev, ...operationCombiningIds]))
       );
       const recipe = await combineElements(inputNames, {
-        crafting: hasCraftCatalyst,
         creative: hasCreativeCatalyst,
-        evolve: hasEvolveCatalyst,
-        popCulture: hasPopCultureCatalyst,
-        subtractive: hasSplitCatalyst,
-        opposite: hasOppositeCatalyst,
         categoryConstraint: categoryAnchor?.categoryConstraintName ?? undefined,
-        wordCombine: hasWordCombineCatalyst,
+        actionConstraint: actionAnchor?.actionConstraintName ?? undefined,
         model: selectedModel,
       });
 
@@ -1038,9 +975,7 @@ const App: React.FC = () => {
               <JournalSummaryStrip
                 achievementSummary={achievementSummary}
                 catalystUnlockQuests={catalystUnlockQuests}
-                nextLockedCatalyst={nextLockedCatalyst}
                 unlockedCatalystCount={unlockedCatalystCount}
-                featuredAchievement={featuredAchievement}
                 isQuestCelebrating={isQuestCelebrating}
                 isJournalOpen={isJournalOpen}
                 journalTab={journalTab}
@@ -1052,10 +987,12 @@ const App: React.FC = () => {
                   items={items}
                   workspaceItems={workspaceItems}
                   celebratedNodeId={celebratedQuestNodeId}
+                  onAttachActionModifier={attachActionModifier}
                   onAttachCategoryModifier={attachCategoryModifier}
                   onWorkspaceItemsChange={setWorkspaceItems}
                   onViewportCenterChange={setViewportCenter}
                   combiningNodeIds={combiningNodeIds}
+                  onClearActionModifier={clearActionModifier}
                   onClearCategoryModifier={clearCategoryModifier}
                   onClearWorkspace={clearWorkspaceItems}
                   onCombineWorkspaceItems={combineWorkspaceItems}
@@ -1077,9 +1014,12 @@ const App: React.FC = () => {
                 nextLockedCatalyst={nextLockedCatalyst}
                 unlockedCatalystCount={unlockedCatalystCount}
                 item={drawerItem}
+                items={items}
                 itemsById={itemById}
                 canGoBack={drawerHistory.length > 0}
                 onBack={goBackInItemDetails}
+                onAddItemToWorkspace={addLibraryItemToWorkspace}
+                onAddItemToWorkspaceAsActionAnchor={addLibraryItemToWorkspaceAsActionAnchor}
                 onCloseItem={closeItemDetails}
                 onSelectItem={openItemDetails}
                 onCollapse={() => setIsJournalOpen(false)}

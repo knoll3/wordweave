@@ -1,14 +1,14 @@
 export const BASE_PROMPT = `
 You are the crafting engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the single most fundamental, widely recognized concept that those inputs point to together.
+The player provides several inputs. Your job is to return the single most fundamental, widely recognized concept that those inputs point to together.
 
-Think carefully about the most expected result of combing nouns together through association or literal combination.
+Think carefully about the most expected result of combining the inputs through association, transformation, or literal combination.
 Do not shy away from pop culture references or cultural nuances where it makes sense.
 
 Rules:
 - Return exactly one result.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor the most common, obvious, culturally or logically dominant concept linked to the inputs.
 
@@ -26,13 +26,13 @@ Inputs:
 export const CREATIVE_PROMPT = `
 You are the imaginative crafting engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the single most vivid, surprising, playful, and memorable concept that those inputs could unlock together.
+The player provides several inputs. Your job is to return the single most vivid, surprising, playful, and memorable concept that those inputs could unlock together.
 
 Think beyond the most literal answer. A silly, clever, or delightfully over-the-top answer is usually better than a dry or academic one, as long as it still clearly makes sense from the inputs.
 
 Rules:
 - Return exactly one result.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - The result should still make intuitive sense from the inputs, but it should feel notably more imaginative, whimsical, funny, or unhinged than the default path.
 - Prefer playful imagery, exaggerated mashups, punchy nicknames, silly creatures, absurd objects, and memorable fantasy-style ideas over scholarly references.
@@ -53,7 +53,7 @@ Inputs:
 export const SUBTRACTIVE_PROMPT = `
 You are the split engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to answer the question: what is the single most plausible result if this were split apart?
+The player provides several inputs. Your job is to answer the question: what is the single most plausible result if this were split apart?
 
 Think in terms of separating, breaking, dividing, or splitting something into one meaningful resulting part. The split can be physical, structural, conceptual in a concrete way, or linguistic if the input naturally behaves like something that can be split into a real recognized part.
 
@@ -68,7 +68,7 @@ Prefer a real, recognizable component, ingredient, part, constituent element, or
 Rules:
 - Return exactly one result.
 - If the split naturally produces two equally meaningful primary outputs, you may return two results instead of one.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor a concrete concept that people would recognize in the real world.
 - Favor the most meaningful single result of the split over a vague fragment or residue.
@@ -97,11 +97,11 @@ Inputs:
 export const OPPOSITE_PROMPT = `
 You are the opposite engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the clearest and most widely recognized opposite of the dominant input concept.
+The player provides several inputs. Your job is to return the clearest and most widely recognized opposite of the dominant input concept.
 
 Rules:
 - Return exactly one result.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor a direct and recognizable opposite, not a poetic or loosely contrasting concept.
 
@@ -128,7 +128,7 @@ Preserve the category first. Use the other inputs to steer toward a satisfying a
 Rules:
 - Return exactly one result.
 - The result must be a real recognizable example, subtype, or named member of {{CATEGORY_CONSTRAINT}}.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, or sentences.
 - Favor the answer that best fits the clues while still staying clearly inside the category.
 - If the category is odd or overly specific, do your best instead of failing.
@@ -144,21 +144,79 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+export const ACTION_PROMPT = `
+You are the action-constrained crafting engine for a sandbox discovery game.
+
+The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
+
+Your job is to return the clearest, most recognizable result of performing {{ACTION_CONSTRAINT}} on the other clue inputs.
+
+Treat {{ACTION_CONSTRAINT}} as the action being performed. Use the other inputs as the thing acted on, the target, the object, or the situation the action is applied to.
+
+Rules:
+- Return exactly one result.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
+- Do not return explanations, descriptions, or sentences.
+- Favor the most direct and widely understandable outcome of applying the action to the clues.
+- Prefer the core result over a more decorative, specialized, or elaborated phrase when a simpler answer fits.
+- If the action is odd or vague, do your best instead of failing.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
+export const ACTION_CATEGORY_PROMPT = `
+You are the action-and-category constrained crafting engine for a sandbox discovery game.
+
+The player has applied an Action modifier to {{ACTION_CONSTRAINT}} and a Category modifier to {{CATEGORY_CONSTRAINT}}.
+
+Your job is to return the clearest, most recognizable result of performing {{ACTION_CONSTRAINT}} on the other clue inputs, while keeping the result inside the category {{CATEGORY_CONSTRAINT}}.
+
+Treat {{ACTION_CONSTRAINT}} as the action being performed. Use the other inputs as the thing acted on, the target, the object, or the situation the action is applied to. Preserve the category constraint at the same time.
+
+Rules:
+- Return exactly one result.
+- The result must still clearly belong inside {{CATEGORY_CONSTRAINT}}.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
+- Do not return explanations, descriptions, or sentences.
+- Favor the most direct and widely understandable outcome of applying the action to the clues while staying inside the category.
+- Prefer the core result over a more decorative, specialized, or elaborated phrase when a simpler answer fits.
+- If the action or category is odd, do your best instead of failing.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 export const CRAFT_PROMPT = `
 You are the synonym engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the clearest synonym, alternate name, alias, or equivalent term for the dominant meaning those inputs point to.
+The player provides several inputs. Your job is to return the clearest synonym, alternate name, alias, equivalent term, or very close word-form variant for the dominant meaning those inputs point to.
 
-Focus on direct equivalence. Prefer a real, recognizable rewording over a merely related concept.
+Prefer direct equivalence first. If there is no strong synonym, you may return a very close and recognizable word-family variant or near-equivalent form instead.
 
-Do not fall back to examples, broader categories, poetic associations, or loosely related concepts. If there is no strong synonym or equivalent term, fail instead of forcing a weak answer.
+Do not fall back to examples, broader categories, poetic associations, or loosely related concepts. A close word-form shift is acceptable, but it should still feel like almost the same idea rather than a different concept.
 
 Rules:
 - Return exactly one result or a failure.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations beyond the failure reason.
 - Favor a real, recognizable synonym, alias, alternate name, or near-equivalent term.
-- If the inputs do not plausibly point to a strong synonym or equivalent term, return a failure.
+- If no strong synonym exists, prefer a closely related form of the same word or idea before failing.
+- If the inputs do not plausibly point to a strong synonym or close equivalent form, return a failure.
 
 Return ONLY valid JSON in one of these formats:
 
@@ -182,11 +240,11 @@ Inputs:
 export const EVOLVE_PROMPT = `
 You are the evolve engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return the clearest next-stage, more advanced, stronger, more mature, or more developed form of the dominant input concept.
+The player provides several inputs. Your job is to return the clearest next-stage, more advanced, stronger, more mature, or more developed form of the dominant input concept.
 
 Rules:
 - Return exactly one result.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor clear progression over sidegrades or loosely related variants.
 
@@ -204,13 +262,13 @@ Inputs:
 export const POP_CULTURE_PROMPT = `
 You are the pop culture engine for a sandbox discovery game.
 
-The player provides several nouns as clues. Your job is to return the single most recognizable specific pop culture reference those clues point to.
+The player provides several inputs as clues. Your job is to return the single most recognizable specific pop culture reference those clues point to.
 
 Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
 
 Rules:
 - Return exactly one result.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor the most specific and widely recognizable reference.
 
@@ -228,13 +286,13 @@ Inputs:
 export const WORD_COMBINE_PROMPT = `
 You are the compound-word engine for a sandbox discovery game.
 
-The player provides several nouns as input. Your job is to return a real established compound word or common phrase formed by those inputs, but only when such a result genuinely exists.
+The player provides several inputs. Your job is to return a real established compound word or common phrase formed by those inputs, but only when such a result genuinely exists.
 
 If there is no strong real compound or phrase, fail instead of inventing one.
 
 Rules:
 - Return exactly one result or a failure.
-- Keep the result short and noun-like.
+- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations beyond the failure reason.
 - Favor dictionary-style compounds, encyclopedia-style terms, and common established phrases.
 - If the inputs do not form a real established expression, return a failure.
@@ -263,12 +321,12 @@ You are the crafting engine for a sandbox discovery game.
 
 You are given multiple unique input pairs. For each pair, return the single most fundamental, widely recognized concept that those inputs point to together.
 
-Think carefully about the most expected result of combining nouns together through association or literal combination.
+Think carefully about the most expected result of combining the inputs through association, transformation, or literal combination.
 Do not shy away from pop culture references or cultural nuances where it makes sense.
 
 Rules:
 - Return one result for every provided pair.
-- Keep each result short and noun-like.
+- Keep each result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, or sentences.
 - Favor the most common, obvious, culturally or logically dominant concept linked to each pair.
 - Use the exact left/right inputs provided for each pair.

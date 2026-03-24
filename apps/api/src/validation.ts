@@ -3,13 +3,8 @@ import { z } from "zod";
 export const combineRequestSchema = z.object({
   inputs: z.array(z.string()).nonempty(),
   categoryConstraint: z.string().min(1).max(64).nullable().optional(),
+  actionConstraint: z.string().min(1).max(64).nullable().optional(),
   creative: z.boolean().optional().default(false),
-  subtractive: z.boolean().optional().default(false),
-  opposite: z.boolean().optional().default(false),
-  popCulture: z.boolean().optional().default(false),
-  crafting: z.boolean().optional().default(false),
-  wordCombine: z.boolean().optional().default(false),
-  evolve: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),
@@ -24,12 +19,9 @@ export const llmResultSchema = z.object({
   icon: z.string().min(1).max(8),
 });
 
-export const splitLlmResultSchema = z.union([
-  llmResultSchema,
-  z.object({
-    results: z.array(llmResultSchema).min(1).max(2),
-  }),
-]);
+export const splitLlmResultSchema = z.object({
+  results: z.array(llmResultSchema).min(1).max(8),
+});
 
 export const craftLlmResultSchema = z.union([
   z.object({

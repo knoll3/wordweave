@@ -4,13 +4,8 @@ import { ensureSearchIndexForElementIds } from "./search";
 
 export type UnlockKey =
   | "creative"
-  | "split"
-  | "opposite"
   | "random_tools"
-  | "craft"
-  | "evolve"
-  | "pop_culture"
-  | "word_combine";
+  | "action";
 
 type UnlockDefinition = {
   key: UnlockKey;
@@ -31,7 +26,7 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
     key: "creative",
     title: "Creative Spark Unlocked",
     summary:
-      "Creative Spark adds a catalyst item to the workspace. Combine it with regular items to push the result toward something more imaginative.",
+      "Creative Spark adds a catalyst item that pushes combinations toward sillier, wilder, more playful ideas. It can invent fitting names when that makes the result more fun.",
     acceptedWords: [
       "creative",
       "create",
@@ -57,200 +52,52 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
     similarityThreshold: 0.82,
   },
   {
-    key: "split",
-    title: "Split Unlocked",
-    summary:
-      "Split adds a catalyst item that removes one concept from another. Drop it into the workspace, then combine it with regular items.",
-    acceptedWords: [
-      "split",
-      "separate",
-      "separation",
-      "fission",
-      "fracture",
-      "fragment",
-      "fragmentation",
-      "decompose",
-      "decomposition",
-      "disassemble",
-      "division",
-      "divide",
-      "subtract",
-      "subtraction",
-      "remove",
-      "removal",
-      "difference",
-      "cut",
-      "slice",
-      "break",
-      "extract",
-      "peel",
-      "carve",
-      "detach",
-      "break apart",
-      "breakdown",
-    ],
-    similarityThreshold: 0.84,
-  },
-  {
-    key: "opposite",
-    title: "Opposite Unlocked",
-    summary:
-      "Opposite adds a catalyst item that asks for the direct opposite of the selected input concept.",
-    acceptedWords: [
-      "opposite",
-      "inverse",
-      "reverse",
-      "contrast",
-      "opposed",
-      "counter",
-      "counterpart",
-      "antonym",
-      "mirror",
-      "reflection",
-      "negative",
-      "flip",
-    ],
-    similarityThreshold: 0.84,
-  },
-  {
     key: "random_tools",
-    title: "Random Tools Unlocked",
-    summary: "You can now add random library items to the workspace.",
+    title: "Category Unlocked",
+    summary:
+      "Category adds a modifier token that attaches to an item and constrains future results to stay within that item's category.",
     acceptedWords: [
-      "random",
-      "chance",
-      "chaos",
-      "luck",
-      "fortune",
-      "probability",
-      "uncertainty",
-      "surprise",
-      "wildcard",
-      "entropy",
-      "dice",
-      "lottery",
-      "roulette",
-      "gamble",
-      "shuffle",
+      "category",
+      "type",
+      "kind",
+      "class",
+      "group",
+      "family",
+      "similar",
+      "same type",
+      "same kind",
+      "same category",
+      "species",
+      "genre",
+      "taxonomy",
+      "classification",
+      "classify",
     ],
     similarityThreshold: 0.82,
   },
   {
-    key: "craft",
-    title: "Synonym Unlocked",
+    key: "action",
+    title: "Action Unlocked",
     summary:
-      "Synonym adds a catalyst item that asks for a direct synonym, alternate name, or equivalent term for the input concept.",
+      "Action adds a modifier token that attaches to an item and makes that item act like the action being performed. Some action words also trigger specialized prompt families when they are used as the action anchor.",
     acceptedWords: [
-      "synonym",
-      "synonyms",
-      "alias",
-      "equivalent",
-      "equivalence",
-      "same meaning",
-      "another word",
-      "other word",
-      "alternate name",
-      "alternate term",
-      "equivalent term",
-      "reword",
-      "rephrase",
-      "paraphrase",
-      "thesaurus",
-      "rename",
-      "wording",
-      "term",
-      "expression",
-      "substitute word",
+      "action",
+      "act",
+      "verb",
+      "activity",
+      "perform",
+      "performance",
+      "doing",
+      "deed",
+      "behavior",
+      "move",
+      "operation",
+      "execute",
+      "execution",
+      "gesture",
+      "motion",
     ],
     similarityThreshold: 0.82,
-  },
-  {
-    key: "evolve",
-    title: "Evolve Unlocked",
-    summary:
-      "Evolve adds a catalyst item that pushes an input toward its next stronger, more advanced, or more developed form.",
-    acceptedWords: [
-      "evolve",
-      "evolution",
-      "evolutionary",
-      "progress",
-      "progression",
-      "advance",
-      "advancement",
-      "develop",
-      "development",
-      "growth",
-      "improve",
-      "improvement",
-      "upgrade",
-      "mutation",
-      "adapt",
-      "adaptation",
-      "transform",
-      "transformation",
-      "transfigure",
-      "transmutation",
-      "metamorphosis",
-      "metamorphose",
-      "mutation",
-      "mutate",
-      "mature",
-      "ascend",
-    ],
-    similarityThreshold: 0.82,
-  },
-  {
-    key: "pop_culture",
-    title: "Pop Culture Unlocked",
-    summary:
-      "Pop Culture adds a catalyst item that resolves combinations as a specific pop culture reference tied to the inputs.",
-    acceptedWords: [
-      "movie",
-      "movies",
-      "film",
-      "cinema",
-      "show",
-      "tv",
-      "television",
-      "music",
-      "song",
-      "album",
-      "band",
-      "actor",
-      "actress",
-      "celebrity",
-      "hollywood",
-      "culture",
-      "pop culture",
-      "fandom",
-      "franchise",
-      "entertainment",
-    ],
-    similarityThreshold: 0.82,
-  },
-  {
-    key: "word_combine",
-    title: "Compound Unlocked",
-    summary:
-      "Compound adds a catalyst item that joins inputs into a real dictionary or Wikipedia-style compound word or phrase when one truly exists.",
-    acceptedWords: [
-      "compound",
-      "compound word",
-      "combine words",
-      "word",
-      "vocabulary",
-      "language",
-      "dictionary",
-      "phrase",
-      "spelling",
-      "portmanteau",
-      "lexicon",
-      "linguistics",
-      "grammar",
-      "name",
-      "term",
-    ],
-    similarityThreshold: 0.83,
   },
 ];
 
@@ -490,6 +337,14 @@ export function getFeatureUnlockStatuses(db: Database) {
 
   return UNLOCK_DEFINITIONS.map((definition) => {
     const row = rows.get(definition.key);
+    const sourceMatchedWord = row?.sourceMatchedWord ?? null;
+    const sourceMatchedWordCurrent =
+      sourceMatchedWord == null
+        ? false
+        : definition.acceptedWords.some(
+            (acceptedWord) =>
+              acceptedWord.trim().toLowerCase() === sourceMatchedWord.trim().toLowerCase()
+          );
     return {
       key: definition.key,
       title: definition.title,
@@ -499,7 +354,8 @@ export function getFeatureUnlockStatuses(db: Database) {
       introPending: !!row && row.introShownAt == null,
       unlockedAt: row?.unlockedAt ?? null,
       sourceItemName: row?.sourceItemName ?? null,
-      sourceMatchedWord: row?.sourceMatchedWord ?? null,
+      sourceMatchedWord,
+      sourceMatchedWordCurrent,
     };
   });
 }

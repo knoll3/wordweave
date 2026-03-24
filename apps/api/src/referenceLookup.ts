@@ -9,12 +9,14 @@ export type ItemReferenceRecord = {
   status: "resolved" | "missing";
   title: string | null;
   summary: string | null;
+  imageUrl: string | null;
   sourceUrl: string | null;
 };
 
 type WikipediaSummaryPayload = {
   title: string;
   summary: string;
+  imageUrl: string | null;
   sourceUrl: string;
 };
 
@@ -26,6 +28,7 @@ function mapReferenceRow(row: Record<string, unknown>): ItemReferenceRecord {
     status: String(row.status) === "missing" ? "missing" : "resolved",
     title: row.title == null ? null : String(row.title),
     summary: row.summary == null ? null : String(row.summary),
+    imageUrl: row.image_url == null ? null : String(row.image_url),
     sourceUrl: row.source_url == null ? null : String(row.source_url),
   };
 }
@@ -33,7 +36,7 @@ function mapReferenceRow(row: Record<string, unknown>): ItemReferenceRecord {
 function getElementReferenceRecord(db: Database, elementId: number) {
   const stmt = db.prepare(
     `
-    SELECT ir.id, ir.provider, ir.lookup_name, ir.status, ir.title, ir.summary, ir.source_url
+    SELECT ir.id, ir.provider, ir.lookup_name, ir.status, ir.title, ir.summary, ir.image_url, ir.source_url
     FROM elements e
     JOIN item_references ir ON ir.id = e.reference_record_id
     WHERE e.id = ?
@@ -50,7 +53,7 @@ function getElementReferenceRecord(db: Database, elementId: number) {
 function getReferenceRecordByLookupName(db: Database, lookupName: string) {
   const stmt = db.prepare(
     `
-    SELECT id, provider, lookup_name, status, title, summary, source_url
+    SELECT id, provider, lookup_name, status, title, summary, image_url, source_url
     FROM item_references
     WHERE provider = ? AND lower(lookup_name) = lower(?)
     ORDER BY id DESC
@@ -80,14 +83,15 @@ function insertReferenceRecord(
     status: "resolved" | "missing";
     title: string | null;
     summary: string | null;
+    imageUrl: string | null;
     sourceUrl: string | null;
     elementId?: number | null;
   }
 ) {
   const stmt = db.prepare(
     `
-    INSERT INTO item_references (provider, lookup_name, status, title, summary, source_url, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    INSERT INTO item_references (provider, lookup_name, status, title, summary, image_url, source_url, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
     `
   );
   stmt.run([
@@ -96,6 +100,7 @@ function insertReferenceRecord(
     params.status,
     params.title,
     params.summary,
+    params.imageUrl,
     params.sourceUrl,
   ]);
   stmt.free();
@@ -141,6 +146,12 @@ async function fetchWikipediaSummaryByTitle(
         page?: unknown;
       };
     };
+    thumbnail?: {
+      source?: unknown;
+    };
+    originalimage?: {
+      source?: unknown;
+    };
     type?: unknown;
   };
 
@@ -162,10 +173,17 @@ async function fetchWikipediaSummaryByTitle(
     typeof data.content_urls?.desktop?.page === "string"
       ? data.content_urls.desktop.page
       : `https://en.wikipedia.org/wiki/${encodeURIComponent(resolvedTitle.replace(/\s+/g, "_"))}`;
+  const imageUrl =
+    typeof data.thumbnail?.source === "string"
+      ? data.thumbnail.source
+      : typeof data.originalimage?.source === "string"
+        ? data.originalimage.source
+        : null;
 
   return {
     title: resolvedTitle,
     summary,
+    imageUrl,
     sourceUrl,
   };
 }
@@ -243,6 +261,7 @@ export async function getOrCreateElementReference(db: Database, elementId: numbe
     status: resolved ? "resolved" : "missing",
     title: resolved?.title ?? null,
     summary: resolved?.summary ?? null,
+    imageUrl: resolved?.imageUrl ?? null,
     sourceUrl: resolved?.sourceUrl ?? null,
     elementId,
   });
@@ -254,6 +273,7 @@ export async function getOrCreateElementReference(db: Database, elementId: numbe
     status: resolved ? "resolved" : "missing",
     title: resolved?.title ?? null,
     summary: resolved?.summary ?? null,
+    imageUrl: resolved?.imageUrl ?? null,
     sourceUrl: resolved?.sourceUrl ?? null,
   };
 }
@@ -275,6 +295,7 @@ export async function getOrCreateReferenceByName(db: Database, rawLookupName: st
     status: resolved ? "resolved" : "missing",
     title: resolved?.title ?? null,
     summary: resolved?.summary ?? null,
+    imageUrl: resolved?.imageUrl ?? null,
     sourceUrl: resolved?.sourceUrl ?? null,
   });
 
@@ -286,6 +307,7 @@ export async function getOrCreateReferenceByName(db: Database, rawLookupName: st
       status: resolved ? "resolved" : "missing",
       title: resolved?.title ?? null,
       summary: resolved?.summary ?? null,
+      imageUrl: resolved?.imageUrl ?? null,
       sourceUrl: resolved?.sourceUrl ?? null,
     }
   );

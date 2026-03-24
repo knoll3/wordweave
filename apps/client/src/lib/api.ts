@@ -22,6 +22,7 @@ export interface ItemReference {
   status: "resolved" | "missing";
   title: string | null;
   summary: string | null;
+  imageUrl: string | null;
   sourceUrl: string | null;
 }
 
@@ -163,13 +164,8 @@ export async function combineElements(
   inputs: string[],
   options?: {
     creative?: boolean;
-    subtractive?: boolean;
-    opposite?: boolean;
-    popCulture?: boolean;
-    evolve?: boolean;
     categoryConstraint?: string;
-    crafting?: boolean;
-    wordCombine?: boolean;
+    actionConstraint?: string;
     model?: AiModel;
   }
 ): Promise<Recipe> {
@@ -181,13 +177,8 @@ export async function combineElements(
     body: JSON.stringify({
       inputs,
       creative: options?.creative ?? false,
-      subtractive: options?.subtractive ?? false,
-      opposite: options?.opposite ?? false,
-      popCulture: options?.popCulture ?? false,
-      evolve: options?.evolve ?? false,
       categoryConstraint: options?.categoryConstraint ?? null,
-      crafting: options?.crafting ?? false,
-      wordCombine: options?.wordCombine ?? false,
+      actionConstraint: options?.actionConstraint ?? null,
       model: options?.model,
     }),
   });

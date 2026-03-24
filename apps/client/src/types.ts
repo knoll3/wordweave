@@ -8,13 +8,8 @@ export interface Item {
 export type AiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
 export type UnlockKey =
   | "creative"
-  | "split"
-  | "opposite"
   | "random_tools"
-  | "craft"
-  | "evolve"
-  | "pop_culture"
-  | "word_combine";
+  | "action";
 
 export const CREATIVE_ITEM_ID = -1;
 
@@ -23,24 +18,6 @@ export const CREATIVE_ITEM: Item = {
   name: "Creative Spark",
   normalizedName: "creative spark",
   icon: "✨",
-};
-
-export const SPLIT_ITEM_ID = -2;
-
-export const SPLIT_ITEM: Item = {
-  id: SPLIT_ITEM_ID,
-  name: "Split",
-  normalizedName: "split",
-  icon: "✂️",
-};
-
-export const OPPOSITE_ITEM_ID = -3;
-
-export const OPPOSITE_ITEM: Item = {
-  id: OPPOSITE_ITEM_ID,
-  name: "Opposite",
-  normalizedName: "opposite",
-  icon: "↔️",
 };
 
 export const CATEGORY_MODIFIER_ITEM_ID = -4;
@@ -52,40 +29,13 @@ export const CATEGORY_MODIFIER_ITEM: Item = {
   icon: "🏷️",
 };
 
-export const CRAFT_ITEM_ID = -5;
+export const ACTION_MODIFIER_ITEM_ID = -10;
 
-export const CRAFT_ITEM: Item = {
-  id: CRAFT_ITEM_ID,
-  name: "Synonym",
-  normalizedName: "synonym",
-  icon: "🟰",
-};
-
-export const EVOLVE_ITEM_ID = -6;
-
-export const EVOLVE_ITEM: Item = {
-  id: EVOLVE_ITEM_ID,
-  name: "Evolve",
-  normalizedName: "evolve",
-  icon: "🧬",
-};
-
-export const POP_CULTURE_ITEM_ID = -8;
-
-export const POP_CULTURE_ITEM: Item = {
-  id: POP_CULTURE_ITEM_ID,
-  name: "Pop Culture",
-  normalizedName: "pop culture",
-  icon: "🎬",
-};
-
-export const WORD_COMBINE_ITEM_ID = -9;
-
-export const WORD_COMBINE_ITEM: Item = {
-  id: WORD_COMBINE_ITEM_ID,
-  name: "Compound",
-  normalizedName: "compound",
-  icon: "🔗",
+export const ACTION_MODIFIER_ITEM: Item = {
+  id: ACTION_MODIFIER_ITEM_ID,
+  name: "Action",
+  normalizedName: "action",
+  icon: "⚡",
 };
 
 export const COMBINE_RESULT_PLACEHOLDER_ITEM_ID = -7;
@@ -129,6 +79,8 @@ export interface WorkspaceItem {
   isNewDiscovery?: boolean;
   categoryConstraintName?: string | null;
   categoryConstraintNormalizedName?: string | null;
+  actionConstraintName?: string | null;
+  actionConstraintNormalizedName?: string | null;
 }
 
 export interface SelectionCombineLayout {
@@ -259,4 +211,5 @@ export interface FeatureUnlockStatus {
   unlockedAt: string | null;
   sourceItemName: string | null;
   sourceMatchedWord: string | null;
+  sourceMatchedWordCurrent: boolean;
 }

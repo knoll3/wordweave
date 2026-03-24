@@ -31,9 +31,12 @@ interface Props {
   nextLockedCatalyst: CatalystUnlockQuest | null;
   unlockedCatalystCount: number;
   item: Item | null;
+  items: Item[];
   itemsById: Map<number, Item>;
   canGoBack: boolean;
   onBack: () => void;
+  onAddItemToWorkspace: (item: Item) => void;
+  onAddItemToWorkspaceAsActionAnchor: (item: Item) => void;
   onCloseItem: () => void;
   onSelectItem: (item: Item) => void;
   onCollapse: () => void;
@@ -53,9 +56,12 @@ const JournalDock: React.FC<Props> = ({
   nextLockedCatalyst,
   unlockedCatalystCount,
   item,
+  items,
   itemsById,
   canGoBack,
   onBack,
+  onAddItemToWorkspace,
+  onAddItemToWorkspaceAsActionAnchor,
   onCloseItem,
   onSelectItem,
   onCollapse,
@@ -69,10 +75,13 @@ const JournalDock: React.FC<Props> = ({
           {mode === "item" && item ? (
             <ItemDetailsDrawer
               item={item}
+              items={items}
               itemsById={itemsById}
               canGoBack={canGoBack}
               onBack={onBack}
               onClose={onCloseItem}
+              onAddItemToWorkspace={onAddItemToWorkspace}
+              onAddItemToWorkspaceAsActionAnchor={onAddItemToWorkspaceAsActionAnchor}
               onSelectItem={onSelectItem}
             />
           ) : (
@@ -163,8 +172,24 @@ const JournalDock: React.FC<Props> = ({
                       </div>
                     ) : null}
                   </article>
-                  {achievementSummary.categories.map((category) => (
-                    <section key={category.id} className="achievement-category">
+                  {(() => {
+                    const activeCategories = achievementSummary.categories.filter(
+                      (category) => category.completedCount < category.totalCount
+                    );
+                    const completedCategories = achievementSummary.categories.filter(
+                      (category) => category.completedCount >= category.totalCount
+                    );
+
+                    const renderCategory = (
+                      category: typeof achievementSummary.categories[number],
+                      options?: { archived?: boolean }
+                    ) => (
+                      <section
+                        key={category.id}
+                        className={`achievement-category${
+                          options?.archived ? " is-archived" : ""
+                        }`}
+                      >
                       <div className="achievement-category-header">
                         <div>
                           <div className="quest-section-title">{category.title}</div>
@@ -180,7 +205,17 @@ const JournalDock: React.FC<Props> = ({
                         </div>
                       </div>
                       <div className="achievement-group-list">
-                        {category.groups.map((group) => (
+                        {category.groups
+                          .slice()
+                          .sort((left, right) => {
+                            const leftIncomplete = left.totalCount - left.completedCount;
+                            const rightIncomplete = right.totalCount - right.completedCount;
+                            if (leftIncomplete !== rightIncomplete) {
+                              return rightIncomplete - leftIncomplete;
+                            }
+                            return left.title.localeCompare(right.title);
+                          })
+                          .map((group) => (
                           <article key={group.id} className="achievement-group">
                             <div className="achievement-group-header">
                               <div>
@@ -191,14 +226,29 @@ const JournalDock: React.FC<Props> = ({
                                 {group.completedCount}/{group.totalCount}
                               </span>
                             </div>
-                            <div className="achievement-row-list">
-                              {group.achievements.map((achievement) => {
-                                const achievementReference =
-                                  achievementReferences[achievement.id];
+                            {(() => {
+                              const incompleteAchievements = group.achievements.filter(
+                                (achievement) => !achievement.completed
+                              );
+                              const completeAchievements = group.achievements.filter(
+                                (achievement) => achievement.completed
+                              );
+                              const renderAchievementRow = (achievement: typeof group.achievements[number]) => {
+                                const achievementReference = achievementReferences[achievement.id];
                                 const progressRatio =
                                   achievement.progressTarget > 0
                                     ? achievement.progressCurrent / achievement.progressTarget
                                     : 0;
+                                const detailText =
+                                  achievementReference === undefined
+                                    ? "Loading reference..."
+                                    : achievementReference?.summary
+                                      ? truncateAchievementReference(
+                                          achievementReference.summary,
+                                          achievementReferencePreviewLimit
+                                        )
+                                      : achievement.description;
+
                                 return (
                                   <div
                                     key={achievement.id}
@@ -210,16 +260,6 @@ const JournalDock: React.FC<Props> = ({
                                       <div className="achievement-row-copy">
                                         <div className="achievement-row-title">
                                           {achievement.title}
-                                        </div>
-                                        <div className="achievement-row-description">
-                                          {achievementReference === undefined
-                                            ? "Loading reference..."
-                                            : achievementReference?.summary
-                                              ? truncateAchievementReference(
-                                                  achievementReference.summary,
-                                                  achievementReferencePreviewLimit
-                                                )
-                                              : achievement.description}
                                         </div>
                                       </div>
                                       <div className="achievement-row-meta">
@@ -237,18 +277,26 @@ const JournalDock: React.FC<Props> = ({
                                         </span>
                                       </div>
                                     </div>
-                                    {achievementReference?.sourceUrl ? (
-                                      <div className="achievement-row-link">
-                                        <a
-                                          className="item-drawer-link"
-                                          href={achievementReference.sourceUrl}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                        >
-                                          Open Wikipedia article
-                                        </a>
+                                    <details className="achievement-row-details">
+                                      <summary className="achievement-row-details-toggle">
+                                        Details
+                                      </summary>
+                                      <div className="achievement-row-description">
+                                        {detailText}
                                       </div>
-                                    ) : null}
+                                      {achievementReference?.sourceUrl ? (
+                                        <div className="achievement-row-link">
+                                          <a
+                                            className="item-drawer-link"
+                                            href={achievementReference.sourceUrl}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                          >
+                                            Open Wikipedia article
+                                          </a>
+                                        </div>
+                                      ) : null}
+                                    </details>
                                     <div className="achievement-progress-bar">
                                       <span
                                         className="achievement-progress-bar-fill"
@@ -262,29 +310,72 @@ const JournalDock: React.FC<Props> = ({
                                     </div>
                                   </div>
                                 );
-                              })}
-                            </div>
+                              };
+
+                              return (
+                                <>
+                                  {incompleteAchievements.length > 0 ? (
+                                    <div className="achievement-section">
+                                      <div className="achievement-section-label">
+                                        Incomplete
+                                      </div>
+                                      <div className="achievement-row-list">
+                                        {incompleteAchievements.map(renderAchievementRow)}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                  {completeAchievements.length > 0 ? (
+                                    <div className="achievement-section">
+                                      <div className="achievement-section-label">
+                                        Complete
+                                      </div>
+                                      <div className="achievement-row-list">
+                                        {completeAchievements.map(renderAchievementRow)}
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </>
+                              );
+                            })()}
                           </article>
                         ))}
                       </div>
                     </section>
-                  ))}
+                    );
+
+                    return (
+                      <>
+                        {activeCategories.map((category) => renderCategory(category))}
+                        {completedCategories.length > 0 ? (
+                          <details className="achievement-archive">
+                            <summary className="achievement-archive-toggle">
+                              Completed Categories ({completedCategories.length})
+                            </summary>
+                            <div className="achievement-archive-list">
+                              {completedCategories.map((category) =>
+                                renderCategory(category, { archived: true })
+                              )}
+                            </div>
+                          </details>
+                        ) : null}
+                      </>
+                    );
+                  })()}
                 </div>
               ) : (
                 <div className="quest-section">
                   <div className="quest-section-header">
-                    <div className="quest-section-title">Catalyst Unlock Quests</div>
+                    <div className="quest-section-title">Unlock Quests</div>
                     <div className="quest-section-subtitle">
-                      Permanent mechanic unlocks that expand the workspace.
+                      Permanent mechanic unlocks that add more tools to the workspace.
                     </div>
                   </div>
                   <article className="quest-card quest-card-featured">
                     <div className="quest-card-top">
                       <div>
-                        <div className="quest-card-title">Catalyst Progress</div>
+                        <div className="quest-card-title">Unlock Progress</div>
                         <div className="quest-card-description">
-                          Quests are now reserved for unlocking new catalysts and expanding what
-                          the workspace can do.
+                          Quests are now reserved for unlocking additional workspace tools.
                         </div>
                       </div>
                       <span className="quest-card-badge is-tracked">
@@ -294,7 +385,7 @@ const JournalDock: React.FC<Props> = ({
                     <div className="quest-card-criteria">
                       {nextLockedCatalyst
                         ? `${nextLockedCatalyst.display.name} is your next unlock target.`
-                        : "Every catalyst is unlocked."}
+                        : "Every visible unlock is complete."}
                     </div>
                   </article>
                   <div className="quest-card-list">
@@ -340,10 +431,12 @@ const JournalDock: React.FC<Props> = ({
                           <div className="quest-card-meta">
                             Example unlock words: {unlock.exampleWords.join(", ")}
                           </div>
-                          {unlock.sourceItemName ? (
+                          {unlock.sourceItemName &&
+                          (unlock.sourceMatchedWord == null || unlock.sourceMatchedWordCurrent) ? (
                             <div className="quest-card-meta">
                               Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
-                              {unlock.sourceMatchedWord &&
+                              {unlock.sourceMatchedWordCurrent &&
+                              unlock.sourceMatchedWord &&
                               unlock.sourceMatchedWord.toLowerCase() !==
                                 unlock.sourceItemName.toLowerCase()
                                 ? `, which matched "${unlock.sourceMatchedWord}".`
@@ -351,7 +444,7 @@ const JournalDock: React.FC<Props> = ({
                             </div>
                           ) : !unlock.unlocked ? (
                             <div className="quest-card-meta">
-                              This catalyst is still locked. Discover related concepts to reveal it.
+                              This unlock is still locked. Discover related concepts to reveal it.
                             </div>
                           ) : null}
                         </article>

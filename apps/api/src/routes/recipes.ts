@@ -1,4 +1,5 @@
 import express from "express";
+import { resolveActionPromptFamily } from "../actionPromptFamilies";
 import {
   BASE_ELEMENTS,
   discoverElement,
@@ -29,58 +30,36 @@ const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
 const CACHE_BATCH_SIZE = 25;
 const CATALYST_RUN_KEY_PREFIXES = new Set([
+  "action",
   "creative",
   "category",
-  "subtract",
-  "opposite",
-  "pop",
-  "evolve",
-  "craft",
-  "compound",
 ]);
 
 function buildRecipeInputKey(params: {
   inputKey: string;
   categoryConstraint: string | null;
+  actionConstraint: string | null;
   creative: boolean;
-  subtractive: boolean;
-  opposite: boolean;
-  popCulture: boolean;
-  evolve: boolean;
-  crafting: boolean;
-  wordCombine: boolean;
 }): string {
   const {
     inputKey,
     categoryConstraint,
+    actionConstraint,
     creative,
-    subtractive,
-    opposite,
-    popCulture,
-    evolve,
-    crafting,
-    wordCombine,
   } = params;
 
   const normalizedCategoryConstraint = categoryConstraint?.trim().toLowerCase() ?? null;
+  const normalizedActionConstraint = actionConstraint?.trim().toLowerCase() ?? null;
 
-  return normalizedCategoryConstraint
+  return normalizedActionConstraint && normalizedCategoryConstraint
+    ? `action:${normalizedActionConstraint}|category:${normalizedCategoryConstraint}|${inputKey}`
+    : normalizedActionConstraint
+    ? `action:${normalizedActionConstraint}|${inputKey}`
+    : normalizedCategoryConstraint
     ? `category:${normalizedCategoryConstraint}|${inputKey}`
     : creative
     ? `creative|${inputKey}`
-    : subtractive
-      ? `subtract|${inputKey}`
-      : opposite
-        ? `opposite|${inputKey}`
-        : popCulture
-          ? `pop|${inputKey}`
-        : evolve
-          ? `evolve|${inputKey}`
-            : crafting
-                ? `craft|${inputKey}`
-                : wordCombine
-                  ? `compound|${inputKey}`
-                  : inputKey;
+    : inputKey;
 }
 
 function buildStoredRecipeInputKey(baseInputKey: string, bypassCache: boolean): string {
@@ -119,160 +98,6 @@ type KnownItem = {
   name: string;
   normalizedName: string;
 };
-
-type DeterministicSplitEntry = {
-  name: string;
-  normalizedName: string;
-  icon: string;
-};
-
-const SPLIT_RESULT_FALLBACK_ICON = "🧩";
-const COMPOUND_SPLIT_STOPWORDS = new Set([
-  "a",
-  "an",
-  "and",
-  "for",
-  "from",
-  "in",
-  "of",
-  "on",
-  "or",
-  "the",
-  "to",
-  "with",
-]);
-
-function normalizeSplitTerm(value: string) {
-  return value.trim().toLowerCase();
-}
-
-function registerDeterministicSplitTerm(
-  entries: Map<string, DeterministicSplitEntry>,
-  rawName: string,
-  icon?: string | null
-) {
-  const normalizedName = normalizeSplitTerm(rawName);
-  if (!normalizedName || COMPOUND_SPLIT_STOPWORDS.has(normalizedName)) {
-    return;
-  }
-
-  const existing = entries.get(normalizedName);
-  if (existing && existing.icon !== SPLIT_RESULT_FALLBACK_ICON) {
-    return;
-  }
-
-  entries.set(normalizedName, {
-    name: toTitleCaseWords(rawName),
-    normalizedName,
-    icon: icon ?? existing?.icon ?? SPLIT_RESULT_FALLBACK_ICON,
-  });
-}
-
-function buildDeterministicSplitDictionary(db: Awaited<ReturnType<typeof getDb>>) {
-  const entries = new Map<string, DeterministicSplitEntry>();
-
-  for (const element of BASE_ELEMENTS) {
-    registerDeterministicSplitTerm(entries, element.name, element.icon);
-  }
-
-  const elementStmt = db.prepare("SELECT DISTINCT name, normalized_name, icon FROM elements");
-  while (elementStmt.step()) {
-    const row = elementStmt.getAsObject() as Record<string, unknown>;
-    registerDeterministicSplitTerm(entries, String(row.name), String(row.icon ?? ""));
-  }
-  elementStmt.free();
-
-  const candidateStmt = db.prepare("SELECT DISTINCT name, icon FROM recipe_candidates");
-  while (candidateStmt.step()) {
-    const row = candidateStmt.getAsObject() as Record<string, unknown>;
-    registerDeterministicSplitTerm(entries, String(row.name), String(row.icon ?? ""));
-  }
-  candidateStmt.free();
-
-  for (const entry of [...entries.values()]) {
-    for (const token of entry.name.split(/[\s-]+/).filter(Boolean)) {
-      registerDeterministicSplitTerm(entries, token);
-    }
-  }
-
-  return entries;
-}
-
-function buildDeterministicSplitResults(
-  entries: Map<string, DeterministicSplitEntry>,
-  terms: string[]
-) {
-  const results = terms
-    .map((term) => entries.get(term) ?? {
-      name: toTitleCaseWords(term),
-      normalizedName: term,
-      icon: SPLIT_RESULT_FALLBACK_ICON,
-    })
-    .filter((entry, index, array) => array.findIndex((candidate) => candidate.normalizedName === entry.normalizedName) === index)
-    .slice(0, 2)
-    .map((entry) => ({
-      name: entry.name,
-      icon: entry.icon,
-    }));
-
-  if (results.length < 2) {
-    return null;
-  }
-
-  return { results };
-}
-
-function tryDeterministicSplit(
-  db: Awaited<ReturnType<typeof getDb>>,
-  inputs: { name: string; normalized: string }[]
-) {
-  if (inputs.length !== 1) {
-    return null;
-  }
-
-  const source = inputs[0];
-  const splitDictionary = buildDeterministicSplitDictionary(db);
-
-  const spacedParts = source.name
-    .trim()
-    .split(/\s+/)
-    .map((part) => normalizeSplitTerm(part))
-    .filter(Boolean);
-  if (spacedParts.length === 2) {
-    return buildDeterministicSplitResults(splitDictionary, spacedParts);
-  }
-
-  if (!/^[a-z]+$/.test(source.normalized)) {
-    return null;
-  }
-
-  let bestMatch: { left: string; right: string; score: number } | null = null;
-  for (let index = 2; index <= source.normalized.length - 2; index += 1) {
-    const left = source.normalized.slice(0, index);
-    const right = source.normalized.slice(index);
-    if (!splitDictionary.has(left) || !splitDictionary.has(right)) {
-      continue;
-    }
-
-    const score =
-      Math.min(left.length, right.length) * 10 +
-      Math.max(left.length, right.length) -
-      Math.abs(left.length - right.length);
-
-    if (!bestMatch || score > bestMatch.score) {
-      bestMatch = { left, right, score };
-    }
-  }
-
-  if (!bestMatch) {
-    return null;
-  }
-
-  return buildDeterministicSplitResults(splitDictionary, [
-    bestMatch.left,
-    bestMatch.right,
-  ]);
-}
 
 function loadKnownCacheItems(db: Awaited<ReturnType<typeof getDb>>) {
   const items = new Map<string, KnownItem>();
@@ -539,29 +364,8 @@ router.post("/combine", async (req, res) => {
 
   const creative = parsedBody.data.creative ?? false;
   const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
-  const subtractive = parsedBody.data.subtractive ?? false;
-  const opposite = parsedBody.data.opposite ?? false;
-  const popCulture = parsedBody.data.popCulture ?? false;
-  const evolve = parsedBody.data.evolve ?? false;
-  const crafting = parsedBody.data.crafting ?? false;
-  const wordCombine = parsedBody.data.wordCombine ?? false;
+  const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
-
-  const activeModeCount = [
-    creative,
-    Boolean(categoryConstraint),
-    subtractive,
-    opposite,
-    popCulture,
-    evolve,
-    crafting,
-    wordCombine,
-  ].filter(Boolean).length;
-  if (activeModeCount > 1) {
-    return res.status(400).json({
-      error: "Only one catalyst mode can be used at a time",
-    });
-  }
 
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
@@ -574,23 +378,13 @@ router.post("/combine", async (req, res) => {
   try {
     const db = await getDb();
     const effectiveCreative = creative;
-    const effectiveSubtractive = subtractive;
-    const effectiveOpposite = opposite;
-    const effectivePopCulture = popCulture;
-    const effectiveCrafting = crafting;
-    const effectiveEvolve = evolve;
-    const effectiveWordCombine = wordCombine;
+    const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
 
     const recipeInputKey = buildRecipeInputKey({
       inputKey,
       categoryConstraint,
+      actionConstraint,
       creative: effectiveCreative,
-      subtractive: effectiveSubtractive,
-      opposite: effectiveOpposite,
-      popCulture: effectivePopCulture,
-      evolve: effectiveEvolve,
-      crafting: effectiveCrafting,
-      wordCombine: effectiveWordCombine,
     });
     const bypassCache = isCatalystRecipeInputKey(recipeInputKey);
 
@@ -600,12 +394,8 @@ router.post("/combine", async (req, res) => {
       bypassCache,
       creative: effectiveCreative,
       categoryConstraint,
-      subtractive: effectiveSubtractive,
-      opposite: effectiveOpposite,
-      popCulture: effectivePopCulture,
-      evolve: effectiveEvolve,
-      crafting: effectiveCrafting,
-      wordCombine: effectiveWordCombine,
+      actionConstraint,
+      actionPromptFamily: actionPromptFamily?.key ?? null,
     });
 
     let stmt;
@@ -623,12 +413,8 @@ router.post("/combine", async (req, res) => {
         inputKey: recipeInputKey,
         creative,
         categoryConstraint,
-        subtractive: effectiveSubtractive,
-        opposite: effectiveOpposite,
-        popCulture: effectivePopCulture,
-        evolve: effectiveEvolve,
-        crafting: effectiveCrafting,
-        wordCombine: effectiveWordCombine,
+        actionConstraint,
+        actionPromptFamily: actionPromptFamily?.key ?? null,
         recipeId: recipeRow.id,
         resultElementId: recipeRow.result_element_id ?? null,
       });
@@ -693,12 +479,8 @@ router.post("/combine", async (req, res) => {
             {
               creative: effectiveCreative,
               categoryConstraint: categoryConstraint ?? undefined,
-              subtractive: effectiveSubtractive,
-              opposite: effectiveOpposite,
-              popCulture: effectivePopCulture,
-              evolve: effectiveEvolve,
-              crafting: effectiveCrafting,
-              wordCombine: effectiveWordCombine,
+              actionConstraint: actionConstraint ?? undefined,
+              actionPromptFamily: actionPromptFamily?.key ?? null,
               model,
             }
           );
@@ -787,51 +569,52 @@ router.post("/combine", async (req, res) => {
         bypassCache,
         creative,
         categoryConstraint,
-        subtractive: effectiveSubtractive,
-        opposite: effectiveOpposite,
-        popCulture: effectivePopCulture,
-        evolve: effectiveEvolve,
-        crafting: effectiveCrafting,
-        wordCombine: effectiveWordCombine,
+        actionConstraint,
+        actionPromptFamily: actionPromptFamily?.key ?? null,
         inputs: normalizedInputs.map((i) => i.name),
       }
     );
     let llmResult;
-    const deterministicSplit = effectiveSubtractive
-      ? tryDeterministicSplit(db, normalizedInputs)
-      : null;
-    if (deterministicSplit) {
-      llmResult = deterministicSplit;
-      console.log("[api][combine] deterministic split result", {
-        input: normalizedInputs.map((entry) => entry.name),
-        result: deterministicSplit,
-      });
-    } else {
-      try {
-        llmResult = await generateResult(
-          normalizedInputs.map((i) => i.name),
-          {
-            creative: effectiveCreative,
-            categoryConstraint: categoryConstraint ?? undefined,
-            subtractive: effectiveSubtractive,
-            opposite: effectiveOpposite,
-            popCulture: effectivePopCulture,
-            evolve: effectiveEvolve,
-            crafting: effectiveCrafting,
-            wordCombine: effectiveWordCombine,
-            model,
-          }
-        );
-        console.log("[api][combine] OpenAI result", llmResult);
-      } catch (err) {
-        console.error("Error generating result", err);
-        const message =
-          err instanceof Error ? err.message : "Failed to generate result from model";
-        return res.status(502).json({ error: message });
-      }
+    try {
+      llmResult = await generateResult(
+        normalizedInputs.map((i) => i.name),
+        {
+          creative: effectiveCreative,
+          categoryConstraint: categoryConstraint ?? undefined,
+          actionConstraint: actionConstraint ?? undefined,
+          actionPromptFamily: actionPromptFamily?.key ?? null,
+          model,
+        }
+      );
+      console.log("[api][combine] OpenAI result", llmResult);
+    } catch (err) {
+      console.error("Error generating result", err);
+      const message =
+        err instanceof Error ? err.message : "Failed to generate result from model";
+      return res.status(502).json({ error: message });
     }
 
-    const displayInputs = categoryConstraint
+    const displayInputs = actionConstraint && categoryConstraint
+      ? [
+          {
+            name: actionConstraint,
+            normalized: actionConstraint.trim().toLowerCase(),
+          },
+          {
+            name: categoryConstraint,
+            normalized: categoryConstraint.trim().toLowerCase(),
+          },
+          ...normalizedInputs,
+        ]
+      : actionConstraint
+      ? [
+          {
+            name: actionConstraint,
+            normalized: actionConstraint.trim().toLowerCase(),
+          },
+          ...normalizedInputs,
+        ]
+      : categoryConstraint
       ? [
           {
             name: categoryConstraint,

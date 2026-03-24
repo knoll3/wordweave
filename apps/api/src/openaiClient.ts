@@ -1,22 +1,24 @@
 import OpenAI from "openai";
+import {
+  getActionPromptFamilyByKey,
+  renderActionPromptFamily,
+  resolveActionPromptFamily,
+  type ActionPromptFamilyKey,
+} from "./actionPromptFamilies";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 import {
+  ACTION_PROMPT,
+  ACTION_CATEGORY_PROMPT,
   BASE_PROMPT,
   CATEGORY_PROMPT,
-  CRAFT_PROMPT,
   CREATIVE_PROMPT,
-  EVOLVE_PROMPT,
-  OPPOSITE_PROMPT,
-  POP_CULTURE_PROMPT,
   RECIPE_BATCH_PROMPT,
-  SUBTRACTIVE_PROMPT,
-  WORD_COMBINE_PROMPT,
 } from "./openaiPrompts";
 import {
-  craftLlmResultSchema,
   llmResultSchema,
   recipeBatchSchema,
   splitLlmResultSchema,
+  craftLlmResultSchema,
 } from "./validation";
 import type { SplitLlmResult } from "./validation";
 
@@ -45,6 +47,14 @@ function resolveDefaultModelName(): OpenAiModel {
 
 export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
 export const DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-small";
+
+const CREATIVE_OVERLAY_INSTRUCTIONS = `
+
+Additional style guidance:
+- Lean more playful, vivid, surprising, and memorable than the default path.
+- A silly or delightfully weird answer is usually better than a dry one if it still clearly fits.
+- Made-up words are allowed if they are easy to understand and clearly fit the inputs.
+`.trim();
 
 function logUsageAndCost(params: {
   logPrefix: string;
@@ -93,50 +103,56 @@ function getOpenAI(): OpenAI {
 export async function generateResult(
   inputs: string[],
   options?: {
+    actionConstraint?: string;
+    actionPromptFamily?: ActionPromptFamilyKey | null;
     categoryConstraint?: string;
     creative?: boolean;
-    subtractive?: boolean;
-    opposite?: boolean;
-    popCulture?: boolean;
-    crafting?: boolean;
-    wordCombine?: boolean;
-    evolve?: boolean;
     model?: OpenAiModel;
   }
 ): Promise<{ name: string; icon: string } | { results: Array<{ name: string; icon: string }> }> {
   const openai = getOpenAI();
   const model = options?.model ?? DEFAULT_MODEL_NAME;
+  const actionPromptFamily =
+    options?.actionPromptFamily != null
+      ? getActionPromptFamilyByKey(options.actionPromptFamily)
+      : resolveActionPromptFamily(options?.actionConstraint);
 
-  const promptTemplate = options?.subtractive
-    ? SUBTRACTIVE_PROMPT
-    : options?.categoryConstraint
-      ? CATEGORY_PROMPT.replace(/{{CATEGORY_CONSTRAINT}}/g, options.categoryConstraint)
-      : options?.opposite
-        ? OPPOSITE_PROMPT
-        : options?.popCulture
-          ? POP_CULTURE_PROMPT
-          : options?.evolve
-            ? EVOLVE_PROMPT
-            : options?.crafting
-              ? CRAFT_PROMPT
-              : options?.wordCombine
-                ? WORD_COMBINE_PROMPT
-                : options?.creative
-                  ? CREATIVE_PROMPT
-                  : BASE_PROMPT;
-  const prompt = promptTemplate.replace("{{INPUT_ELEMENTS_ARRAY}}", JSON.stringify(inputs));
+  const basePrompt = actionPromptFamily && options?.actionConstraint
+    ? renderActionPromptFamily({
+        family: actionPromptFamily,
+        actionConstraint: options.actionConstraint,
+        categoryConstraint: options.categoryConstraint,
+        inputs,
+      })
+    : options?.actionConstraint
+      ? options?.categoryConstraint
+        ? ACTION_CATEGORY_PROMPT
+            .replace(/{{ACTION_CONSTRAINT}}/g, options.actionConstraint)
+            .replace(/{{CATEGORY_CONSTRAINT}}/g, options.categoryConstraint)
+            .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(inputs))
+        : ACTION_PROMPT
+            .replace(/{{ACTION_CONSTRAINT}}/g, options.actionConstraint)
+            .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(inputs))
+      : options?.categoryConstraint
+        ? CATEGORY_PROMPT
+            .replace(/{{CATEGORY_CONSTRAINT}}/g, options.categoryConstraint)
+            .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(inputs))
+        : (options?.creative ? CREATIVE_PROMPT : BASE_PROMPT).replace(
+            /{{INPUT_ELEMENTS_ARRAY}}/g,
+            JSON.stringify(inputs)
+          );
+  const prompt =
+    options?.creative && (options?.actionConstraint || options?.categoryConstraint)
+      ? `${basePrompt}\n\n${CREATIVE_OVERLAY_INSTRUCTIONS}`
+      : basePrompt;
 
   console.log("[openai] sending request", {
     model,
     inputs,
+    actionConstraint: options?.actionConstraint ?? null,
+    actionPromptFamily: actionPromptFamily?.key ?? null,
     categoryConstraint: options?.categoryConstraint ?? null,
     creative: options?.creative ?? false,
-    subtractive: options?.subtractive ?? false,
-    opposite: options?.opposite ?? false,
-    popCulture: options?.popCulture ?? false,
-    evolve: options?.evolve ?? false,
-    crafting: options?.crafting ?? false,
-    wordCombine: options?.wordCombine ?? false,
     temperature: 1,
     prompt,
   });
@@ -176,7 +192,13 @@ export async function generateResult(
     throw new Error("Failed to parse OpenAI JSON response");
   }
 
-  if (options?.crafting || options?.wordCombine) {
+  if (
+    actionPromptFamily?.key === "synonym" ||
+    actionPromptFamily?.key === "compound" ||
+    actionPromptFamily?.key === "translate" ||
+    actionPromptFamily?.key === "abbreviate" ||
+    actionPromptFamily?.key === "expand"
+  ) {
     const craftResult = craftLlmResultSchema.safeParse(parsed);
     if (!craftResult.success) {
       console.error("[openai] strict-mode response failed schema validation", parsed);
@@ -189,7 +211,7 @@ export async function generateResult(
     return craftResult.data;
   }
 
-  if (options?.subtractive) {
+  if (actionPromptFamily?.key === "split") {
     const splitResult = splitLlmResultSchema.safeParse(parsed);
     if (!splitResult.success) {
       console.error("[openai] split response failed schema validation", parsed);
@@ -212,30 +234,27 @@ export async function generateResult(
 function normalizeSplitResult(
   value: SplitLlmResult
 ): { name: string; icon: string } | { results: Array<{ name: string; icon: string }> } {
-  if ("results" in value) {
-    const normalizedResults = value.results
-      .map((entry) => ({
-        name: entry.name.trim(),
-        icon: entry.icon,
-      }))
-      .filter((entry, index, array) => {
+  const normalizedResults = value.results
+    .map((entry: { name: string; icon: string }) => ({
+      name: entry.name.trim(),
+      icon: entry.icon,
+    }))
+    .filter(
+      (
+        entry: { name: string; icon: string },
+        index: number,
+        array: Array<{ name: string; icon: string }>
+      ) => {
         const normalizedName = entry.name.toLowerCase();
         return (
           normalizedName.length > 0 &&
           array.findIndex((candidate) => candidate.name.toLowerCase() === normalizedName) ===
             index
         );
-      })
-      .slice(0, 2);
+      }
+    );
 
-    if (normalizedResults.length === 1) {
-      return normalizedResults[0];
-    }
-
-    return { results: normalizedResults };
-  }
-
-  return value;
+  return { results: normalizedResults };
 }
 
 export async function generateRecipeBatch(params: {

@@ -1,13 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
-  CRAFT_ITEM_ID,
   CREATIVE_ITEM_ID,
-  EVOLVE_ITEM_ID,
-  OPPOSITE_ITEM_ID,
-  POP_CULTURE_ITEM_ID,
-  SPLIT_ITEM_ID,
-  WORD_COMBINE_ITEM_ID,
 } from "../../types";
 import type { Item } from "../../types";
 import {
@@ -16,6 +11,10 @@ import {
   type LatestRecipeCatalyst,
   type LatestRecipeInput,
 } from "../../lib/api";
+import {
+  ACTION_PROMPT_FAMILY_REFERENCES,
+  normalizeActionTrigger,
+} from "../../lib/actionPromptFamilies";
 
 type CatalystGuide = {
   description: string;
@@ -23,6 +22,12 @@ type CatalystGuide = {
 };
 
 const CATALYST_GUIDES: Record<number, CatalystGuide> = {
+  [ACTION_MODIFIER_ITEM_ID]: {
+    description:
+      "Action is a modifier token that can be attached to any item. That item becomes the action being performed, and the other combined items act as clues for what happens when that action is applied. Most anchor words use the general action behavior, while certain words like Split, Opposite, Synonym, Reverse, Translate, Distill, Simplify, and Common switch to specialized tuned behavior.",
+    example:
+      "Example: Action -> Common, then Common + Cat + Monkey -> Mammal. Action -> Split, then Split + Steam Engine -> Steam + Engine.",
+  },
   [CATEGORY_MODIFIER_ITEM_ID]: {
     description:
       "Category is a modifier token. Drop it onto an item to turn that item into a category constraint, then combine that modified item with clue items to get something that stays inside that category.",
@@ -33,53 +38,29 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
       "Pushes the combination away from the most literal answer and toward something more playful, silly, vivid, and memorable. It prefers expressive or delightfully weird ideas over dry or academic ones, and it can invent a fun made-up term if it still clearly fits the inputs.",
     example: "Example: Shark + Tornado + Creative Spark -> Sharknado",
   },
-  [SPLIT_ITEM_ID]: {
-    description:
-      "Treats the inputs as something to split apart. Two-word names split directly into those two words, and recognized compound words split directly into their component words. Otherwise it looks for the most meaningful part, component, constituent element, or resulting piece that would plausibly appear if the item were divided, broken down, separated, or split into its underlying parts.",
-    example: "Example: Sandcastle + Split + Sand -> Castle",
-  },
-  [OPPOSITE_ITEM_ID]: {
-    description:
-      "Looks for the clearest and most widely recognized opposite of the dominant input meaning. It favors a direct inverse over something poetic, clever, or loosely contrasting.",
-    example: "Example: Victory + Opposite -> Defeat",
-  },
-  [CRAFT_ITEM_ID]: {
-    description:
-      "Looks for the clearest synonym, alias, alternate name, or equivalent term for the dominant input meaning. It should return a direct rewording, not a merely related concept or example.",
-    example: "Example: Car + Synonym -> Automobile",
-  },
-  [EVOLVE_ITEM_ID]: {
-    description:
-      "Pushes the input toward a stronger next stage. It favors progression, development, refinement, maturity, or upgrade over a sideways variation that is merely related.",
-    example: "Example: Hut + Evolve -> House",
-  },
-  [POP_CULTURE_ITEM_ID]: {
-    description:
-      "Treats the inputs as clues pointing toward one specific and recognizable pop culture reference. It prefers a named character, place, celebrity, franchise, scene, or entertainment concept over a broad genre.",
-    example: "Example: Billionaire + Suit + Pop Culture -> Iron Man",
-  },
-  [WORD_COMBINE_ITEM_ID]: {
-    description:
-      "Looks for a real established compound word or common phrase formed by the inputs. It is intentionally strict and should only resolve when the result feels like something you would actually find in a dictionary, encyclopedia, or common usage.",
-    example: "Example: Snow + Man + Compound -> Snowman",
-  },
 };
 
 interface Props {
   item: Item;
+  items: Item[];
   itemsById: Map<number, Item>;
   canGoBack: boolean;
   onBack: () => void;
   onClose: () => void;
+  onAddItemToWorkspace: (item: Item) => void;
+  onAddItemToWorkspaceAsActionAnchor: (item: Item) => void;
   onSelectItem: (item: Item) => void;
 }
 
 const ItemDetailsDrawer: React.FC<Props> = ({
   item,
+  items,
   itemsById,
   canGoBack,
   onBack,
   onClose,
+  onAddItemToWorkspace,
+  onAddItemToWorkspaceAsActionAnchor,
   onSelectItem,
 }) => {
   const catalystGuide = item.id < 0 ? CATALYST_GUIDES[item.id] ?? null : null;
@@ -90,6 +71,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     item.normalizedName === "air";
   const [referenceDescription, setReferenceDescription] = useState<string | null>(null);
   const [referenceTitle, setReferenceTitle] = useState<string | null>(null);
+  const [referenceImageUrl, setReferenceImageUrl] = useState<string | null>(null);
   const [referenceUrl, setReferenceUrl] = useState<string | null>(null);
   const [isLoadingReference, setIsLoadingReference] = useState(false);
   const [recipeCatalyst, setRecipeCatalyst] = useState<LatestRecipeCatalyst | null>(null);
@@ -102,6 +84,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     if (item.id < 0) {
       setReferenceDescription(null);
       setReferenceTitle(null);
+      setReferenceImageUrl(null);
       setReferenceUrl(null);
       setIsLoadingReference(false);
       setRecipeCatalyst(null);
@@ -113,12 +96,14 @@ const ItemDetailsDrawer: React.FC<Props> = ({
     setIsLoadingReference(true);
     setReferenceDescription(null);
     setReferenceTitle(null);
+    setReferenceImageUrl(null);
     setReferenceUrl(null);
     void fetchItemReference(item.id)
       .then((reference) => {
         if (cancelled) return;
         setReferenceTitle(reference?.title ?? null);
         setReferenceDescription(reference?.summary ?? null);
+        setReferenceImageUrl(reference?.imageUrl ?? null);
         setReferenceUrl(reference?.sourceUrl ?? null);
       })
       .finally(() => {
@@ -161,6 +146,34 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       })),
     [itemsById, recipeInputs]
   );
+  const actionTriggerSections = useMemo(() => {
+    if (item.id !== ACTION_MODIFIER_ITEM_ID) {
+      return null;
+    }
+
+    const itemByNormalizedTrigger = new Map(
+      items.map((entry) => [normalizeActionTrigger(entry.normalizedName), entry] as const)
+    );
+    return ACTION_PROMPT_FAMILY_REFERENCES.map((family) => {
+      const discoveredItems = family.triggerWords
+        .map((word) => itemByNormalizedTrigger.get(normalizeActionTrigger(word)) ?? null)
+        .filter((entry): entry is Item => entry != null)
+        .filter(
+          (entry, index, array) =>
+            array.findIndex((candidate) => candidate.id === entry.id) === index
+        );
+      const undiscoveredWords = family.triggerWords.filter(
+        (word) => !itemByNormalizedTrigger.has(normalizeActionTrigger(word))
+      );
+
+      return {
+        title: family.title,
+        description: family.description,
+        discoveredItems,
+        undiscoveredWords,
+      };
+    });
+  }, [item.id, items]);
 
   return (
     <aside className="item-drawer item-drawer-panel" aria-label={`${item.name} details`}>
@@ -203,6 +216,35 @@ const ItemDetailsDrawer: React.FC<Props> = ({
             <>
               <p className="item-drawer-description">{catalystGuide.description}</p>
               <div className="item-drawer-example">{catalystGuide.example}</div>
+              {actionTriggerSections ? (
+                <div className="item-drawer-action-triggers">
+                  {actionTriggerSections.map((section) => (
+                    <div key={section.title} className="item-drawer-action-trigger-group">
+                      <div className="item-drawer-action-trigger-family">{section.title}</div>
+                      <div className="item-drawer-action-trigger-summary">
+                        {section.description}
+                      </div>
+                      <div className="item-drawer-action-trigger-chips">
+                        {section.discoveredItems.map((triggerItem) => (
+                          <button
+                            key={triggerItem.id}
+                            type="button"
+                            className="item-drawer-action-trigger-chip is-owned is-clickable"
+                            onClick={() => onAddItemToWorkspaceAsActionAnchor(triggerItem)}
+                          >
+                            {triggerItem.name}
+                          </button>
+                        ))}
+                        {section.undiscoveredWords.map((word) => (
+                          <span key={word} className="item-drawer-action-trigger-chip is-disabled">
+                            {word}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : null}
             </>
           ) : isLoadingReference ? (
             <div className="item-drawer-status" aria-live="polite">
@@ -211,6 +253,16 @@ const ItemDetailsDrawer: React.FC<Props> = ({
             </div>
           ) : referenceDescription ? (
             <>
+              {referenceImageUrl ? (
+                <div className="item-drawer-media">
+                  <img
+                    className="item-drawer-media-image"
+                    src={referenceImageUrl}
+                    alt={referenceTitle || item.name}
+                    loading="lazy"
+                  />
+                </div>
+              ) : null}
               <p className="item-drawer-description">{referenceDescription}</p>
               {referenceUrl ? (
                 <a
@@ -243,7 +295,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
           ) : isLoadingRecipe ? (
             <div className="item-drawer-status" aria-live="polite">
               <span className="search-pending-spinner" aria-hidden="true" />
-              <span>Loading latest recipe…</span>
+              <span>Loading first recipe…</span>
             </div>
           ) : recipeInputs.length > 0 ? (
             <>

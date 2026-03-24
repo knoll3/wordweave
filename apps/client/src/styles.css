@@ -889,6 +889,22 @@ body.page-scrollable {
   color: var(--text-soft);
 }
 
+.item-drawer-media {
+  margin-top: 12px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.62);
+}
+
+.item-drawer-media-image {
+  display: block;
+  width: 100%;
+  max-height: 190px;
+  object-fit: cover;
+  object-position: center;
+}
+
 .item-drawer-description,
 .item-drawer-recipe-line,
 .item-drawer-empty {
@@ -911,6 +927,66 @@ body.page-scrollable {
   font-size: 0.8rem;
   line-height: 1.5;
   color: var(--text-soft);
+}
+
+.item-drawer-action-triggers {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.item-drawer-action-trigger-group {
+  display: grid;
+  gap: 6px;
+}
+
+.item-drawer-action-trigger-family {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.item-drawer-action-trigger-summary {
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--text-soft);
+}
+
+.item-drawer-action-trigger-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.item-drawer-action-trigger-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(15, 23, 42, 0.72);
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.item-drawer-action-trigger-chip.is-clickable {
+  cursor: pointer;
+}
+
+.item-drawer-action-trigger-chip.is-clickable:hover {
+  transform: translateY(-1px);
+  border-color: rgba(251, 191, 36, 0.34);
+}
+
+.item-drawer-action-trigger-chip.is-owned {
+  border-color: rgba(251, 191, 36, 0.26);
+  background: rgba(120, 53, 15, 0.54);
+  color: #fde68a;
+}
+
+.item-drawer-action-trigger-chip.is-disabled {
+  opacity: 0.48;
 }
 
 .item-drawer-link {
@@ -1355,8 +1431,8 @@ body.page-scrollable {
 }
 
 .journal-summary-card {
-  min-height: 88px;
-  padding: 12px 14px;
+  min-height: 0;
+  padding: 10px 14px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   background:
@@ -1366,7 +1442,7 @@ body.page-scrollable {
   backdrop-filter: blur(8px);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
   align-items: flex-start;
   color: var(--text-main);
   text-align: left;
@@ -1707,6 +1783,10 @@ body.page-scrollable {
   gap: 12px;
 }
 
+.achievement-category.is-archived {
+  opacity: 0.82;
+}
+
 .achievement-category-header {
   display: flex;
   align-items: flex-start;
@@ -1749,6 +1829,60 @@ body.page-scrollable {
   gap: 8px;
 }
 
+.achievement-archive {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 10px;
+}
+
+.achievement-archive-toggle {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--text-soft);
+}
+
+.achievement-archive-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.achievement-archive-toggle::before {
+  content: "+";
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--accent-sky);
+}
+
+.achievement-archive[open] .achievement-archive-toggle::before {
+  content: "-";
+}
+
+.achievement-archive-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.achievement-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.achievement-section-label {
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-soft);
+}
+
 .achievement-row {
   border-radius: 10px;
   border: 1px solid rgba(148, 163, 184, 0.12);
@@ -1768,7 +1902,7 @@ body.page-scrollable {
 
 .achievement-row-main {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
@@ -1776,8 +1910,7 @@ body.page-scrollable {
 .achievement-row-copy {
   min-width: 0;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  align-items: center;
 }
 
 .achievement-row-title {
@@ -1790,6 +1923,38 @@ body.page-scrollable {
   font-size: 0.75rem;
   color: var(--text-soft);
   line-height: 1.4;
+}
+
+.achievement-row-details {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.achievement-row-details-toggle {
+  list-style: none;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--text-soft);
+  user-select: none;
+}
+
+.achievement-row-details-toggle::-webkit-details-marker {
+  display: none;
+}
+
+.achievement-row-details-toggle::before {
+  content: "+";
+  display: inline-flex;
+  width: 12px;
+  justify-content: center;
+  margin-right: 6px;
+  color: var(--accent-sky);
+}
+
+.achievement-row-details[open] .achievement-row-details-toggle::before {
+  content: "-";
 }
 
 .achievement-row-meta {
@@ -1840,18 +2005,6 @@ body.page-scrollable {
     rgba(15, 23, 42, 0.74);
 }
 
-.quest-card.quest-card-unlock.is-split {
-  background:
-    radial-gradient(circle at top right, rgba(249, 115, 22, 0.12), transparent 34%),
-    rgba(15, 23, 42, 0.74);
-}
-
-.quest-card.quest-card-unlock.is-opposite {
-  background:
-    radial-gradient(circle at top right, rgba(59, 130, 246, 0.12), transparent 34%),
-    rgba(15, 23, 42, 0.74);
-}
-
 .quest-card.quest-card-unlock.is-randomize {
   background:
     radial-gradient(circle at top right, rgba(16, 185, 129, 0.12), transparent 34%),
@@ -1864,27 +2017,9 @@ body.page-scrollable {
     rgba(15, 23, 42, 0.74);
 }
 
-.quest-card.quest-card-unlock.is-synonym {
+.quest-card.quest-card-unlock.is-action {
   background:
-    radial-gradient(circle at top right, rgba(245, 158, 11, 0.12), transparent 34%),
-    rgba(15, 23, 42, 0.74);
-}
-
-.quest-card.quest-card-unlock.is-evolve {
-  background:
-    radial-gradient(circle at top right, rgba(236, 72, 153, 0.12), transparent 34%),
-    rgba(15, 23, 42, 0.74);
-}
-
-.quest-card.quest-card-unlock.is-pop-culture {
-  background:
-    radial-gradient(circle at top right, rgba(250, 204, 21, 0.12), transparent 34%),
-    rgba(15, 23, 42, 0.74);
-}
-
-.quest-card.quest-card-unlock.is-compound {
-  background:
-    radial-gradient(circle at top right, rgba(217, 180, 254, 0.12), transparent 34%),
+    radial-gradient(circle at top right, rgba(251, 191, 36, 0.12), transparent 34%),
     rgba(15, 23, 42, 0.74);
 }
 
@@ -2058,80 +2193,11 @@ body.page-scrollable {
 }
 
 .graph-creative-button:disabled,
-.graph-evolve-button:disabled,
-.graph-craft-button:disabled,
 .graph-subtraction-button:disabled,
-.graph-opposite-button:disabled,
 .graph-randomize-button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
   box-shadow: none;
-}
-
-.graph-evolve-button {
-  position: absolute;
-  right: 12px;
-  bottom: 400px;
-  z-index: 130;
-  width: 60px;
-  height: 60px;
-  border: 1px solid rgba(251, 207, 232, 0.72);
-  border-radius: 999px;
-  background: rgba(190, 24, 93, 0.96);
-  color: #fff;
-  font-size: 1.35rem;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 0 1px rgba(251, 207, 232, 0.18),
-    0 18px 36px rgba(157, 23, 77, 0.28);
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.graph-evolve-button:hover {
-  background: rgba(219, 39, 119, 0.98);
-  box-shadow: 0 0 0 1px rgba(251, 207, 232, 0.28),
-    0 22px 42px rgba(157, 23, 77, 0.32);
-}
-
-.graph-evolve-button:active {
-  cursor: grabbing;
-}
-
-.graph-craft-button {
-  position: absolute;
-  right: 12px;
-  bottom: 332px;
-  z-index: 130;
-  width: 60px;
-  height: 60px;
-  border: 1px solid rgba(253, 230, 138, 0.72);
-  border-radius: 999px;
-  background: rgba(180, 83, 9, 0.96);
-  color: #fff;
-  font-size: 1.35rem;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 0 1px rgba(253, 230, 138, 0.18),
-    0 18px 36px rgba(146, 64, 14, 0.28);
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.graph-craft-button:hover {
-  background: rgba(217, 119, 6, 0.98);
-  box-shadow: 0 0 0 1px rgba(253, 230, 138, 0.28),
-    0 22px 42px rgba(146, 64, 14, 0.32);
-}
-
-.graph-craft-button:active {
-  cursor: grabbing;
 }
 
 .graph-subtraction-button {
@@ -2164,39 +2230,6 @@ body.page-scrollable {
 }
 
 .graph-subtraction-button:active {
-  cursor: grabbing;
-}
-
-.graph-opposite-button {
-  position: absolute;
-  right: 12px;
-  bottom: 196px;
-  z-index: 130;
-  width: 60px;
-  height: 60px;
-  border: 1px solid rgba(147, 197, 253, 0.7);
-  border-radius: 999px;
-  background: rgba(37, 99, 235, 0.96);
-  color: #fff;
-  font-size: 1.35rem;
-  line-height: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.2),
-    0 18px 36px rgba(29, 78, 216, 0.28);
-  cursor: grab;
-  user-select: none;
-  touch-action: none;
-}
-
-.graph-opposite-button:hover {
-  background: rgba(59, 130, 246, 0.98);
-  box-shadow: 0 0 0 1px rgba(147, 197, 253, 0.28),
-    0 22px 42px rgba(29, 78, 216, 0.32);
-}
-
-.graph-opposite-button:active {
   cursor: grabbing;
 }
 

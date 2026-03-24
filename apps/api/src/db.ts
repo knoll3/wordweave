@@ -70,6 +70,7 @@ function createSchema(db: Database): void {
       status TEXT NOT NULL DEFAULT 'resolved',
       title TEXT NULL,
       summary TEXT NULL,
+      image_url TEXT NULL,
       source_url TEXT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -128,6 +129,7 @@ function createSchema(db: Database): void {
   `);
 
   ensureColumn(db, "elements", "reference_record_id", "INTEGER NULL");
+  ensureColumn(db, "item_references", "image_url", "TEXT NULL");
   ensureColumn(db, "player_unlocks", "source_item_name", "TEXT NULL");
   ensureColumn(db, "player_unlocks", "source_matched_word", "TEXT NULL");
 }

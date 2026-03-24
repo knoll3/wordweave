@@ -72,12 +72,26 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
 };
 
 function getCatalystFromInputKey(inputKey: string): LatestRecipeCatalyst | null {
+  if (inputKey.startsWith("action:") && inputKey.includes("|category:")) {
+    return {
+      name: "Action",
+      normalizedName: "action",
+      icon: "⚡",
+    };
+  }
   const modeKey = inputKey.split("|", 1)[0] ?? "";
   if (modeKey.startsWith("category:")) {
     return {
       name: "Category",
       normalizedName: "category",
       icon: "🏷️",
+    };
+  }
+  if (modeKey.startsWith("action:")) {
+    return {
+      name: "Action",
+      normalizedName: "action",
+      icon: "⚡",
     };
   }
   return CATALYST_BY_MODE_KEY[modeKey] ?? null;
@@ -98,13 +112,13 @@ function loadElementsByNormalizedName(db: Database) {
   return byNormalizedName;
 }
 
-function loadLatestRecipeForElement(db: Database, elementId: number): RecipeRow | null {
+function loadFirstRecipeForElement(db: Database, elementId: number): RecipeRow | null {
   const stmt = db.prepare(
     `
     SELECT id, input_key, input_display_json
     FROM recipes
     WHERE result_element_id = ?
-    ORDER BY updated_at DESC, id DESC
+    ORDER BY id ASC
     LIMIT 1
     `
   );
@@ -136,7 +150,7 @@ export function getLatestRecipeContext(
     return null;
   }
 
-  const recipe = loadLatestRecipeForElement(db, elementId);
+  const recipe = loadFirstRecipeForElement(db, elementId);
   if (!recipe) {
     return {
       recipeId: null,
