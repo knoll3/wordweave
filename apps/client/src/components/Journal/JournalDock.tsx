@@ -91,7 +91,7 @@ const JournalDock: React.FC<Props> = ({
                   <div>
                     <div className="quest-drawer-title">Journal</div>
                     <div className="quest-drawer-subtitle">
-                      Permanent achievements and catalyst unlock quests.
+                      Permanent achievements and unlock quests.
                     </div>
                   </div>
                   <button
