@@ -1,5 +1,8 @@
 import express from "express";
-import { resolveActionPromptFamily } from "../actionPromptFamilies";
+import {
+  normalizeActionTrigger,
+  resolveActionPromptFamily,
+} from "../actionPromptFamilies";
 import {
   BASE_ELEMENTS,
   discoverElement,
@@ -20,6 +23,7 @@ import {
 } from "../validation";
 import {
   buildCombineResponse,
+  type ElementDTO,
   getElementById,
   getElementByNormalizedName,
   normalizeInputs,
@@ -77,6 +81,59 @@ function buildSecondaryStoredRecipeInputKey(baseStoredInputKey: string, outputIn
 function isCatalystRecipeInputKey(inputKey: string): boolean {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
   return modeKey.startsWith("category:") || CATALYST_RUN_KEY_PREFIXES.has(modeKey);
+}
+
+function maybeAutoUnlockActionWords(
+  db: Awaited<ReturnType<typeof getDb>>,
+  discoveredItems: Array<{ name: string }>
+): Array<{
+  familyKey: string;
+  familyTitle: string;
+  triggerWord: string;
+  element: ElementDTO;
+}> {
+  const unlocked: Array<{
+    familyKey: string;
+    familyTitle: string;
+    triggerWord: string;
+    element: ElementDTO;
+  }> = [];
+  const processedFamilies = new Set<string>();
+
+  for (const discoveredItem of discoveredItems) {
+    const normalizedTrigger = normalizeActionTrigger(discoveredItem.name);
+    if (!normalizedTrigger) continue;
+    const family = resolveActionPromptFamily(normalizedTrigger);
+    if (!family || processedFamilies.has(family.key)) {
+      continue;
+    }
+    processedFamilies.add(family.key);
+
+    const normalizedCanonical = family.canonicalWord.trim().toLowerCase();
+    const canonicalElementId = ensureElement(db, {
+      name: family.title,
+      normalizedName: normalizedCanonical,
+      icon: null,
+    });
+    const wasNewDiscovery = discoverElement(db, canonicalElementId);
+    if (!wasNewDiscovery) {
+      continue;
+    }
+
+    const element = getElementById(db, canonicalElementId);
+    if (!element) {
+      continue;
+    }
+
+    unlocked.push({
+      familyKey: family.key,
+      familyTitle: family.title,
+      triggerWord: discoveredItem.name,
+      element,
+    });
+  }
+
+  return unlocked;
 }
 
 async function syncSearchIndex(
@@ -448,10 +505,20 @@ router.post("/combine", async (req, res) => {
         recipeRow.result_element_id != null
           ? getElementById(db, Number(recipeRow.result_element_id))
           : undefined;
+      let autoUnlockedActionWords: Array<{
+        familyKey: string;
+        familyTitle: string;
+        triggerWord: string;
+        element: ElementDTO;
+      }> = [];
 
       if (resultElement) {
         discoverElement(db, Number(resultElement.id));
-        await syncSearchIndex(db, [Number(resultElement.id)]);
+        autoUnlockedActionWords = maybeAutoUnlockActionWords(db, [resultElement]);
+        await syncSearchIndex(db, [
+          Number(resultElement.id),
+          ...autoUnlockedActionWords.map((entry) => entry.element.id),
+        ]);
         persistDatabase(db);
       }
 
@@ -529,7 +596,6 @@ router.post("/combine", async (req, res) => {
           icon: chosenIcon,
         });
         discoverElement(db, elementId);
-        await syncSearchIndex(db, [elementId]);
 
         const updateRecipeStmt = db.prepare(
           "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -546,6 +612,14 @@ router.post("/combine", async (req, res) => {
         recipeRow.chosen_candidate_id = chosenCandidateId;
         recipeRow.result_element_id = elementId;
         resultElement = getElementById(db, elementId);
+        autoUnlockedActionWords = resultElement
+          ? maybeAutoUnlockActionWords(db, [resultElement])
+          : [];
+        await syncSearchIndex(db, [
+          elementId,
+          ...autoUnlockedActionWords.map((entry) => entry.element.id),
+        ]);
+        persistDatabase(db);
       }
 
       return res.json(
@@ -553,6 +627,7 @@ router.post("/combine", async (req, res) => {
           recipeRow,
           candidates: candidatesRows,
           resultElement,
+          autoUnlockedActionWords,
         })
       );
     }
@@ -637,6 +712,12 @@ router.post("/combine", async (req, res) => {
 
     // Insert recipe, generated result candidate, and canonical selection
     db.run("BEGIN");
+    let autoUnlockedActionWords: Array<{
+      familyKey: string;
+      familyTitle: string;
+      triggerWord: string;
+      element: ElementDTO;
+    }> = [];
     try {
       const insertRecipeStmt = db.prepare(
         "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
@@ -756,7 +837,14 @@ router.post("/combine", async (req, res) => {
         ]);
         updateSecondaryRecipeStmt.free();
       }
-      await syncSearchIndex(db, [elementId, ...additionalElementIds]);
+      const resultElementsForUnlocks = [getElementById(db, elementId), ...additionalElementIds.map((id) => getElementById(db, id))]
+        .filter((element): element is ElementDTO => element != null);
+      autoUnlockedActionWords = maybeAutoUnlockActionWords(db, resultElementsForUnlocks);
+      await syncSearchIndex(db, [
+        elementId,
+        ...additionalElementIds,
+        ...autoUnlockedActionWords.map((entry) => entry.element.id),
+      ]);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -810,6 +898,7 @@ router.post("/combine", async (req, res) => {
         candidates: candidatesRows,
         resultElement,
         resultElements,
+        autoUnlockedActionWords,
       })
     );
   } catch (err) {
@@ -867,7 +956,14 @@ router.post("/:id/select", async (req, res) => {
         icon: candidateIcon,
       });
       discoverElement(db, elementId);
-      await syncSearchIndex(db, [elementId]);
+      const resultElement = getElementById(db, elementId);
+      const autoUnlockedActionWords = resultElement
+        ? maybeAutoUnlockActionWords(db, [resultElement])
+        : [];
+      await syncSearchIndex(db, [
+        elementId,
+        ...autoUnlockedActionWords.map((entry) => entry.element.id),
+      ]);
 
       const updateRecipeStmt = db.prepare(
         "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -897,6 +993,7 @@ router.post("/:id/select", async (req, res) => {
               icon: elementRow.icon ?? null,
             }
           : null,
+        autoUnlockedActionWords,
       });
     } catch (err) {
       db.run("ROLLBACK");

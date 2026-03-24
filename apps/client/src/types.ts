@@ -54,6 +54,13 @@ export interface RecipeCandidate {
   orderIndex: number;
 }
 
+export interface AutoUnlockedActionWord {
+  familyKey: string;
+  familyTitle: string;
+  triggerWord: string;
+  element: Item;
+}
+
 export interface Recipe {
   recipeId: number;
   inputKey: string;
@@ -62,6 +69,7 @@ export interface Recipe {
   chosenCandidateId: number | null;
   resultElement?: Item;
   resultElements?: Item[];
+  autoUnlockedActionWords?: AutoUnlockedActionWord[];
 }
 
 export interface RecentRecipe {
@@ -199,6 +207,40 @@ export interface GenerateCacheRecipesResult {
   requestedCount: number;
   generatedCount: number;
   recipes: GeneratedCacheRecipe[];
+}
+
+export interface PromptDefinition {
+  key: string;
+  title: string;
+  description: string;
+  kind: "combine" | "recipe_batch";
+  actionFamilyKey: string | null;
+  showsActionConstraint: boolean;
+  requiresActionConstraint: boolean;
+  showsCategoryConstraint: boolean;
+  requiresCategoryConstraint: boolean;
+  supportsCreative: boolean;
+  defaultActionConstraint: string | null;
+}
+
+export interface PromptCatalogResponse {
+  defaultModel: AiModel;
+  models: AiModel[];
+  prompts: PromptDefinition[];
+}
+
+export interface PromptBatchPair {
+  left: string;
+  right: string;
+}
+
+export interface PromptTestResponse {
+  promptKey: string;
+  promptTitle: string;
+  model: AiModel;
+  renderedPrompt: string;
+  resolvedActionFamilyKey?: string | null;
+  result: unknown;
 }
 
 export interface FeatureUnlockStatus {

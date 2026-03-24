@@ -220,10 +220,11 @@ export function ensureElement(
   return elementId;
 }
 
-export function discoverElement(db: Database, elementId: number): void {
+export function discoverElement(db: Database, elementId: number): boolean {
   const stmt = db.prepare(
     "INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)"
   );
   stmt.run([elementId]);
   stmt.free();
+  return db.getRowsModified() > 0;
 }

@@ -100,18 +100,15 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey: key });
 }
 
-export async function generateResult(
+export function renderGenerateResultPrompt(
   inputs: string[],
   options?: {
     actionConstraint?: string;
     actionPromptFamily?: ActionPromptFamilyKey | null;
     categoryConstraint?: string;
     creative?: boolean;
-    model?: OpenAiModel;
   }
-): Promise<{ name: string; icon: string } | { results: Array<{ name: string; icon: string }> }> {
-  const openai = getOpenAI();
-  const model = options?.model ?? DEFAULT_MODEL_NAME;
+) {
   const actionPromptFamily =
     options?.actionPromptFamily != null
       ? getActionPromptFamilyByKey(options.actionPromptFamily)
@@ -145,6 +142,35 @@ export async function generateResult(
     options?.creative && (options?.actionConstraint || options?.categoryConstraint)
       ? `${basePrompt}\n\n${CREATIVE_OVERLAY_INSTRUCTIONS}`
       : basePrompt;
+
+  return {
+    prompt,
+    actionPromptFamily,
+  };
+}
+
+export function renderRecipeBatchPrompt(params: {
+  pairs: Array<{ left: string; right: string }>;
+}) {
+  return RECIPE_BATCH_PROMPT.replace(
+    "{{RECIPE_BATCH_PAIRS}}",
+    JSON.stringify(params.pairs)
+  );
+}
+
+export async function generateResult(
+  inputs: string[],
+  options?: {
+    actionConstraint?: string;
+    actionPromptFamily?: ActionPromptFamilyKey | null;
+    categoryConstraint?: string;
+    creative?: boolean;
+    model?: OpenAiModel;
+  }
+): Promise<{ name: string; icon: string } | { results: Array<{ name: string; icon: string }> }> {
+  const openai = getOpenAI();
+  const model = options?.model ?? DEFAULT_MODEL_NAME;
+  const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
 
   console.log("[openai] sending request", {
     model,
@@ -263,10 +289,7 @@ export async function generateRecipeBatch(params: {
 }) {
   const openai = getOpenAI();
   const model = params.model ?? DEFAULT_MODEL_NAME;
-  const prompt = RECIPE_BATCH_PROMPT.replace(
-    "{{RECIPE_BATCH_PAIRS}}",
-    JSON.stringify(params.pairs)
-  );
+  const prompt = renderRecipeBatchPrompt({ pairs: params.pairs });
 
   console.log("[openai][recipe-batch] sending request", {
     model,

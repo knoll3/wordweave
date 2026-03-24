@@ -6,6 +6,7 @@ import { getDb } from "./db";
 import recipesRouter from "./routes/recipes";
 import elementsRouter from "./routes/elements";
 import questsRouter from "./routes/quests";
+import promptsRouter from "./routes/prompts";
 
 // Load .env from the monorepo root
 dotenv.config({
@@ -55,6 +56,7 @@ app.use(express.json());
 app.use("/api/recipes", recipesRouter);
 app.use("/api/elements", elementsRouter);
 app.use("/api/quests", questsRouter);
+app.use("/api/prompts", promptsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });

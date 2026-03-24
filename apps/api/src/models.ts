@@ -22,6 +22,12 @@ export interface RecipeDTO {
   chosenCandidateId: number | null;
   resultElement?: ElementDTO;
   resultElements?: ElementDTO[];
+  autoUnlockedActionWords?: Array<{
+    familyKey: string;
+    familyTitle: string;
+    triggerWord: string;
+    element: ElementDTO;
+  }>;
 }
 
 export interface RecentRecipeDTO {
@@ -96,8 +102,15 @@ export function buildCombineResponse(params: {
   candidates: any[];
   resultElement?: ElementDTO;
   resultElements?: ElementDTO[];
+  autoUnlockedActionWords?: RecipeDTO["autoUnlockedActionWords"];
 }): RecipeDTO {
-  const { recipeRow, candidates, resultElement, resultElements } = params;
+  const {
+    recipeRow,
+    candidates,
+    resultElement,
+    resultElements,
+    autoUnlockedActionWords,
+  } = params;
 
   const inputs = JSON.parse(recipeRow.input_display_json) as {
     name: string;
@@ -113,6 +126,10 @@ export function buildCombineResponse(params: {
     resultElement: resultElement ?? undefined,
     resultElements:
       resultElements && resultElements.length > 0 ? resultElements : resultElement ? [resultElement] : undefined,
+    autoUnlockedActionWords:
+      autoUnlockedActionWords && autoUnlockedActionWords.length > 0
+        ? autoUnlockedActionWords
+        : undefined,
   };
 }
 

@@ -130,6 +130,7 @@ const ElementSidebar: React.FC<Props> = ({
   const [browseMode, setBrowseMode] = useState<"all" | "tree">("tree");
   const [clusters, setClusters] = useState<SemanticCluster[]>([]);
   const [clustersLoading, setClustersLoading] = useState(false);
+  const [clustersStale, setClustersStale] = useState(false);
   const [expandedClusterIds, setExpandedClusterIds] = useState<string[]>([]);
   const latestRequestIdRef = useRef(0);
   const latestSemanticRequestIdRef = useRef(0);
@@ -141,6 +142,27 @@ const ElementSidebar: React.FC<Props> = ({
     void loadLibraryItems();
     void loadSemanticClusters();
   }, []);
+
+  useEffect(() => {
+    if (latestRequestIdRef.current === 0) {
+      return;
+    }
+    setClustersStale(true);
+  }, [items]);
+
+  useEffect(() => {
+    if (browseMode !== "tree" || !clustersStale) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void loadSemanticClusters();
+    }, 450);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [browseMode, clustersStale]);
 
   const correctedSearchQuery = useMemo(
     () => getCorrectedQuery(search, items),
@@ -208,6 +230,7 @@ const ElementSidebar: React.FC<Props> = ({
       const response = await fetchSemanticClusters();
       if (requestId !== latestClustersRequestIdRef.current) return;
       setClusters(response.clusters);
+      setClustersStale(false);
       setExpandedClusterIds((current) =>
         current.length > 0
           ? current.filter((clusterId) =>
@@ -301,6 +324,7 @@ const ElementSidebar: React.FC<Props> = ({
       setShowResetConfirm(false);
       setSearch("");
       setSemanticItems([]);
+      setClustersStale(false);
       onLibraryReset?.();
       await loadLibraryItems();
       await loadSemanticClusters();
@@ -515,14 +539,22 @@ const ElementSidebar: React.FC<Props> = ({
           <div className="sidebar-placeholder">{libraryLoadError}</div>
         ) : !search.trim() && browseMode === "tree" ? (
           <div ref={elementListRef} className="library-results library-tree-results">
-            {clustersLoading ? (
+            {clusters.length > 0 ? (
+              <>
+                <div className="library-tree" role="tree" aria-label="Clustered library">
+                  {clusters.map((cluster) => renderTreeCluster(cluster))}
+                </div>
+                {clustersLoading ? (
+                  <div className="library-cluster-status">
+                    <span className="search-pending-spinner" aria-hidden="true" />
+                    <span>Updating tree…</span>
+                  </div>
+                ) : null}
+              </>
+            ) : clustersLoading ? (
               <div className="library-cluster-status">
                 <span className="search-pending-spinner" aria-hidden="true" />
                 <span>Building clusters…</span>
-              </div>
-            ) : clusters.length > 0 ? (
-              <div className="library-tree" role="tree" aria-label="Clustered library">
-                {clusters.map((cluster) => renderTreeCluster(cluster))}
               </div>
             ) : (
               <div className="sidebar-placeholder">

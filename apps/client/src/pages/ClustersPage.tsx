@@ -69,6 +69,9 @@ const ClustersPage: React.FC = () => {
           <a className="button" href="/cache">
             View Cache
           </a>
+          <a className="button" href="/prompts">
+            Prompt Lab
+          </a>
         </div>
       </header>
 

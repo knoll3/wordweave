@@ -3,6 +3,7 @@ import ReactDOM from "react-dom/client";
 import App from "./App";
 import CachePage from "./pages/CachePage";
 import ClustersPage from "./pages/ClustersPage";
+import PromptsPage from "./pages/PromptsPage";
 import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles.css";
 
@@ -12,7 +13,9 @@ const Page =
     ? CachePage
     : pathname === "/clusters"
       ? ClustersPage
-      : App;
+      : pathname === "/prompts"
+        ? PromptsPage
+        : App;
 
 ReactDOM.createRoot(
   document.getElementById("root") as HTMLElement

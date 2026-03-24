@@ -11,6 +11,7 @@ import {
 } from "./types";
 import type {
   AchievementSummary,
+  AutoUnlockedActionWord,
   AiModel,
   FeatureUnlockStatus,
   Item,
@@ -48,6 +49,10 @@ type QuestCelebrationState = {
   kicker: string;
   title: string;
   copy: string;
+};
+
+type ActionUnlockModalState = {
+  unlockedWords: AutoUnlockedActionWord[];
 };
 
 const VISIBLE_UNLOCK_KEYS: UnlockKey[] = ["random_tools"];
@@ -150,6 +155,9 @@ const App: React.FC = () => {
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item">("journal");
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
+  const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
+    null
+  );
   const initialAchievementSnapshotRef = useRef<Set<string> | null>(null);
   const previousItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
@@ -769,6 +777,7 @@ const App: React.FC = () => {
           : recipe.resultElement
             ? [recipe.resultElement]
             : [];
+      const autoUnlockedActionWords = recipe.autoUnlockedActionWords ?? [];
 
       if (producedItems.length === 0) {
         showError("Combine returned no result item.", null);
@@ -777,7 +786,10 @@ const App: React.FC = () => {
 
       setItems((prev) => {
         const next = [...prev];
-        for (const producedItem of producedItems) {
+        for (const producedItem of [
+          ...producedItems,
+          ...autoUnlockedActionWords.map((entry) => entry.element),
+        ]) {
           if (!next.some((el) => el.id === producedItem.id)) {
             next.push(producedItem);
           }
@@ -791,6 +803,11 @@ const App: React.FC = () => {
       const hasNewDiscovery = producedItemsWithDiscovery.some(
         (produced) => produced.isNewDiscovery
       );
+      if (autoUnlockedActionWords.length > 0) {
+        setActionUnlockModal({
+          unlockedWords: autoUnlockedActionWords,
+        });
+      }
 
       if (selectionLayout) {
         setWorkspaceItems((prev) => {
@@ -921,6 +938,55 @@ const App: React.FC = () => {
           <div className="quest-complete-toast-copy">{questCelebration.copy}</div>
         </div>
       ) : null}
+      {actionUnlockModal ? (
+        <div className="confirm-overlay" role="presentation">
+          <div
+            className="confirm-backdrop"
+            onClick={() => setActionUnlockModal(null)}
+          />
+          <div className="confirm-panel" role="dialog" aria-modal="true">
+            <h3 className="confirm-title">
+              {actionUnlockModal.unlockedWords.length === 1
+                ? `${actionUnlockModal.unlockedWords[0].familyTitle} unlocked`
+                : "New action words unlocked"}
+            </h3>
+            <p className="confirm-text">
+              {actionUnlockModal.unlockedWords.length === 1
+                ? `${actionUnlockModal.unlockedWords[0].triggerWord} belongs to the ${actionUnlockModal.unlockedWords[0].familyTitle} action family, so ${actionUnlockModal.unlockedWords[0].element.name} was added to your library automatically.`
+                : "You discovered words that belong to special action families, so their main action words were added to your library automatically."}
+            </p>
+            <div className="item-drawer-chip-row">
+              {actionUnlockModal.unlockedWords.map((entry) => (
+                <button
+                  key={`${entry.familyKey}-${entry.element.id}`}
+                  type="button"
+                  className="item-drawer-chip"
+                  onClick={() => {
+                    addLibraryItemToWorkspace(entry.element);
+                    setActionUnlockModal(null);
+                  }}
+                >
+                  {entry.element.name}
+                </button>
+              ))}
+            </div>
+            <p className="confirm-text">
+              Add one of these words to the workspace, attach the <strong>Action</strong>{" "}
+              modifier to it, then combine it with other clues to use that specialized
+              action behavior.
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setActionUnlockModal(null)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <div className="app-root">
         <aside className="sidebar">
           <ElementSidebar
@@ -946,6 +1012,9 @@ const App: React.FC = () => {
                   </a>
                   <a className="button graph-link-button" href="/clusters">
                     View Clusters
+                  </a>
+                  <a className="button graph-link-button" href="/prompts">
+                    Prompt Lab
                   </a>
                   <button
                     type="button"

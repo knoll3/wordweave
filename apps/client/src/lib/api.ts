@@ -5,6 +5,9 @@ import type {
   GenerateCacheRecipesResult,
   Item,
   PaginatedCacheRecipes,
+  PromptBatchPair,
+  PromptCatalogResponse,
+  PromptTestResponse,
   Recipe,
   RecentRecipe,
   SemanticClustersResponse,
@@ -192,6 +195,12 @@ export async function selectCandidate(
   recipeId: number;
   chosenCandidateId: number;
   resultElement: Item | null;
+  autoUnlockedActionWords?: Array<{
+    familyKey: string;
+    familyTitle: string;
+    triggerWord: string;
+    element: Item;
+  }>;
 }> {
   const res = await fetch(`${API_BASE}/recipes/${recipeId}/select`, {
     method: "POST",
@@ -269,4 +278,45 @@ export async function fetchLatestRecipeContext(
   const latestRecipe = (await res.json()) as LatestRecipeContext;
   latestRecipeCache.set(elementId, latestRecipe);
   return latestRecipe;
+}
+
+export async function fetchPromptCatalog(): Promise<PromptCatalogResponse> {
+  const res = await fetch(`${API_BASE}/prompts`);
+  return handleResponse<PromptCatalogResponse>(res);
+}
+
+export async function testPrompt(params: {
+  promptKey: string;
+  model: AiModel;
+  inputs?: string[];
+  actionConstraint?: string | null;
+  categoryConstraint?: string | null;
+  pairs?: PromptBatchPair[];
+}): Promise<PromptTestResponse> {
+  const body: Record<string, unknown> = {
+    promptKey: params.promptKey,
+    model: params.model,
+  };
+
+  if (params.inputs != null) {
+    body.inputs = params.inputs;
+  }
+  if (params.actionConstraint != null) {
+    body.actionConstraint = params.actionConstraint;
+  }
+  if (params.categoryConstraint != null) {
+    body.categoryConstraint = params.categoryConstraint;
+  }
+  if (params.pairs != null) {
+    body.pairs = params.pairs;
+  }
+
+  const res = await fetch(`${API_BASE}/prompts/test`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  return handleResponse<PromptTestResponse>(res);
 }
