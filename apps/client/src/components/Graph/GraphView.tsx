@@ -82,6 +82,13 @@ type SelectionDragState = {
   startScreenY: number;
 };
 
+type PinchState = {
+  startDistance: number;
+  startZoom: number;
+  startCenterWorldX: number;
+  startCenterWorldY: number;
+};
+
 type ItemView = {
   nodeId: string;
   container: Container;
@@ -351,6 +358,8 @@ function GraphView({
   const pendingDrawerOpenRef = useRef<number | null>(null);
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
+  const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+  const pinchStateRef = useRef<PinchState | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
   const resizeFrameRef = useRef<number>(0);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
@@ -567,6 +576,46 @@ function GraphView({
     setSelectedNodeIds([]);
     setSelectionLayout(null);
     setSelectionOverlayRect(null);
+  };
+
+  const cancelActiveDrag = () => {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+    const view = itemViewsRef.current.get(dragState.nodeId);
+    if (view) {
+      view.container.alpha = 1;
+      view.container.cursor = "grab";
+      applyViewState(view, "default", 1);
+    }
+    dragStateRef.current = null;
+    clearHoverTarget();
+  };
+
+  const beginPinchGesture = () => {
+    const touchPoints = [...activeTouchPointsRef.current.values()];
+    if (touchPoints.length < 2) {
+      pinchStateRef.current = null;
+      return;
+    }
+
+    const [firstPoint, secondPoint] = touchPoints;
+    const centerScreenX = (firstPoint.x + secondPoint.x) / 2;
+    const centerScreenY = (firstPoint.y + secondPoint.y) / 2;
+    const centerWorld = screenPointToWorld(centerScreenX, centerScreenY);
+    const startDistance = Math.max(
+      1,
+      Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
+    );
+
+    cancelActiveDrag();
+    panStateRef.current = null;
+
+    pinchStateRef.current = {
+      startDistance,
+      startZoom: cameraRef.current.zoom,
+      startCenterWorldX: centerWorld.x,
+      startCenterWorldY: centerWorld.y,
+    };
   };
 
   const clearPendingDrawerOpen = () => {
@@ -1128,6 +1177,16 @@ function GraphView({
 
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
     container.on("pointerdown", (event) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.set(event.pointerId, {
+          x: event.global.x,
+          y: event.global.y,
+        });
+        if (activeTouchPointsRef.current.size >= 2) {
+          beginPinchGesture();
+          return;
+        }
+      }
       if (selectionModeRef.current) {
         return;
       }
@@ -1390,6 +1449,16 @@ function GraphView({
     };
 
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.set(event.pointerId, {
+          x: event.global.x,
+          y: event.global.y,
+        });
+        if (activeTouchPointsRef.current.size >= 2) {
+          beginPinchGesture();
+          return;
+        }
+      }
       if (dragStateRef.current) return;
       if (selectionModeRef.current) {
         beginSelectionDrag(event.pointerId, event.global.x, event.global.y);
@@ -1411,6 +1480,38 @@ function GraphView({
     };
 
     const handleWindowPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        const app = appRef.current;
+        const rect = app?.canvas.getBoundingClientRect();
+        if (rect) {
+          activeTouchPointsRef.current.set(event.pointerId, {
+            x: event.clientX - rect.left,
+            y: event.clientY - rect.top,
+          });
+        }
+
+        const pinchState = pinchStateRef.current;
+        if (pinchState && activeTouchPointsRef.current.size >= 2) {
+          const [firstPoint, secondPoint] = [...activeTouchPointsRef.current.values()];
+          const currentCenterX = (firstPoint.x + secondPoint.x) / 2;
+          const currentCenterY = (firstPoint.y + secondPoint.y) / 2;
+          const currentDistance = Math.max(
+            1,
+            Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
+          );
+          const nextZoom = clamp(
+            pinchState.startZoom * (currentDistance / pinchState.startDistance),
+            MIN_ZOOM,
+            MAX_ZOOM
+          );
+          cameraRef.current.zoom = nextZoom;
+          cameraRef.current.x = currentCenterX - pinchState.startCenterWorldX * nextZoom;
+          cameraRef.current.y = currentCenterY - pinchState.startCenterWorldY * nextZoom;
+          applyCamera();
+          return;
+        }
+      }
+
       const selectionDrag = selectionDragRef.current;
       if (
         selectionDrag &&
@@ -1445,6 +1546,15 @@ function GraphView({
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      if (event.pointerType === "touch") {
+        activeTouchPointsRef.current.delete(event.pointerId);
+        if (activeTouchPointsRef.current.size < 2) {
+          pinchStateRef.current = null;
+        } else if (pinchStateRef.current) {
+          beginPinchGesture();
+        }
+      }
+
       const selectionDrag = selectionDragRef.current;
       if (
         selectionDrag &&
@@ -1698,6 +1808,7 @@ function GraphView({
 
       appRef.current = app;
       host.appendChild(app.canvas);
+      app.canvas.style.touchAction = "none";
       app.stage.eventMode = "static";
 
       const background = new Graphics();
@@ -1889,6 +2000,8 @@ function GraphView({
       lastItemClickRef.current = null;
       selectionDragRef.current = null;
       selectionDragRectRef.current = null;
+      activeTouchPointsRef.current.clear();
+      pinchStateRef.current = null;
     };
   }, []);
 

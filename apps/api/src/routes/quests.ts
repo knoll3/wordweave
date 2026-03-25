@@ -8,6 +8,7 @@ const router = express.Router();
 
 const generateTargetsRequestSchema = z.object({
   count: z.number().int().min(1).max(10).optional(),
+  difficulty: z.enum(["easy", "hard"]).optional(),
   discoveredNames: z.array(z.string().min(1).max(128)).optional(),
   recentTargets: z.array(z.string().min(1).max(128)).optional(),
   model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]).optional(),
@@ -38,6 +39,7 @@ router.post("/generate", async (req, res) => {
 
   const count = parsed.data.count ?? 10;
   const requestCount = Math.min(count + 6, 20);
+  const difficulty = parsed.data.difficulty ?? "hard";
   const discoveredNames = uniqueNormalized(parsed.data.discoveredNames ?? []);
   const recentTargets = uniqueNormalized(parsed.data.recentTargets ?? []);
   const model: OpenAiModel | undefined = parsed.data.model;
@@ -51,6 +53,7 @@ router.post("/generate", async (req, res) => {
     for (let attempt = 0; attempt < 2 && acceptedTargets.length < count; attempt += 1) {
       const generated = await generateChallengeTargets({
         count: requestCount,
+        difficulty,
         discoveredNames,
         recentTargets: [...recentTargets, ...acceptedTargets.map((target) => target.name)],
         model,

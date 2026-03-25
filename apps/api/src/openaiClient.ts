@@ -164,9 +164,16 @@ export function renderChallengeTargetsPrompt(params: {
   count: number;
   discoveredNames: string[];
   recentTargets: string[];
+  difficulty: "easy" | "hard";
 }) {
+  const difficultyGuidance =
+    params.difficulty === "easy"
+      ? "Easy quests should still be interesting, but they should be more reachable, more concrete, more common, and less semantically slippery than hard quests. Avoid trivial everyday objects, but prefer recognizable concepts the player has a fair chance of reaching."
+      : "Hard quests should be genuinely difficult to reach in this game: indirect, slippery, referential, abstract, or deceptively hard to path into, without relying on awkward adjective+noun phrasing or dry academic obscurity.";
+
   return CHALLENGE_TARGETS_PROMPT
     .replace(/{{TARGET_COUNT}}/g, String(params.count))
+    .replace(/{{QUEST_DIFFICULTY_GUIDANCE}}/g, difficultyGuidance)
     .replace(/{{DISCOVERED_NAMES_ARRAY}}/g, JSON.stringify(params.discoveredNames))
     .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets));
 }
@@ -356,6 +363,7 @@ export async function generateChallengeTargets(params: {
   count: number;
   discoveredNames: string[];
   recentTargets: string[];
+  difficulty: "easy" | "hard";
   model?: OpenAiModel;
 }) {
   const openai = getOpenAI();
@@ -365,6 +373,7 @@ export async function generateChallengeTargets(params: {
   console.log("[openai][challenge-targets] sending request", {
     model,
     count: params.count,
+    difficulty: params.difficulty,
     discoveredCount: params.discoveredNames.length,
     recentCount: params.recentTargets.length,
     prompt,

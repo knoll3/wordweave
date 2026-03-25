@@ -31,7 +31,8 @@ interface Props {
   onSelectItem: (item: Item) => void;
   onCollapse: () => void;
   onSetJournalTab: (tab: "achievements" | "quests") => void;
-  onGenerateChallengeTargets: () => void;
+  onGenerateEasyQuests: () => void;
+  onGenerateHardQuests: () => void;
   onSelectQuest: (quest: ChallengeTarget) => void;
   truncateAchievementReference: (value: string, limit: number) => string;
 }
@@ -62,7 +63,8 @@ const JournalDock: React.FC<Props> = ({
   onSelectItem,
   onCollapse,
   onSetJournalTab,
-  onGenerateChallengeTargets,
+  onGenerateEasyQuests,
+  onGenerateHardQuests,
   onSelectQuest,
   truncateAchievementReference,
 }) => {
@@ -384,14 +386,24 @@ const JournalDock: React.FC<Props> = ({
                           Generates challenging words and fixed concepts that are tough to reach without relying on cheap adjective-noun phrases.
                         </div>
                       </div>
-                      <button
-                        type="button"
-                        className="quest-generate-button"
-                        onClick={onGenerateChallengeTargets}
-                        disabled={isGeneratingChallengeTargets}
-                      >
-                        {isGeneratingChallengeTargets ? "Generating…" : "Generate 10"}
-                      </button>
+                      <div className="quest-generate-actions">
+                        <button
+                          type="button"
+                          className="quest-generate-button quest-generate-button-secondary"
+                          onClick={onGenerateEasyQuests}
+                          disabled={isGeneratingChallengeTargets}
+                        >
+                          {isGeneratingChallengeTargets ? "Generating…" : "Generate Easier"}
+                        </button>
+                        <button
+                          type="button"
+                          className="quest-generate-button"
+                          onClick={onGenerateHardQuests}
+                          disabled={isGeneratingChallengeTargets}
+                        >
+                          {isGeneratingChallengeTargets ? "Generating…" : "Generate Hard"}
+                        </button>
+                      </div>
                     </div>
                     <div className="quest-card-criteria">
                       {challengeTargets.length > 0

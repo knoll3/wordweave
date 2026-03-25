@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Maximize2,
+  Minimize2,
   Zap,
   Tags,
 } from "lucide-react";
@@ -176,6 +178,7 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [journalTab, setJournalTab] = useState<"achievements" | "quests">(
     "achievements"
@@ -220,6 +223,18 @@ const App: React.FC = () => {
   useEffect(() => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
+
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(document.fullscreenElement != null);
+    };
+
+    handleFullscreenChange();
+    document.addEventListener("fullscreenchange", handleFullscreenChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", handleFullscreenChange);
+    };
+  }, []);
 
   useEffect(() => {
     window.localStorage.setItem(
@@ -488,11 +503,12 @@ const App: React.FC = () => {
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
 
-  async function rerollChallengeTargets() {
+  async function generateQuests(difficulty: "easy" | "hard") {
     setIsGeneratingChallengeTargets(true);
     try {
       const response = await generateChallengeTargets({
         count: 10,
+        difficulty,
         discoveredNames: items.map((item) => item.name),
         recentTargets: challengeTargets.map((target) => target.name),
         model: selectedModel,
@@ -531,6 +547,17 @@ const App: React.FC = () => {
     setSelectedQuestName(quest.name);
     setRightPanelMode("quest");
     setIsJournalOpen(true);
+  }
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) {
+        await document.exitFullscreen();
+      } else {
+        await document.documentElement.requestFullscreen();
+      }
+    } catch {
+    }
   }
 
   function showProgressCelebration(
@@ -1157,41 +1184,21 @@ const App: React.FC = () => {
               <div className="graph-header">
                 <h2 className="section-title">Crafting workspace</h2>
                 <div className="graph-header-actions">
-                  <p className="section-help">
-                    Click library items to add them, then pan, zoom, and move them around.
-                  </p>
-                  <a className="button graph-link-button" href="/cache">
-                    View Cache
-                  </a>
-                  <a className="button graph-link-button" href="/clusters">
-                    View Clusters
-                  </a>
-                  <a className="button graph-link-button" href="/prompts">
-                    Prompt Lab
-                  </a>
                   <button
                     type="button"
-                    className={`admin-toggle-button${forceUnlocks ? " active" : ""}`}
-                    onClick={() => setForceUnlocks((prev) => !prev)}
-                    aria-pressed={forceUnlocks}
-                    title="Force unlock hidden feature buttons for testing"
+                    className="graph-fullscreen-button"
+                    onClick={() => {
+                      void toggleFullscreen();
+                    }}
+                    aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                    title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
                   >
-                    Admin
+                    {isFullscreen ? (
+                      <Minimize2 size={15} strokeWidth={2} />
+                    ) : (
+                      <Maximize2 size={15} strokeWidth={2} />
+                    )}
                   </button>
-                  <div className="model-selector" role="group" aria-label="AI model">
-                    {AI_MODELS.map((model) => (
-                      <button
-                        key={model}
-                        type="button"
-                        className={`model-button ${
-                          selectedModel === model ? "active" : ""
-                        }`}
-                        onClick={() => setSelectedModel(model)}
-                      >
-                        {model}
-                      </button>
-                    ))}
-                  </div>
                 </div>
               </div>
               <JournalSummaryStrip
@@ -1253,7 +1260,12 @@ const App: React.FC = () => {
                 onSelectItem={openItemDetails}
                 onCollapse={() => setIsJournalOpen(false)}
                 onSetJournalTab={setJournalTab}
-                onGenerateChallengeTargets={rerollChallengeTargets}
+                onGenerateEasyQuests={() => {
+                  void generateQuests("easy");
+                }}
+                onGenerateHardQuests={() => {
+                  void generateQuests("hard");
+                }}
                 onSelectQuest={openQuestDetails}
                 truncateAchievementReference={truncateAchievementReference}
               />

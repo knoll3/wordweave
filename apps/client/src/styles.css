@@ -760,7 +760,7 @@ body.page-scrollable {
 
 .graph-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
@@ -769,8 +769,31 @@ body.page-scrollable {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
+}
+
+.graph-fullscreen-button {
+  width: 34px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  background: rgba(15, 23, 42, 0.58);
+  color: var(--text-soft);
+  cursor: pointer;
+  transition:
+    background 140ms ease,
+    border-color 140ms ease,
+    transform 140ms ease;
+}
+
+.graph-fullscreen-button:hover {
+  background: rgba(15, 23, 42, 0.82);
+  border-color: rgba(96, 165, 250, 0.32);
+  transform: translateY(-1px);
 }
 
 .section-help {
@@ -848,6 +871,7 @@ body.page-scrollable {
   position: relative;
   width: 100%;
   height: 100%;
+  touch-action: none;
 }
 
 .graph-pixi-host canvas {
@@ -1703,18 +1727,20 @@ body.page-scrollable {
 
 .journal-summary-strip {
   position: relative;
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 12px;
-  width: min(760px, calc(100% - 24px));
-  max-width: 100%;
+  width: fit-content;
+  max-width: calc(100% - 24px);
   z-index: 20;
   margin: -2px 0 2px;
 }
 
 .journal-summary-card {
+  flex: 0 0 auto;
   min-height: 0;
-  padding: 10px 14px;
+  padding: 10px 18px;
   border: 1px solid rgba(148, 163, 184, 0.24);
   border-radius: 14px;
   background:
@@ -2388,6 +2414,24 @@ body.page-scrollable {
     transform 140ms ease;
 }
 
+.quest-generate-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.quest-generate-button-secondary {
+  border-color: rgba(168, 85, 247, 0.26);
+  background: rgba(88, 28, 135, 0.3);
+  color: #f5d0fe;
+}
+
+.quest-generate-button-secondary:hover:not(:disabled) {
+  background: rgba(107, 33, 168, 0.42);
+  border-color: rgba(216, 180, 254, 0.34);
+}
+
 .quest-generate-button:hover:not(:disabled) {
   background: rgba(37, 99, 235, 0.48);
   border-color: rgba(147, 197, 253, 0.42);
@@ -2923,13 +2967,13 @@ body.page-scrollable {
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 8px;
+  gap: 10px;
+  padding: 7px 9px;
   border-radius: 8px;
   border: none;
   background: transparent;
   color: inherit;
-  font-size: 0.85rem;
+  font-size: 0.92rem;
   text-align: left;
   cursor: pointer;
   transition: background 0.12s ease, transform 0.06s ease;
@@ -2944,15 +2988,15 @@ body.page-scrollable {
 }
 
 .element-icon {
-  min-width: 22px;
-  height: 22px;
-  padding: 0 4px;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 5px;
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.9);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.9rem;
+  font-size: 1rem;
   white-space: nowrap;
   line-height: 1;
   flex-shrink: 0;

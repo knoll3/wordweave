@@ -244,6 +244,9 @@ The player wants a batch of hard targets to chase.
 
 Your job is to return {{TARGET_COUNT}} quest terms that would be genuinely difficult to reach in this game, while still feeling fair, interesting, and worth pursuing.
 
+Requested difficulty:
+{{QUEST_DIFFICULTY_GUIDANCE}}
+
 What "challenging" means here:
 - hard because the term is semantically slippery, indirect, referential, abstract, relational, directional, functional, culturally specific, or otherwise difficult to arrive at through normal game combinations
 - hard because it is deceptively plain, elusive, or awkward to path into

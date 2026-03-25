@@ -243,6 +243,7 @@ export async function fetchQuestTargetReference(
 
 export async function generateChallengeTargets(params: {
   count?: number;
+  difficulty?: "easy" | "hard";
   discoveredNames?: string[];
   recentTargets?: string[];
   model?: AiModel;
@@ -254,6 +255,7 @@ export async function generateChallengeTargets(params: {
     },
     body: JSON.stringify({
       count: params.count,
+      difficulty: params.difficulty,
       discoveredNames: params.discoveredNames,
       recentTargets: params.recentTargets,
       model: params.model,
