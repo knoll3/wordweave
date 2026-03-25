@@ -55,8 +55,16 @@ type DragState = {
   pointerId: number;
   offsetX: number;
   offsetY: number;
+  pointerStartX: number;
+  pointerStartY: number;
   startX: number;
   startY: number;
+  draggedNodeIds: string[];
+  nodeStartPositions: Array<{
+    nodeId: string;
+    x: number;
+    y: number;
+  }>;
 };
 
 type PanState = {
@@ -1124,7 +1132,11 @@ function GraphView({
         return;
       }
       event.stopPropagation();
-      if (selectedNodeIdsRef.current.length > 0) {
+      const currentSelectedNodeIds = selectedNodeIdsRef.current;
+      const isDraggingSelectedGroup =
+        currentSelectedNodeIds.length > 1 &&
+        currentSelectedNodeIds.includes(workspaceItem.nodeId);
+      if (currentSelectedNodeIds.length > 0 && !isDraggingSelectedGroup) {
         clearSelection();
       }
       const pointerPosition = pixiPointerToWorld(event);
@@ -1164,8 +1176,36 @@ function GraphView({
         pointerId: event.pointerId,
         offsetX: pointerPosition.x - topLeftPosition.x,
         offsetY: pointerPosition.y - topLeftPosition.y,
+        pointerStartX: pointerPosition.x,
+        pointerStartY: pointerPosition.y,
         startX: topLeftPosition.x,
         startY: topLeftPosition.y,
+        draggedNodeIds: isDraggingSelectedGroup
+          ? [...currentSelectedNodeIds]
+          : [workspaceItem.nodeId],
+        nodeStartPositions: (isDraggingSelectedGroup
+          ? currentSelectedNodeIds
+          : [workspaceItem.nodeId]
+        )
+          .map((nodeId) => {
+            const draggedView = itemViewsRef.current.get(nodeId);
+            if (!draggedView) return null;
+            const position = getViewTopLeftPosition(draggedView);
+            return {
+              nodeId,
+              x: position.x,
+              y: position.y,
+            };
+          })
+          .filter(
+            (
+              entry
+            ): entry is {
+              nodeId: string;
+              x: number;
+              y: number;
+            } => entry != null
+          ),
       };
       container.cursor = "grabbing";
       container.alpha = 1;
@@ -1324,13 +1364,27 @@ function GraphView({
       const dragState = dragStateRef.current;
       if (dragState && dragState.pointerId === event.pointerId) {
         const worldPosition = pixiPointerToWorld(event);
-        const view = itemViewsRef.current.get(dragState.nodeId);
-        if (view) {
-          setViewTopLeftPosition(view, {
-            x: worldPosition.x - dragState.offsetX,
-            y: worldPosition.y - dragState.offsetY,
-          });
-          updateHoverTarget(dragState.nodeId);
+        if (dragState.draggedNodeIds.length > 1) {
+          const deltaX = worldPosition.x - dragState.pointerStartX;
+          const deltaY = worldPosition.y - dragState.pointerStartY;
+          for (const startPosition of dragState.nodeStartPositions) {
+            const view = itemViewsRef.current.get(startPosition.nodeId);
+            if (!view) continue;
+            setViewTopLeftPosition(view, {
+              x: startPosition.x + deltaX,
+              y: startPosition.y + deltaY,
+            });
+          }
+          refreshSelectionOverlay();
+        } else {
+          const view = itemViewsRef.current.get(dragState.nodeId);
+          if (view) {
+            setViewTopLeftPosition(view, {
+              x: worldPosition.x - dragState.offsetX,
+              y: worldPosition.y - dragState.offsetY,
+            });
+            updateHoverTarget(dragState.nodeId);
+          }
         }
       }
     };
@@ -1447,6 +1501,34 @@ function GraphView({
         const dropTargetNodeId = hoverTargetNodeIdRef.current;
         dragStateRef.current = null;
         clearHoverTarget();
+        if (dragState.draggedNodeIds.length > 1) {
+          const nextPositions = new Map(
+            dragState.draggedNodeIds.map((nodeId) => {
+              const draggedView = itemViewsRef.current.get(nodeId);
+              const topLeftPosition = draggedView
+                ? getViewTopLeftPosition(draggedView)
+                : null;
+              return [
+                nodeId,
+                topLeftPosition
+                  ? {
+                      x: Math.round(topLeftPosition.x),
+                      y: Math.round(topLeftPosition.y),
+                    }
+                  : null,
+              ] as const;
+            })
+          );
+
+          onWorkspaceItemsChangeRef.current((prev) =>
+            prev.map((item) => {
+              const nextPosition = nextPositions.get(item.nodeId);
+              return nextPosition == null ? item : { ...item, position: nextPosition };
+            })
+          );
+          lastItemClickRef.current = null;
+          return;
+        }
         if (view) {
           view.container.alpha = 1;
           view.container.cursor = "grab";

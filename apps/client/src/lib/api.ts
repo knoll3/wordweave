@@ -1,6 +1,7 @@
 import type {
   AiModel,
   CacheRecipe,
+  ChallengeTargetsResponse,
   FeatureUnlockStatus,
   GenerateCacheRecipesResult,
   Item,
@@ -238,6 +239,27 @@ export async function fetchQuestTargetReference(
   const reference = (await res.json()) as ItemReference;
   questReferenceCache.set(normalizedTarget, reference);
   return reference;
+}
+
+export async function generateChallengeTargets(params: {
+  count?: number;
+  discoveredNames?: string[];
+  recentTargets?: string[];
+  model?: AiModel;
+} = {}): Promise<ChallengeTargetsResponse> {
+  const res = await fetch(`${API_BASE}/quests/generate`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      count: params.count,
+      discoveredNames: params.discoveredNames,
+      recentTargets: params.recentTargets,
+      model: params.model,
+    }),
+  });
+  return handleResponse<ChallengeTargetsResponse>(res);
 }
 
 export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {

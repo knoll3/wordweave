@@ -46,7 +46,12 @@ export const recipeBatchSchema = z.object({
   recipes: z.array(recipeBatchStepSchema).max(25),
 });
 
+export const challengeTargetsSchema = z.object({
+  targets: z.array(llmResultSchema).min(1).max(20),
+});
+
 export type LlmResult = z.infer<typeof llmResultSchema>;
 export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;
 export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;
+export type ChallengeTargets = z.infer<typeof challengeTargetsSchema>;

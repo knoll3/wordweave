@@ -111,6 +111,18 @@ function compareItemsByName(left: Item, right: Item) {
   return left.name.localeCompare(right.name, "en", { sensitivity: "base" });
 }
 
+function collectClusterIds(clusters: SemanticCluster[]): Set<string> {
+  const ids = new Set<string>();
+
+  const visit = (cluster: SemanticCluster) => {
+    ids.add(cluster.id);
+    cluster.children?.forEach(visit);
+  };
+
+  clusters.forEach(visit);
+  return ids;
+}
+
 const ElementSidebar: React.FC<Props> = ({
   items,
   onAddItemToWorkspace,
@@ -231,11 +243,10 @@ const ElementSidebar: React.FC<Props> = ({
       if (requestId !== latestClustersRequestIdRef.current) return;
       setClusters(response.clusters);
       setClustersStale(false);
+      const availableClusterIds = collectClusterIds(response.clusters);
       setExpandedClusterIds((current) =>
         current.length > 0
-          ? current.filter((clusterId) =>
-              response.clusters.some((cluster) => cluster.id === clusterId)
-            )
+          ? current.filter((clusterId) => availableClusterIds.has(clusterId))
           : []
       );
     } catch {

@@ -1,35 +1,23 @@
 import React from "react";
 import { PanelRightClose } from "lucide-react";
-import type {
-  AchievementSummary,
-  FeatureUnlockStatus,
-  Item,
-} from "../../types";
+import type { AchievementSummary, ChallengeTarget, Item } from "../../types";
 import type { ItemReference } from "../../lib/api";
 import ItemDetailsDrawer from "../Graph/ItemDetailsDrawer";
-
-type UnlockDisplay = {
-  name: string;
-  icon: string;
-  accentClass: string;
-  shortCopy: string;
-};
-
-type CatalystUnlockQuest = FeatureUnlockStatus & {
-  display: UnlockDisplay;
-};
+import QuestDetailsPanel from "../Graph/QuestDetailsPanel";
 
 interface Props {
   isOpen: boolean;
-  mode: "journal" | "item";
+  mode: "journal" | "item" | "quest";
   journalTab: "achievements" | "quests";
   achievementSummary: AchievementSummary;
   achievementReferences: Record<string, ItemReference | null | undefined>;
+  questReferences: Record<string, ItemReference | null | undefined>;
   achievementReferencePreviewLimit: number;
-  catalystUnlockQuests: CatalystUnlockQuest[];
-  nextLockedCatalystKey: string | null;
-  nextLockedCatalyst: CatalystUnlockQuest | null;
-  unlockedCatalystCount: number;
+  challengeTargets: ChallengeTarget[];
+  completedQuestNames: Set<string>;
+  isGeneratingChallengeTargets: boolean;
+  selectedQuest: ChallengeTarget | null;
+  selectedQuestItem: Item | null;
   item: Item | null;
   items: Item[];
   itemsById: Map<number, Item>;
@@ -38,9 +26,13 @@ interface Props {
   onAddItemToWorkspace: (item: Item) => void;
   onAddItemToWorkspaceAsActionAnchor: (item: Item) => void;
   onCloseItem: () => void;
+  onCloseQuest: () => void;
+  onBackToJournal: (tab: "achievements" | "quests") => void;
   onSelectItem: (item: Item) => void;
   onCollapse: () => void;
   onSetJournalTab: (tab: "achievements" | "quests") => void;
+  onGenerateChallengeTargets: () => void;
+  onSelectQuest: (quest: ChallengeTarget) => void;
   truncateAchievementReference: (value: string, limit: number) => string;
 }
 
@@ -50,11 +42,13 @@ const JournalDock: React.FC<Props> = ({
   journalTab,
   achievementSummary,
   achievementReferences,
+  questReferences,
   achievementReferencePreviewLimit,
-  catalystUnlockQuests,
-  nextLockedCatalystKey,
-  nextLockedCatalyst,
-  unlockedCatalystCount,
+  challengeTargets,
+  completedQuestNames,
+  isGeneratingChallengeTargets,
+  selectedQuest,
+  selectedQuestItem,
   item,
   items,
   itemsById,
@@ -63,9 +57,13 @@ const JournalDock: React.FC<Props> = ({
   onAddItemToWorkspace,
   onAddItemToWorkspaceAsActionAnchor,
   onCloseItem,
+  onCloseQuest,
+  onBackToJournal,
   onSelectItem,
   onCollapse,
   onSetJournalTab,
+  onGenerateChallengeTargets,
+  onSelectQuest,
   truncateAchievementReference,
 }) => {
   return (
@@ -84,6 +82,14 @@ const JournalDock: React.FC<Props> = ({
               onAddItemToWorkspaceAsActionAnchor={onAddItemToWorkspaceAsActionAnchor}
               onSelectItem={onSelectItem}
             />
+          ) : mode === "quest" && selectedQuest ? (
+            <QuestDetailsPanel
+              quest={selectedQuest}
+              discoveredItem={selectedQuestItem}
+              onBack={() => onBackToJournal("quests")}
+              onClose={onCloseQuest}
+              onAddItemToWorkspace={onAddItemToWorkspace}
+            />
           ) : (
             <>
               <div className="quest-drawer-header">
@@ -91,7 +97,7 @@ const JournalDock: React.FC<Props> = ({
                   <div>
                     <div className="quest-drawer-title">Journal</div>
                     <div className="quest-drawer-subtitle">
-                      Permanent achievements and unlock quests.
+                      Permanent achievements and generated challenge targets.
                     </div>
                   </div>
                   <button
@@ -365,92 +371,116 @@ const JournalDock: React.FC<Props> = ({
               ) : (
                 <div className="quest-section">
                   <div className="quest-section-header">
-                    <div className="quest-section-title">Unlock Quests</div>
+                    <div className="quest-section-title">Quest Generator</div>
                     <div className="quest-section-subtitle">
-                      Permanent mechanic unlocks that add more tools to the workspace.
+                      Roll a fresh batch of hard quests to chase in the sandbox.
                     </div>
                   </div>
                   <article className="quest-card quest-card-featured">
                     <div className="quest-card-top">
                       <div>
-                        <div className="quest-card-title">Unlock Progress</div>
+                        <div className="quest-card-title">Quest Generator</div>
                         <div className="quest-card-description">
-                          Quests are now reserved for unlocking additional workspace tools.
+                          Generates challenging words and fixed concepts that are tough to reach without relying on cheap adjective-noun phrases.
                         </div>
                       </div>
-                      <span className="quest-card-badge is-tracked">
-                        {unlockedCatalystCount}/{catalystUnlockQuests.length}
-                      </span>
+                      <button
+                        type="button"
+                        className="quest-generate-button"
+                        onClick={onGenerateChallengeTargets}
+                        disabled={isGeneratingChallengeTargets}
+                      >
+                        {isGeneratingChallengeTargets ? "Generating…" : "Generate 10"}
+                      </button>
                     </div>
                     <div className="quest-card-criteria">
-                      {nextLockedCatalyst
-                        ? `${nextLockedCatalyst.display.name} is your next unlock target.`
-                        : "Every visible unlock is complete."}
+                      {challengeTargets.length > 0
+                        ? "These quests are meant to feel difficult, slippery, referential, or abstract while still being legitimate words to chase."
+                        : "Generate a batch when you want a new set of difficult quests."}
                     </div>
                   </article>
-                  <div className="quest-card-list">
-                    {catalystUnlockQuests.map((unlock) => {
-                      const isNextLocked =
-                        !unlock.unlocked && unlock.key === nextLockedCatalystKey;
-                      return (
-                        <article
-                          key={unlock.key}
-                          className={`quest-card quest-card-unlock ${unlock.display.accentClass}${
-                            unlock.unlocked ? " is-complete" : ""
-                          }${isNextLocked ? " is-featured-unlock" : ""}`}
-                        >
-                          <div className="quest-card-top">
-                            <div className="quest-card-title-wrap">
-                              <span className="quest-card-icon" aria-hidden="true">
-                                {unlock.display.icon}
+                  {challengeTargets.length > 0 ? (
+                    (() => {
+                      const activeQuests = challengeTargets.filter(
+                        (quest) => !completedQuestNames.has(quest.name)
+                      );
+                      const completedQuests = challengeTargets.filter((quest) =>
+                        completedQuestNames.has(quest.name)
+                      );
+
+                      const renderQuestCard = (quest: ChallengeTarget, isCompleted: boolean) => {
+                        const questReference = questReferences[quest.name];
+                        const previewText =
+                          questReference === undefined
+                            ? "Loading description…"
+                            : questReference?.summary
+                              ? truncateAchievementReference(
+                                  questReference.summary,
+                                  achievementReferencePreviewLimit
+                                )
+                              : "No reference summary found yet.";
+
+                        return (
+                          <button
+                            key={quest.name}
+                            type="button"
+                            className={`quest-card quest-card-target${
+                              isCompleted ? " is-complete" : ""
+                            }`}
+                            onClick={() => onSelectQuest(quest)}
+                          >
+                            <div className="quest-card-top">
+                              <div className="quest-card-title-wrap">
+                                <span className="quest-card-icon" aria-hidden="true">
+                                  {quest.icon}
+                                </span>
+                                <div className="quest-card-title">{quest.name}</div>
+                              </div>
+                              <span
+                                className={`quest-card-badge${
+                                  isCompleted ? " is-complete" : " is-tracked"
+                                }`}
+                              >
+                                {isCompleted ? "Complete" : "Quest"}
                               </span>
-                              <div>
-                                <div className="quest-card-title">{unlock.display.name}</div>
-                                <div className="quest-card-description">
-                                  {unlock.display.shortCopy}
-                                </div>
+                            </div>
+                            <div className="quest-card-description">{previewText}</div>
+                          </button>
+                        );
+                      };
+
+                      return (
+                        <>
+                          {activeQuests.length > 0 ? (
+                            <div className="quest-section-block">
+                              <div className="achievement-section-label">Active</div>
+                              <div className="quest-card-list">
+                                {activeQuests.map((quest) => renderQuestCard(quest, false))}
                               </div>
                             </div>
-                            <span
-                              className={`quest-card-badge ${
-                                unlock.unlocked
-                                  ? "is-complete"
-                                  : isNextLocked
-                                    ? "is-tracked"
-                                    : "is-available"
-                              }`}
-                            >
-                              {unlock.unlocked
-                                ? "Unlocked"
-                                : isNextLocked
-                                  ? "Next"
-                                  : "Locked"}
-                            </span>
-                          </div>
-                          <div className="quest-card-criteria">{unlock.summary}</div>
-                          <div className="quest-card-meta">
-                            Example unlock words: {unlock.exampleWords.join(", ")}
-                          </div>
-                          {unlock.sourceItemName &&
-                          (unlock.sourceMatchedWord == null || unlock.sourceMatchedWordCurrent) ? (
-                            <div className="quest-card-meta">
-                              Unlocked by discovering <strong>{unlock.sourceItemName}</strong>
-                              {unlock.sourceMatchedWordCurrent &&
-                              unlock.sourceMatchedWord &&
-                              unlock.sourceMatchedWord.toLowerCase() !==
-                                unlock.sourceItemName.toLowerCase()
-                                ? `, which matched "${unlock.sourceMatchedWord}".`
-                                : "."}
+                          ) : (
+                            <div className="quest-card">
+                              <div className="quest-card-criteria">
+                                Every current quest is complete. Generate a fresh batch when you want more.
+                              </div>
                             </div>
-                          ) : !unlock.unlocked ? (
-                            <div className="quest-card-meta">
-                              This unlock is still locked. Discover related concepts to reveal it.
-                            </div>
+                          )}
+                          {completedQuests.length > 0 ? (
+                            <details className="achievement-archive">
+                              <summary className="achievement-archive-toggle">
+                                Completed Quests ({completedQuests.length})
+                              </summary>
+                              <div className="achievement-archive-list">
+                                <div className="quest-card-list">
+                                  {completedQuests.map((quest) => renderQuestCard(quest, true))}
+                                </div>
+                              </div>
+                            </details>
                           ) : null}
-                        </article>
+                        </>
                       );
-                    })}
-                  </div>
+                    })()
+                  ) : null}
                 </div>
               )}
             </>

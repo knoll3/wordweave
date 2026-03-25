@@ -6,7 +6,6 @@ export type ActionPromptFamilyReference = {
     | "evolve"
     | "pop_culture"
     | "compound"
-    | "reverse"
     | "translate"
     | "abbreviate"
     | "expand"
@@ -70,6 +69,15 @@ export const ACTION_PROMPT_FAMILY_REFERENCES: ActionPromptFamilyReference[] = [
       "negative",
       "contrast",
       "antithesis",
+      "reverse",
+      "reversed",
+      "backward",
+      "backwards",
+      "undo",
+      "invert",
+      "inversion",
+      "rewind",
+      "flip",
     ],
   },
   {
@@ -177,25 +185,6 @@ export const ACTION_PROMPT_FAMILY_REFERENCES: ActionPromptFamilyReference[] = [
       "hyphen",
       "fusion",
       "collocation",
-    ],
-  },
-  {
-    key: "reverse",
-    title: "Reverse",
-    description: "Flip something backward, undo it, or return a reversed form.",
-    triggerWords: [
-      "reverse",
-      "reversed",
-      "backward",
-      "backwards",
-      "undo",
-      "invert",
-      "inversion",
-      "rewind",
-      "mirror",
-      "reflection",
-      "flip",
-      "retrace",
     ],
   },
   {

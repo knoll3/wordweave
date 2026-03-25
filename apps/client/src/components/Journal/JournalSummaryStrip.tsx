@@ -1,21 +1,10 @@
 import React from "react";
-import type { AchievementSummary, FeatureUnlockStatus } from "../../types";
-
-type UnlockDisplay = {
-  name: string;
-  icon: string;
-  accentClass: string;
-  shortCopy: string;
-};
-
-type CatalystUnlockQuest = FeatureUnlockStatus & {
-  display: UnlockDisplay;
-};
+import type { AchievementSummary, ChallengeTarget } from "../../types";
 
 interface Props {
   achievementSummary: AchievementSummary;
-  catalystUnlockQuests: CatalystUnlockQuest[];
-  unlockedCatalystCount: number;
+  challengeTargets: ChallengeTarget[];
+  isGeneratingChallengeTargets: boolean;
   isQuestCelebrating: boolean;
   isJournalOpen: boolean;
   journalTab: "achievements" | "quests";
@@ -25,8 +14,8 @@ interface Props {
 
 const JournalSummaryStrip: React.FC<Props> = ({
   achievementSummary,
-  catalystUnlockQuests,
-  unlockedCatalystCount,
+  challengeTargets,
+  isGeneratingChallengeTargets,
   isQuestCelebrating,
   isJournalOpen,
   journalTab,
@@ -56,7 +45,11 @@ const JournalSummaryStrip: React.FC<Props> = ({
       >
         <span className="journal-summary-card-kicker">Quests</span>
         <span className="journal-summary-card-value">
-          {unlockedCatalystCount}/{catalystUnlockQuests.length} unlocks
+          {isGeneratingChallengeTargets
+            ? "Generating…"
+            : challengeTargets.length > 0
+              ? `${challengeTargets.length} quests`
+              : "Generate quests"}
         </span>
       </button>
       {questCelebrationTitle ? (

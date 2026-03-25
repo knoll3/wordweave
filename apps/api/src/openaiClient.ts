@@ -11,10 +11,12 @@ import {
   ACTION_CATEGORY_PROMPT,
   BASE_PROMPT,
   CATEGORY_PROMPT,
+  CHALLENGE_TARGETS_PROMPT,
   CREATIVE_PROMPT,
   RECIPE_BATCH_PROMPT,
 } from "./openaiPrompts";
 import {
+  challengeTargetsSchema,
   llmResultSchema,
   recipeBatchSchema,
   splitLlmResultSchema,
@@ -156,6 +158,17 @@ export function renderRecipeBatchPrompt(params: {
     "{{RECIPE_BATCH_PAIRS}}",
     JSON.stringify(params.pairs)
   );
+}
+
+export function renderChallengeTargetsPrompt(params: {
+  count: number;
+  discoveredNames: string[];
+  recentTargets: string[];
+}) {
+  return CHALLENGE_TARGETS_PROMPT
+    .replace(/{{TARGET_COUNT}}/g, String(params.count))
+    .replace(/{{DISCOVERED_NAMES_ARRAY}}/g, JSON.stringify(params.discoveredNames))
+    .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets));
 }
 
 export async function generateResult(
@@ -336,6 +349,67 @@ export async function generateRecipeBatch(params: {
   }
 
   console.log("[openai][recipe-batch] parsed result", result.data);
+  return result.data;
+}
+
+export async function generateChallengeTargets(params: {
+  count: number;
+  discoveredNames: string[];
+  recentTargets: string[];
+  model?: OpenAiModel;
+}) {
+  const openai = getOpenAI();
+  const model = params.model ?? DEFAULT_MODEL_NAME;
+  const prompt = renderChallengeTargetsPrompt(params);
+
+  console.log("[openai][challenge-targets] sending request", {
+    model,
+    count: params.count,
+    discoveredCount: params.discoveredNames.length,
+    recentCount: params.recentTargets.length,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 1,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const promptTokens = response.usage?.prompt_tokens ?? 0;
+  const completionTokens = response.usage?.completion_tokens ?? 0;
+  const cachedPromptTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const responseModel = response.model ?? model;
+  logUsageAndCost({
+    logPrefix: "[openai][challenge-targets]",
+    responseModel,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][challenge-targets] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  const result = challengeTargetsSchema.safeParse(parsed);
+  if (!result.success) {
+    console.error("[openai][challenge-targets] response failed schema validation", parsed);
+    throw new Error("OpenAI challenge targets failed validation");
+  }
+
+  console.log("[openai][challenge-targets] parsed result", result.data);
   return result.data;
 }
 

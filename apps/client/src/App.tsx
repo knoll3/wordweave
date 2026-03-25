@@ -13,6 +13,7 @@ import type {
   AchievementSummary,
   AutoUnlockedActionWord,
   AiModel,
+  ChallengeTarget,
   FeatureUnlockStatus,
   Item,
   SelectionCombineLayout,
@@ -26,9 +27,9 @@ import JournalSummaryStrip from "./components/Journal/JournalSummaryStrip";
 import { evaluateAchievements } from "./lib/achievements";
 import {
   combineElements,
+  generateChallengeTargets,
   fetchQuestTargetReference,
   fetchUnlockStatuses,
-  markUnlockIntroSeen,
   type ItemReference,
 } from "./lib/api";
 import {
@@ -41,6 +42,7 @@ const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
+const CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
@@ -53,37 +55,6 @@ type QuestCelebrationState = {
 
 type ActionUnlockModalState = {
   unlockedWords: AutoUnlockedActionWord[];
-};
-
-const VISIBLE_UNLOCK_KEYS: UnlockKey[] = ["random_tools"];
-
-const UNLOCK_DISPLAY: Record<
-  UnlockKey,
-  {
-    name: string;
-    icon: string;
-    accentClass: string;
-    shortCopy: string;
-  }
-> = {
-  creative: {
-    name: "Creative Spark",
-    icon: "✨",
-    accentClass: "is-creative",
-    shortCopy: "Pushes combinations toward sillier, wilder, more memorable ideas.",
-  },
-  random_tools: {
-    name: "Random",
-    icon: "🔀",
-    accentClass: "is-randomize",
-    shortCopy: "Lets you drop a random discovered library item into the workspace.",
-  },
-  action: {
-    name: "Action",
-    icon: "⚡",
-    accentClass: "is-action",
-    shortCopy: "Adds a modifier token that turns another item into an action anchor.",
-  },
 };
 
 const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
@@ -118,12 +89,77 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   }
 };
 
+const loadStoredChallengeTargets = (): ChallengeTarget[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const stored = window.localStorage.getItem(CHALLENGE_TARGETS_STORAGE_KEY);
+  if (!stored) {
+    return [];
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter(
+      (entry): entry is ChallengeTarget =>
+        !!entry &&
+        typeof entry.name === "string" &&
+        entry.name.trim().length > 0 &&
+        typeof entry.icon === "string" &&
+        entry.icon.trim().length > 0
+    );
+  } catch {
+    return [];
+  }
+};
+
 function truncateAchievementReference(value: string, limit: number) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length <= limit) {
     return normalized;
   }
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function normalizeQuestText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase()
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/\b(the|a|an)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function isContainedQuestPhrase(itemName: string, questName: string) {
+  const itemTokens = itemName.split(/\s+/).filter(Boolean);
+  const questTokens = questName.split(/\s+/).filter(Boolean);
+  if (questTokens.length < 2 || itemTokens.length <= questTokens.length) {
+    return false;
+  }
+
+  for (let start = 0; start <= itemTokens.length - questTokens.length; start += 1) {
+    let matches = true;
+    for (let offset = 0; offset < questTokens.length; offset += 1) {
+      if (itemTokens[start + offset] !== questTokens[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 const App: React.FC = () => {
@@ -147,19 +183,31 @@ const App: React.FC = () => {
   const [achievementReferences, setAchievementReferences] = useState<
     Record<string, ItemReference | null | undefined>
   >({});
+  const [questReferences, setQuestReferences] = useState<
+    Record<string, ItemReference | null | undefined>
+  >({});
+  const [challengeTargets, setChallengeTargets] = useState<ChallengeTarget[]>(
+    loadStoredChallengeTargets
+  );
+  const [isGeneratingChallengeTargets, setIsGeneratingChallengeTargets] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
   const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
   const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
-  const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item">("journal");
+  const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
+    "journal"
+  );
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
+  const [selectedQuestName, setSelectedQuestName] = useState<string | null>(null);
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
   );
   const initialAchievementSnapshotRef = useRef<Set<string> | null>(null);
   const previousItemIdsRef = useRef<Set<number> | null>(null);
+  const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
+  const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
@@ -193,6 +241,13 @@ const App: React.FC = () => {
   }, [combiningNodeIds, workspaceItems]);
 
   useEffect(() => {
+    window.localStorage.setItem(
+      CHALLENGE_TARGETS_STORAGE_KEY,
+      JSON.stringify(challengeTargets)
+    );
+  }, [challengeTargets]);
+
+  useEffect(() => {
     if (!errorMessage) return;
     const timeoutId = window.setTimeout(() => {
       setErrorMessage(null);
@@ -204,49 +259,31 @@ const App: React.FC = () => {
     void loadFeatureUnlocks();
   }, []);
 
-  useEffect(() => {
-    const pendingUnlock = featureUnlocks.find(
-      (unlock) => unlock.introPending && VISIBLE_UNLOCK_KEYS.includes(unlock.key)
-    );
-    if (!pendingUnlock) {
-      return;
-    }
-
-    const sourceNormalized = pendingUnlock.sourceItemName?.trim().toLowerCase() ?? null;
-    const sourceItemId =
-      sourceNormalized == null
-        ? null
-        : items.find((item) => item.normalizedName === sourceNormalized)?.id ?? null;
-    const sourceNodeId =
-      sourceItemId == null
-        ? null
-        : [...workspaceItems]
-            .reverse()
-            .find((workspaceItem) => workspaceItem.itemId === sourceItemId)?.nodeId ?? null;
-    const catalystName = UNLOCK_DISPLAY[pendingUnlock.key].name;
-
-    showProgressCelebration(
-      "Quest Complete",
-      `${catalystName} unlocked`,
-      pendingUnlock.summary,
-      sourceNodeId
-    );
-
-    void markUnlockIntroSeen(pendingUnlock.key)
-      .then(() => {
-        setFeatureUnlocks((prev) =>
-          prev.map((unlock) =>
-            unlock.key === pendingUnlock.key ? { ...unlock, introPending: false } : unlock
-          )
-        );
-      })
-      .catch(() => {});
-  }, [featureUnlocks, items, workspaceItems]);
-
   const achievementSummary: AchievementSummary = useMemo(
     () => evaluateAchievements(items),
     [items]
   );
+  const completedQuestNames = useMemo(() => {
+    const normalizedItems = items.map((item) =>
+      normalizeQuestText(item.normalizedName || item.name)
+    );
+    const completed = new Set<string>();
+
+    for (const quest of challengeTargets) {
+      const normalizedQuest = normalizeQuestText(quest.name);
+      if (!normalizedQuest) continue;
+      if (
+        normalizedItems.some(
+          (itemName) =>
+            itemName === normalizedQuest || isContainedQuestPhrase(itemName, normalizedQuest)
+        )
+      ) {
+        completed.add(quest.name);
+      }
+    }
+
+    return completed;
+  }, [challengeTargets, items]);
 
   useEffect(() => {
     const completedIds = new Set(
@@ -307,6 +344,48 @@ const App: React.FC = () => {
   }, [achievementSummary, drawerItemId, items, workspaceItems]);
 
   useEffect(() => {
+    const previousCompleted = initialQuestSnapshotRef.current;
+    const previousItemIds = previousQuestItemIdsRef.current;
+
+    if (previousCompleted == null || previousItemIds == null) {
+      initialQuestSnapshotRef.current = new Set(completedQuestNames);
+      previousQuestItemIdsRef.current = new Set(items.map((item) => item.id));
+      return;
+    }
+
+    const newlyCompleted = challengeTargets.filter(
+      (quest) =>
+        completedQuestNames.has(quest.name) && !previousCompleted.has(quest.name)
+    );
+
+    const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
+    const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
+    const celebrationNodeId =
+      newestDiscoveredItem != null
+        ? [...workspaceItems]
+            .reverse()
+            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ??
+          null
+        : null;
+
+    if (newlyCompleted.length > 0) {
+      showProgressCelebration(
+        "Quest Complete",
+        newlyCompleted.length === 1
+          ? newlyCompleted[0].name
+          : `${newlyCompleted.length} quests completed`,
+        newlyCompleted.length === 1
+          ? "You discovered one of your active quests."
+          : "You completed multiple active quests.",
+        celebrationNodeId
+      );
+    }
+
+    initialQuestSnapshotRef.current = new Set(completedQuestNames);
+    previousQuestItemIdsRef.current = new Set(items.map((item) => item.id));
+  }, [challengeTargets, completedQuestNames, items, workspaceItems]);
+
+  useEffect(() => {
     if (!isJournalOpen || journalTab !== "achievements") {
       return;
     }
@@ -350,6 +429,47 @@ const App: React.FC = () => {
     };
   }, [achievementReferences, achievementSummary, isJournalOpen, journalTab]);
 
+  useEffect(() => {
+    if (!isJournalOpen || journalTab !== "quests" || challengeTargets.length === 0) {
+      return;
+    }
+
+    const missing = challengeTargets.filter(
+      (quest) => questReferences[quest.name] === undefined
+    );
+
+    if (missing.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    void Promise.all(
+      missing.map(async (quest) => {
+        try {
+          const reference = await fetchQuestTargetReference(quest.name);
+          return [quest.name, reference] as const;
+        } catch {
+          return [quest.name, null] as const;
+        }
+      })
+    ).then((results) => {
+      if (cancelled) {
+        return;
+      }
+      setQuestReferences((prev) => {
+        const next = { ...prev };
+        for (const [questName, reference] of results) {
+          next[questName] = reference;
+        }
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [challengeTargets, isJournalOpen, journalTab, questReferences]);
+
   function showError(message: string, err: unknown) {
     void err;
     setErrorMessage(message);
@@ -367,27 +487,49 @@ const App: React.FC = () => {
     if (forceUnlocks) return true;
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
-  const catalystUnlockQuests = useMemo(
-    () =>
-      featureUnlocks
-        .filter((unlock) => VISIBLE_UNLOCK_KEYS.includes(unlock.key))
-        .map((unlock) => ({
-        ...unlock,
-        display: UNLOCK_DISPLAY[unlock.key],
-      })),
-    [featureUnlocks]
-  );
-  const nextLockedCatalystKey =
-    catalystUnlockQuests.find((unlock) => !unlock.unlocked)?.key ?? null;
-  const unlockedCatalystCount = catalystUnlockQuests.filter(
-    (unlock) => unlock.unlocked
-  ).length;
-  const nextLockedCatalyst =
-    catalystUnlockQuests.find((unlock) => !unlock.unlocked) ?? null;
+
+  async function rerollChallengeTargets() {
+    setIsGeneratingChallengeTargets(true);
+    try {
+      const response = await generateChallengeTargets({
+        count: 10,
+        discoveredNames: items.map((item) => item.name),
+        recentTargets: challengeTargets.map((target) => target.name),
+        model: selectedModel,
+      });
+      setChallengeTargets((prev) => {
+        const seen = new Set(prev.map((target) => target.name.trim().toLowerCase()));
+        const next = [...prev];
+        for (const target of response.targets) {
+          const normalized = target.name.trim().toLowerCase();
+          if (!normalized || seen.has(normalized)) {
+            continue;
+          }
+          seen.add(normalized);
+          next.push(target);
+        }
+        return next;
+      });
+      setRightPanelMode("journal");
+      setJournalTab("quests");
+      setIsJournalOpen(true);
+    } catch (err) {
+      showError("Failed to generate challenge targets.", err);
+    } finally {
+      setIsGeneratingChallengeTargets(false);
+    }
+  }
 
   function openJournal(tab: "achievements" | "quests") {
     setJournalTab(tab);
+    setSelectedQuestName(null);
     setRightPanelMode("journal");
+    setIsJournalOpen(true);
+  }
+
+  function openQuestDetails(quest: ChallengeTarget) {
+    setSelectedQuestName(quest.name);
+    setRightPanelMode("quest");
     setIsJournalOpen(true);
   }
 
@@ -427,6 +569,17 @@ const App: React.FC = () => {
     return next;
   }, [items]);
   const drawerItem = drawerItemId == null ? null : itemById.get(drawerItemId) ?? null;
+  const selectedQuest =
+    selectedQuestName == null
+      ? null
+      : challengeTargets.find((entry) => entry.name === selectedQuestName) ?? null;
+  const selectedQuestItem =
+    selectedQuest == null
+      ? null
+      : items.find(
+          (entry) =>
+            entry.normalizedName === selectedQuest.name.trim().toLowerCase()
+        ) ?? null;
   const catalystActions = useMemo(() => {
     const actions: Array<{
       key: string;
@@ -1043,8 +1196,8 @@ const App: React.FC = () => {
               </div>
               <JournalSummaryStrip
                 achievementSummary={achievementSummary}
-                catalystUnlockQuests={catalystUnlockQuests}
-                unlockedCatalystCount={unlockedCatalystCount}
+                challengeTargets={challengeTargets}
+                isGeneratingChallengeTargets={isGeneratingChallengeTargets}
                 isQuestCelebrating={isQuestCelebrating}
                 isJournalOpen={isJournalOpen}
                 journalTab={journalTab}
@@ -1077,11 +1230,13 @@ const App: React.FC = () => {
                 journalTab={journalTab}
                 achievementSummary={achievementSummary}
                 achievementReferences={achievementReferences}
+                questReferences={questReferences}
                 achievementReferencePreviewLimit={ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT}
-                catalystUnlockQuests={catalystUnlockQuests}
-                nextLockedCatalystKey={nextLockedCatalystKey}
-                nextLockedCatalyst={nextLockedCatalyst}
-                unlockedCatalystCount={unlockedCatalystCount}
+                challengeTargets={challengeTargets}
+                completedQuestNames={completedQuestNames}
+                isGeneratingChallengeTargets={isGeneratingChallengeTargets}
+                selectedQuest={selectedQuest}
+                selectedQuestItem={selectedQuestItem}
                 item={drawerItem}
                 items={items}
                 itemsById={itemById}
@@ -1090,9 +1245,16 @@ const App: React.FC = () => {
                 onAddItemToWorkspace={addLibraryItemToWorkspace}
                 onAddItemToWorkspaceAsActionAnchor={addLibraryItemToWorkspaceAsActionAnchor}
                 onCloseItem={closeItemDetails}
+                onCloseQuest={() => {
+                  setRightPanelMode("journal");
+                  setSelectedQuestName(null);
+                }}
+                onBackToJournal={openJournal}
                 onSelectItem={openItemDetails}
                 onCollapse={() => setIsJournalOpen(false)}
                 onSetJournalTab={setJournalTab}
+                onGenerateChallengeTargets={rerollChallengeTargets}
+                onSelectQuest={openQuestDetails}
                 truncateAchievementReference={truncateAchievementReference}
               />
           </section>

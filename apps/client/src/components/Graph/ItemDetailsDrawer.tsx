@@ -24,7 +24,7 @@ type CatalystGuide = {
 const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   [ACTION_MODIFIER_ITEM_ID]: {
     description:
-      "Action is a modifier token that can be attached to any item. That item becomes the action being performed, and the other combined items act as clues for what happens when that action is applied. Most anchor words use the general action behavior, while certain words like Split, Opposite, Synonym, Reverse, Translate, Distill, Simplify, and Common switch to specialized tuned behavior.",
+      "Action is a modifier token that can be attached to any item. That item becomes the action being performed, and the other combined items act as clues for what happens when that action is applied. Most anchor words use the general action behavior, while certain words like Split, Opposite, Synonym, Translate, Distill, Simplify, and Common switch to specialized tuned behavior.",
     example:
       "Example: Action -> Common, then Common + Cat + Monkey -> Mammal. Action -> Split, then Split + Steam Engine -> Steam + Engine.",
   },

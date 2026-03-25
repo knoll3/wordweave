@@ -7,7 +7,6 @@ export type ActionPromptFamilyKey =
   | "evolve"
   | "pop_culture"
   | "compound"
-  | "reverse"
   | "translate"
   | "abbreviate"
   | "expand"
@@ -229,34 +228,6 @@ or
 
 {
   "failed": false,
-  "name": "result name",
-  "icon": "emoji"
-}
-
-Inputs:
-{{INPUT_ELEMENTS_ARRAY}}
-`.trim();
-
-const REVERSE_ACTION_PROMPT = `
-You are the reverse engine for a sandbox discovery game.
-
-The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
-
-The player provides several inputs. Your job is to return the clearest and most recognizable reversed, undone, backward, or inverse result those inputs point to.
-
-Prefer a result that feels like the original thing flipped, rewound, or run in reverse rather than merely contrasted with it.
-
-${CATEGORY_RULES_PLACEHOLDER}
-
-Rules:
-- Return exactly one result.
-- Keep the result short and recognizable.
-- Do not return explanations, descriptions, or sentences.
-- Favor a direct reversed or undone outcome over a vague opposite.
-
-Return ONLY valid JSON in this format:
-
-{
   "name": "result name",
   "icon": "emoji"
 }
@@ -517,6 +488,15 @@ export const ACTION_PROMPT_FAMILIES: ActionPromptFamily[] = [
       "negative",
       "contrast",
       "antithesis",
+      "reverse",
+      "reversed",
+      "backward",
+      "backwards",
+      "undo",
+      "invert",
+      "inversion",
+      "rewind",
+      "flip",
     ],
   },
   {
@@ -633,27 +613,6 @@ export const ACTION_PROMPT_FAMILIES: ActionPromptFamily[] = [
       "hyphen",
       "fusion",
       "collocation",
-    ],
-  },
-  {
-    key: "reverse",
-    title: "Reverse",
-    canonicalWord: "reverse",
-    prompt: REVERSE_ACTION_PROMPT,
-    responseMode: "default",
-    triggerWords: [
-      "reverse",
-      "reversed",
-      "backward",
-      "backwards",
-      "undo",
-      "invert",
-      "inversion",
-      "rewind",
-      "mirror",
-      "reflection",
-      "flip",
-      "retrace",
     ],
   },
   {

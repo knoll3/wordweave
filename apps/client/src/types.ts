@@ -243,6 +243,15 @@ export interface PromptTestResponse {
   result: unknown;
 }
 
+export interface ChallengeTarget {
+  name: string;
+  icon: string;
+}
+
+export interface ChallengeTargetsResponse {
+  targets: ChallengeTarget[];
+}
+
 export interface FeatureUnlockStatus {
   key: UnlockKey;
   title: string;
