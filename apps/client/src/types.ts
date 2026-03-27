@@ -49,57 +49,57 @@ export const COMMON_CATALYST_ITEM_ID = -18;
 
 export const SPLIT_CATALYST_ITEM: Item = {
   id: SPLIT_CATALYST_ITEM_ID,
-  name: "Split Catalyst",
-  normalizedName: "split catalyst",
+  name: "Split",
+  normalizedName: "split",
   icon: "✂️",
 };
 
 export const OPPOSITE_CATALYST_ITEM: Item = {
   id: OPPOSITE_CATALYST_ITEM_ID,
-  name: "Opposite Catalyst",
-  normalizedName: "opposite catalyst",
+  name: "Opposite",
+  normalizedName: "opposite",
   icon: "↔️",
 };
 
 export const SYNONYM_CATALYST_ITEM: Item = {
   id: SYNONYM_CATALYST_ITEM_ID,
-  name: "Synonym Catalyst",
-  normalizedName: "synonym catalyst",
+  name: "Synonym",
+  normalizedName: "synonym",
   icon: "🪞",
 };
 
 export const EVOLVE_CATALYST_ITEM: Item = {
   id: EVOLVE_CATALYST_ITEM_ID,
-  name: "Evolve Catalyst",
-  normalizedName: "evolve catalyst",
+  name: "Evolve",
+  normalizedName: "evolve",
   icon: "🧬",
 };
 
 export const POP_CULTURE_CATALYST_ITEM: Item = {
   id: POP_CULTURE_CATALYST_ITEM_ID,
-  name: "Pop Culture Catalyst",
-  normalizedName: "pop culture catalyst",
+  name: "Pop Culture",
+  normalizedName: "pop culture",
   icon: "🎬",
 };
 
 export const COMPOUND_CATALYST_ITEM: Item = {
   id: COMPOUND_CATALYST_ITEM_ID,
-  name: "Compound Catalyst",
-  normalizedName: "compound catalyst",
+  name: "Compound",
+  normalizedName: "compound",
   icon: "🧩",
 };
 
 export const ESSENCE_CATALYST_ITEM: Item = {
   id: ESSENCE_CATALYST_ITEM_ID,
-  name: "Essence Catalyst",
-  normalizedName: "essence catalyst",
+  name: "Essence",
+  normalizedName: "essence",
   icon: "💧",
 };
 
 export const COMMON_CATALYST_ITEM: Item = {
   id: COMMON_CATALYST_ITEM_ID,
-  name: "Common Catalyst",
-  normalizedName: "common catalyst",
+  name: "Common",
+  normalizedName: "common",
   icon: "🔗",
 };
 

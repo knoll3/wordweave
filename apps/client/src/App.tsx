@@ -701,6 +701,7 @@ const App: React.FC = () => {
     const actions: Array<{
       key: string;
       title: string;
+      badgeLabel?: string;
       icon: React.ReactNode;
       tint: string;
       iconTint: string;
@@ -708,17 +709,9 @@ const App: React.FC = () => {
     }> = [];
 
     actions.push({
-      key: "creative",
-      title: "Creative",
-      icon: "✨",
-      tint: "rgba(167, 139, 250, 0.22)",
-      iconTint: "#ddd6fe",
-      onClick: () => addItemToWorkspace(CREATIVE_ITEM_ID),
-    });
-
-    actions.push({
       key: "category",
       title: "Category",
+      badgeLabel: "mod",
       icon: <Tags size={16} strokeWidth={2} />,
       tint: "rgba(20, 184, 166, 0.22)",
       iconTint: "#99f6e4",
@@ -728,6 +721,7 @@ const App: React.FC = () => {
     actions.push({
       key: "action",
       title: "Action",
+      badgeLabel: "mod",
       icon: <Zap size={16} strokeWidth={2} />,
       tint: "rgba(251, 191, 36, 0.22)",
       iconTint: "#fde68a",

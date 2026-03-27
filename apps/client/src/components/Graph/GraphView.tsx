@@ -20,7 +20,7 @@ import {
   CREATIVE_ITEM_ID,
 } from "../../types";
 import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
-import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
+import { ACTION_CATALYST_BY_ID, SPECIAL_ITEMS } from "../../lib/specialItems";
 import CatalystDock, { type CatalystAction } from "./CatalystDock";
 
 interface Props {
@@ -92,12 +92,6 @@ type TouchGestureState = {
   startCenterWorldY: number;
 };
 
-type PendingTouchSelectionState = {
-  pointerId: number;
-  startScreenX: number;
-  startScreenY: number;
-};
-
 type ItemView = {
   nodeId: string;
   container: Container;
@@ -159,6 +153,7 @@ const CLICK_MOVE_THRESHOLD = 6;
 const CELEBRATION_PROGRESS_STEP = 0.022;
 const CELEBRATION_TINT_FADE_STEP = 0.012;
 const CELEBRATION_TINT_HOLD_FRAMES = 150;
+const DOUBLE_TAP_DISTANCE_THRESHOLD = 24;
 
 function isCatalystItemId(itemId: number) {
   return (
@@ -378,7 +373,11 @@ function GraphView({
   const panStateRef = useRef<PanState | null>(null);
   const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const touchGestureStateRef = useRef<TouchGestureState | null>(null);
-  const pendingTouchSelectionRef = useRef<PendingTouchSelectionState | null>(null);
+  const lastBackgroundTapRef = useRef<{
+    x: number;
+    y: number;
+    time: number;
+  } | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
   const resizeFrameRef = useRef<number>(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -425,6 +424,9 @@ function GraphView({
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
+    for (const item of SPECIAL_ITEMS) {
+      next.set(item.id, item);
+    }
     next.set(ACTION_MODIFIER_ITEM.id, ACTION_MODIFIER_ITEM);
     next.set(CATEGORY_MODIFIER_ITEM.id, CATEGORY_MODIFIER_ITEM);
     next.set(COMBINE_RESULT_PLACEHOLDER_ITEM.id, COMBINE_RESULT_PLACEHOLDER_ITEM);
@@ -612,10 +614,6 @@ function GraphView({
     clearHoverTarget();
   };
 
-  const cancelPendingTouchSelection = () => {
-    pendingTouchSelectionRef.current = null;
-  };
-
   const beginTouchGesture = () => {
     const touchPoints = [...activeTouchPointsRef.current.values()];
     if (touchPoints.length < 2) {
@@ -632,7 +630,6 @@ function GraphView({
       Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
     );
 
-    cancelPendingTouchSelection();
     selectionDragRef.current = null;
     selectionDragRectRef.current = null;
     setSelectionDragRect(null);
@@ -1470,13 +1467,25 @@ function GraphView({
       ) {
         clearPendingDrawerOpen();
         lastItemClickRef.current = null;
-        pendingTouchSelectionRef.current = {
-          pointerId: event.pointerId,
-          startScreenX: event.global.x,
-          startScreenY: event.global.y,
+        const now = Date.now();
+        const lastBackgroundTap = lastBackgroundTapRef.current;
+        if (
+          lastBackgroundTap &&
+          now - lastBackgroundTap.time <= DOUBLE_CLICK_MS &&
+          Math.hypot(
+            event.global.x - lastBackgroundTap.x,
+            event.global.y - lastBackgroundTap.y
+          ) <= DOUBLE_TAP_DISTANCE_THRESHOLD
+        ) {
+          lastBackgroundTapRef.current = null;
+          beginSelectionDrag(event.pointerId, event.global.x, event.global.y);
+          return;
+        }
+        lastBackgroundTapRef.current = {
+          x: event.global.x,
+          y: event.global.y,
+          time: now,
         };
-        panStateRef.current = null;
-        return;
       }
       if (selectionModeRef.current) {
         beginSelectionDrag(event.pointerId, event.global.x, event.global.y);
@@ -1549,6 +1558,7 @@ function GraphView({
             1,
             Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
           );
+
           const nextZoom = clamp(
             touchGestureState.startZoom *
               (currentDistance / touchGestureState.startDistance),
@@ -1562,20 +1572,6 @@ function GraphView({
             currentCenterY - touchGestureState.startCenterWorldY * nextZoom;
           applyCamera();
           return;
-        }
-
-        const pendingTouchSelection = pendingTouchSelectionRef.current;
-        if (
-          pendingTouchSelection &&
-          pendingTouchSelection.pointerId === event.pointerId &&
-          activeTouchPointsRef.current.size === 1
-        ) {
-          beginSelectionDrag(
-            event.pointerId,
-            pendingTouchSelection.startScreenX,
-            pendingTouchSelection.startScreenY
-          );
-          pendingTouchSelectionRef.current = null;
         }
       }
 
@@ -1620,15 +1616,6 @@ function GraphView({
         } else if (touchGestureStateRef.current) {
           beginTouchGesture();
         }
-      }
-
-      const pendingTouchSelection = pendingTouchSelectionRef.current;
-      if (
-        pendingTouchSelection &&
-        pendingTouchSelection.pointerId === event.pointerId
-      ) {
-        pendingTouchSelectionRef.current = null;
-        return;
       }
 
       const selectionDrag = selectionDragRef.current;
@@ -2084,7 +2071,7 @@ function GraphView({
       selectionDragRectRef.current = null;
       activeTouchPointsRef.current.clear();
       touchGestureStateRef.current = null;
-      pendingTouchSelectionRef.current = null;
+      lastBackgroundTapRef.current = null;
     };
   }, []);
 

@@ -1637,6 +1637,7 @@ body.page-scrollable {
 .graph-catalyst-button {
   width: 100%;
   position: relative;
+  appearance: none;
   border: 1px solid rgba(148, 163, 184, 0.16);
   border-radius: 16px;
   background:
@@ -1650,11 +1651,12 @@ body.page-scrollable {
   text-align: left;
   cursor: pointer;
   transition:
-    transform 120ms ease,
     border-color 120ms ease,
     background-color 120ms ease,
     box-shadow 120ms ease;
   overflow: hidden;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .graph-catalyst-button:hover {
@@ -1662,7 +1664,19 @@ body.page-scrollable {
   box-shadow:
     inset 0 0 0 1px rgba(255, 255, 255, 0.03),
     0 10px 20px rgba(2, 6, 23, 0.24);
-  transform: translateY(-1px);
+}
+
+.graph-catalyst-button:focus-visible {
+  border-color: color-mix(in srgb, var(--catalyst-tint) 82%, rgba(255, 255, 255, 0.14));
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 0 0 1px color-mix(in srgb, var(--catalyst-tint) 42%, transparent);
+}
+
+.graph-catalyst-button:active {
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04),
+    0 6px 14px rgba(2, 6, 23, 0.22);
 }
 
 .graph-catalyst-button::before {
@@ -1695,6 +1709,7 @@ body.page-scrollable {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 .graph-catalyst-button-title {
@@ -1704,6 +1719,14 @@ body.page-scrollable {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.graph-catalyst-button-badge {
+  font-size: 0.58rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(226, 232, 240, 0.56);
 }
 
 @media (max-width: 720px) {
@@ -2235,6 +2258,11 @@ body.page-scrollable {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--text-soft);
+}
+
+.quest-section-block-available {
+  border-top: 1px solid rgba(148, 163, 184, 0.12);
+  padding-top: 12px;
 }
 
 .achievement-row {
@@ -3895,7 +3923,7 @@ body.page-scrollable {
   .app-root {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: minmax(0, 1fr) minmax(280px, 34dvh);
+    grid-template-rows: minmax(0, 1fr) minmax(210px, 25.5dvh);
     max-height: 100dvh;
     overflow: hidden;
   }

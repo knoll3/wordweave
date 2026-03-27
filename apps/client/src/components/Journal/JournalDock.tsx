@@ -73,13 +73,19 @@ const JournalDock: React.FC<Props> = ({
   truncateReference,
 }) => {
   const trackedQuests = challengeTargets.filter((quest) =>
-    trackedQuestNames.has(quest.name)
+    trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
   );
   const availableQuests = challengeTargets.filter(
-    (quest) => !trackedQuestNames.has(quest.name)
+    (quest) => !trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
+  );
+  const completedQuests = challengeTargets.filter((quest) =>
+    completedQuestNames.has(quest.name)
   );
 
-  const renderQuestCard = (quest: ChallengeTarget, isTracked: boolean) => {
+  const renderQuestCard = (
+    quest: ChallengeTarget,
+    section: "tracked" | "available" | "completed"
+  ) => {
     const questReference = questReferences[quest.name];
     const previewText =
       questReference === undefined
@@ -87,7 +93,8 @@ const JournalDock: React.FC<Props> = ({
         : questReference?.summary
           ? truncateReference(questReference.summary, referencePreviewLimit)
           : "No reference summary found yet.";
-    const isCompleted = completedQuestNames.has(quest.name);
+    const isCompleted = section === "completed";
+    const isTracked = section === "tracked";
 
     return (
       <article
@@ -118,22 +125,26 @@ const JournalDock: React.FC<Props> = ({
           >
             Open
           </button>
-          <button
-            type="button"
-            className={`button ${isTracked ? "secondary" : "primary"}`}
-            onClick={() =>
-              isTracked ? onUntrackQuest(quest.name) : onTrackQuest(quest.name)
-            }
-          >
-            {isTracked ? "Untrack" : "Accept"}
-          </button>
-          <button
-            type="button"
-            className="button secondary"
-            onClick={() => onRequestAbandonQuest(quest.name)}
-          >
-            Abandon
-          </button>
+          {!isCompleted ? (
+            <>
+              <button
+                type="button"
+                className={`button ${isTracked ? "secondary" : "primary"}`}
+                onClick={() =>
+                  isTracked ? onUntrackQuest(quest.name) : onTrackQuest(quest.name)
+                }
+              >
+                {isTracked ? "Untrack" : "Accept"}
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => onRequestAbandonQuest(quest.name)}
+              >
+                Abandon
+              </button>
+            </>
+          ) : null}
         </div>
       </article>
     );
@@ -223,7 +234,7 @@ const JournalDock: React.FC<Props> = ({
                 <div className="quest-section-block">
                   <div className="achievement-section-label">Active</div>
                   <div className="quest-card-list">
-                    {trackedQuests.map((quest) => renderQuestCard(quest, true))}
+                    {trackedQuests.map((quest) => renderQuestCard(quest, "tracked"))}
                   </div>
                 </div>
               ) : (
@@ -235,12 +246,25 @@ const JournalDock: React.FC<Props> = ({
               )}
 
               {availableQuests.length > 0 ? (
-                <div className="quest-section-block">
+                <div className="quest-section-block quest-section-block-available">
                   <div className="achievement-section-label">Available</div>
                   <div className="quest-card-list">
-                    {availableQuests.map((quest) => renderQuestCard(quest, false))}
+                    {availableQuests.map((quest) => renderQuestCard(quest, "available"))}
                   </div>
                 </div>
+              ) : null}
+
+              {completedQuests.length > 0 ? (
+                <details className="achievement-archive quest-completed-archive">
+                  <summary className="achievement-archive-toggle">
+                    Completed ({completedQuests.length})
+                  </summary>
+                  <div className="achievement-archive-list">
+                    <div className="quest-card-list">
+                      {completedQuests.map((quest) => renderQuestCard(quest, "completed"))}
+                    </div>
+                  </div>
+                </details>
               ) : null}
             </div>
           )}

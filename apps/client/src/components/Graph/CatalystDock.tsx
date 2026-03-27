@@ -4,6 +4,7 @@ import { ChevronDown, Sparkles } from "lucide-react";
 export interface CatalystAction {
   key: string;
   title: string;
+  badgeLabel?: string;
   icon: React.ReactNode;
   tint: string;
   iconTint: string;
@@ -68,6 +69,9 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
               </span>
               <span className="graph-catalyst-button-copy">
                 <span className="graph-catalyst-button-title">{action.title}</span>
+                {action.badgeLabel ? (
+                  <span className="graph-catalyst-button-badge">{action.badgeLabel}</span>
+                ) : null}
               </span>
             </button>
           ))}
