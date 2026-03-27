@@ -132,6 +132,115 @@ function buildSearchText(name: string) {
   return `Item: ${name.trim()}`;
 }
 
+function normalizeLexicalJudgeText(value: string) {
+  return value
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "");
+}
+
+function collectLexicalRoots(value: string) {
+  const normalized = normalizeLexicalJudgeText(value);
+  const queue = [normalized];
+  const roots = new Set<string>(normalized ? [normalized] : []);
+  const suffixes = ["ing", "ed", "es", "s", "er", "est", "ly", "ness", "ment", "tion", "ions"];
+
+  while (queue.length > 0) {
+    const current = queue.shift() ?? "";
+    for (const suffix of suffixes) {
+      if (current.length <= suffix.length + 2 || !current.endsWith(suffix)) {
+        continue;
+      }
+      const next = current.slice(0, -suffix.length);
+      if (next.length < 3 || roots.has(next)) {
+        continue;
+      }
+      roots.add(next);
+      queue.push(next);
+    }
+    if (current.endsWith("ies") && current.length > 5) {
+      const next = `${current.slice(0, -3)}y`;
+      if (!roots.has(next)) {
+        roots.add(next);
+        queue.push(next);
+      }
+    }
+  }
+
+  return roots;
+}
+
+function levenshteinDistance(left: string, right: string) {
+  if (left === right) return 0;
+  if (!left) return right.length;
+  if (!right) return left.length;
+
+  const previous = Array.from({ length: right.length + 1 }, (_, index) => index);
+  const current = new Array<number>(right.length + 1);
+
+  for (let i = 1; i <= left.length; i += 1) {
+    current[0] = i;
+    for (let j = 1; j <= right.length; j += 1) {
+      const cost = left[i - 1] === right[j - 1] ? 0 : 1;
+      current[j] = Math.min(
+        current[j - 1] + 1,
+        previous[j] + 1,
+        previous[j - 1] + cost
+      );
+    }
+    for (let j = 0; j <= right.length; j += 1) {
+      previous[j] = current[j];
+    }
+  }
+
+  return previous[right.length];
+}
+
+function commonPrefixLength(left: string, right: string) {
+  const limit = Math.min(left.length, right.length);
+  let index = 0;
+  while (index < limit && left[index] === right[index]) {
+    index += 1;
+  }
+  return index;
+}
+
+function isLexicallyCloseForQuestJudge(target: string, candidate: string) {
+  const normalizedTarget = normalizeLexicalJudgeText(target);
+  const normalizedCandidate = normalizeLexicalJudgeText(candidate);
+  if (!normalizedTarget || !normalizedCandidate) {
+    return false;
+  }
+  if (normalizedTarget === normalizedCandidate) {
+    return true;
+  }
+
+  const targetRoots = collectLexicalRoots(target);
+  const candidateRoots = collectLexicalRoots(candidate);
+  for (const root of targetRoots) {
+    if (candidateRoots.has(root)) {
+      return true;
+    }
+  }
+
+  const shorterLength = Math.min(normalizedTarget.length, normalizedCandidate.length);
+  const longerLength = Math.max(normalizedTarget.length, normalizedCandidate.length);
+  if (
+    longerLength - shorterLength <= 4 &&
+    (normalizedTarget.includes(normalizedCandidate) || normalizedCandidate.includes(normalizedTarget))
+  ) {
+    return true;
+  }
+
+  const prefixLength = commonPrefixLength(normalizedTarget, normalizedCandidate);
+  const distance = levenshteinDistance(normalizedTarget, normalizedCandidate);
+  const maxDistance =
+    longerLength <= 5 ? 1 : longerLength <= 10 ? 2 : 3;
+
+  return prefixLength >= Math.max(3, Math.floor(shorterLength / 2)) && distance <= maxDistance;
+}
+
 function cosine(left: number[], right: number[]) {
   let dot = 0;
   let leftNorm = 0;
@@ -204,6 +313,76 @@ function loadDiscoveredRows(
   }
   stmt.free();
   return rows;
+}
+
+export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
+  db: Database,
+  targetNames: string[],
+  threshold = QUEST_COMPLETION_SIMILARITY_THRESHOLD
+) {
+  const uniqueTargets = uniqueNormalized(targetNames);
+  if (uniqueTargets.length === 0) {
+    return new Set<string>();
+  }
+
+  const discoveredRows = loadDiscoveredRows(db);
+  if (discoveredRows.length === 0) {
+    return new Set<string>();
+  }
+
+  await ensureSearchIndexForElementIds(
+    db,
+    discoveredRows.map((row) => row.id)
+  );
+
+  const embeddingsById = loadEmbeddingsByElementId(
+    db,
+    discoveredRows.map((row) => row.id)
+  );
+  const queryEmbeddings = await getQuestQueryEmbeddings(
+    db,
+    uniqueTargets.map((name) => ({
+      name,
+      normalizedName: normalizeQuestName(name),
+      icon: "🎯",
+      status: "available" as const,
+      matchedItemName: null,
+      completionMethod: null,
+      createdAt: null,
+      completedAt: null,
+    }))
+  );
+
+  const rejectedTargets = new Set<string>();
+  for (const target of uniqueTargets) {
+    const queryEmbedding = queryEmbeddings.get(normalizeQuestName(target));
+    if (!queryEmbedding) {
+      continue;
+    }
+    let bestSimilarity = 0;
+    let bestMatchName: string | null = null;
+    for (const row of discoveredRows) {
+      const itemEmbedding = embeddingsById.get(row.id);
+      if (!itemEmbedding) continue;
+      const similarity = cosine(queryEmbedding, itemEmbedding);
+      if (similarity > bestSimilarity) {
+        bestSimilarity = similarity;
+        bestMatchName = row.name;
+      }
+    }
+
+    if (bestSimilarity >= threshold) {
+      console.log("[api][quests] generation rejected by discovery embedding", {
+        target,
+        bestMatchName,
+        bestSimilarity: Number(bestSimilarity.toFixed(4)),
+        threshold,
+      });
+      rejectedTargets.add(normalizeQuestName(target));
+    }
+  }
+
+  return rejectedTargets;
 }
 
 function loadEmbeddingsByElementId(db: Database, elementIds: number[]) {
@@ -419,13 +598,22 @@ export async function syncQuestCompletions(
       bestMatchName &&
       bestSimilarity >= QUEST_COMPLETION_JUDGE_THRESHOLD
     ) {
-      const candidateKey = normalizeQuestName(bestMatchName);
-      const existing = borderlineChecksByCandidate.get(candidateKey);
-      if (!existing || bestSimilarity > existing.similarity) {
-        borderlineChecksByCandidate.set(candidateKey, {
-          quest,
+      const lexicalGatePassed = isLexicallyCloseForQuestJudge(quest.name, bestMatchName);
+      if (lexicalGatePassed) {
+        const candidateKey = normalizeQuestName(bestMatchName);
+        const existing = borderlineChecksByCandidate.get(candidateKey);
+        if (!existing || bestSimilarity > existing.similarity) {
+          borderlineChecksByCandidate.set(candidateKey, {
+            quest,
+            candidate: bestMatchName,
+            similarity: bestSimilarity,
+          });
+        }
+      } else if (logEnabled) {
+        console.log("[api][quests] completion judge skipped by lexical gate", {
+          target: quest.name,
           candidate: bestMatchName,
-          similarity: bestSimilarity,
+          similarity: Number(bestSimilarity.toFixed(4)),
         });
       }
     }

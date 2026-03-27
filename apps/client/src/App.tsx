@@ -1,7 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Maximize2,
-  Minimize2,
   ScrollText,
   Tags,
   Zap,
@@ -210,9 +208,6 @@ const App: React.FC = () => {
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const [isAndroidImmersive, setIsAndroidImmersive] = useState(false);
-  const [isAndroidImmersiveSuspended, setIsAndroidImmersiveSuspended] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [questReferences, setQuestReferences] = useState<
     Record<string, ItemReference | null | undefined>
@@ -243,12 +238,10 @@ const App: React.FC = () => {
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const celebrationTimeoutRef = useRef<number | null>(null);
-  const immersiveResumeTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const isRestoringWorkspaceRef = useRef(false);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
-  const isAndroidImmersiveActive = isAndroidImmersive && !isAndroidImmersiveSuspended;
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -376,73 +369,6 @@ const App: React.FC = () => {
   }, [isJournalOpen, isPortraitTabletLayout]);
 
   useEffect(() => {
-    const handleFullscreenChange = () => {
-      setIsFullscreen(document.fullscreenElement != null);
-    };
-
-    handleFullscreenChange();
-    document.addEventListener("fullscreenchange", handleFullscreenChange);
-    return () => {
-      document.removeEventListener("fullscreenchange", handleFullscreenChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!isAndroidDevice) {
-      return;
-    }
-    document.body.classList.toggle("android-immersive", isAndroidImmersiveActive);
-    return () => {
-      document.body.classList.remove("android-immersive");
-    };
-  }, [isAndroidDevice, isAndroidImmersiveActive]);
-
-  useEffect(() => {
-    if (!isAndroidDevice || !isAndroidImmersive) {
-      setIsAndroidImmersiveSuspended(false);
-      return;
-    }
-
-    const clearResumeTimeout = () => {
-      if (immersiveResumeTimeoutRef.current != null) {
-        window.clearTimeout(immersiveResumeTimeoutRef.current);
-        immersiveResumeTimeoutRef.current = null;
-      }
-    };
-
-    const handleFocusIn = (event: FocusEvent) => {
-      if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
-        clearResumeTimeout();
-        setIsAndroidImmersiveSuspended(true);
-      }
-    };
-
-    const handleFocusOut = () => {
-      clearResumeTimeout();
-      immersiveResumeTimeoutRef.current = window.setTimeout(() => {
-        const activeElement = document.activeElement;
-        if (
-          activeElement instanceof HTMLElement &&
-          ["INPUT", "TEXTAREA"].includes(activeElement.tagName)
-        ) {
-          return;
-        }
-        setIsAndroidImmersiveSuspended(false);
-        immersiveResumeTimeoutRef.current = null;
-      }, 220);
-    };
-
-    document.addEventListener("focusin", handleFocusIn, true);
-    document.addEventListener("focusout", handleFocusOut, true);
-
-    return () => {
-      clearResumeTimeout();
-      document.removeEventListener("focusin", handleFocusIn, true);
-      document.removeEventListener("focusout", handleFocusOut, true);
-    };
-  }, [isAndroidDevice, isAndroidImmersive]);
-
-  useEffect(() => {
     window.localStorage.setItem(
       FORCE_UNLOCKS_STORAGE_KEY,
       forceUnlocks ? "true" : "false"
@@ -534,10 +460,6 @@ const App: React.FC = () => {
       virtualKeyboard?.removeEventListener("geometrychange", applyKeyboardGeometry);
       document.removeEventListener("pointerdown", handlePointerDownCapture, true);
       document.documentElement.style.removeProperty("--android-keyboard-height");
-      if (immersiveResumeTimeoutRef.current != null) {
-        window.clearTimeout(immersiveResumeTimeoutRef.current);
-        immersiveResumeTimeoutRef.current = null;
-      }
     };
   }, [isAndroidDevice]);
 
@@ -738,24 +660,6 @@ const App: React.FC = () => {
       showError("Failed to update quest.", err);
     }
   }
-
-  async function toggleFullscreen() {
-    if (isAndroidDevice) {
-      setIsAndroidImmersive((current) => !current);
-      return;
-    }
-
-    try {
-      if (document.fullscreenElement) {
-        await document.exitFullscreen();
-      } else {
-        await document.documentElement.requestFullscreen();
-      }
-    } catch {
-    }
-  }
-
-  const isFullscreenActive = isAndroidDevice ? isAndroidImmersive : isFullscreen;
 
   function showProgressCelebration(
     kicker: string,
@@ -1504,7 +1408,7 @@ const App: React.FC = () => {
         </div>
       ) : null}
       <div
-        className={`app-root${isAndroidImmersiveActive ? " is-android-immersive" : ""}`}
+        className="app-root"
         style={
           isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
             ? ({
@@ -1531,27 +1435,6 @@ const App: React.FC = () => {
               {isPortraitTabletLayout ? null : (
                 <div className="graph-header">
                   <h2 className="section-title">Crafting workspace</h2>
-                  <div className="graph-header-actions">
-                    <button
-                      type="button"
-                      className="graph-fullscreen-button"
-                      onClick={() => {
-                        void toggleFullscreen();
-                      }}
-                      aria-label={
-                        isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"
-                      }
-                      title={
-                        isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"
-                      }
-                    >
-                      {isFullscreenActive ? (
-                        <Minimize2 size={15} strokeWidth={2} />
-                      ) : (
-                        <Maximize2 size={15} strokeWidth={2} />
-                      )}
-                    </button>
-                  </div>
                 </div>
               )}
               <div className="graph-canvas">
@@ -1582,23 +1465,6 @@ const App: React.FC = () => {
                       </button>
                     ) : null}
                   </div>
-                ) : null}
-                {isPortraitTabletLayout ? (
-                  <button
-                    type="button"
-                    className="graph-fullscreen-button graph-fullscreen-button-overlay"
-                    onClick={() => {
-                      void toggleFullscreen();
-                    }}
-                    aria-label={isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"}
-                    title={isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"}
-                  >
-                    {isFullscreenActive ? (
-                      <Minimize2 size={15} strokeWidth={2} />
-                    ) : (
-                      <Maximize2 size={15} strokeWidth={2} />
-                    )}
-                  </button>
                 ) : null}
                 <GraphView
                   items={items}

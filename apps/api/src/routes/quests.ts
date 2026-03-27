@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getDb, persistDatabase } from "../db";
 import { generateChallengeTargets, type OpenAiModel } from "../openaiClient";
 import {
+  findGeneratedQuestTargetsTooCloseToDiscoveries,
   importLegacyQuests,
   insertQuest,
   listQuests,
@@ -122,6 +123,10 @@ router.post("/generate", async (req, res) => {
         completedTargets,
         model,
       });
+      const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
+        db,
+        generated.targets.map((target) => target.name)
+      );
 
       for (const target of generated.targets) {
         const normalized = normalizeQuestName(target.name);
@@ -129,6 +134,7 @@ router.post("/generate", async (req, res) => {
         if (seen.has(normalized)) continue;
         if (existingQuestNames.has(normalized)) continue;
         if (discoveredSet.has(normalized)) continue;
+        if (semanticallyDiscoveredTargets.has(normalized)) continue;
         seen.add(normalized);
         acceptedTargets.push(target);
         if (acceptedTargets.length >= count) break;
