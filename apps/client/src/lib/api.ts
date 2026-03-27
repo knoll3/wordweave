@@ -264,6 +264,24 @@ export async function generateChallengeTargets(params: {
   return handleResponse<ChallengeTargetsResponse>(res);
 }
 
+export async function fetchCompletedQuestNames(
+  targets: string[],
+  options?: { candidateNames?: string[] }
+): Promise<string[]> {
+  const res = await fetch(`${API_BASE}/quests/complete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      targets,
+      candidateNames: options?.candidateNames,
+    }),
+  });
+  const data = await handleResponse<{ completedNames: string[] }>(res);
+  return data.completedNames ?? [];
+}
+
 export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {
   if (itemReferenceCache.has(elementId)) {
     return itemReferenceCache.get(elementId) ?? null;

@@ -27,6 +27,7 @@ import GraphView from "./components/Graph/GraphView";
 import JournalDock from "./components/Journal/JournalDock";
 import {
   combineElements,
+  fetchCompletedQuestNames,
   generateChallengeTargets,
   fetchQuestTargetReference,
   fetchUnlockStatuses,
@@ -174,6 +175,15 @@ function truncateAchievementReference(value: string, limit: number) {
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
+function setsEqual<T>(left: Set<T>, right: Set<T>) {
+  if (left === right) return true;
+  if (left.size !== right.size) return false;
+  for (const value of left) {
+    if (!right.has(value)) return false;
+  }
+  return true;
+}
+
 function normalizeQuestText(value: string) {
   return value
     .normalize("NFKD")
@@ -262,6 +272,7 @@ const App: React.FC = () => {
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
+  const [completedQuestNames, setCompletedQuestNames] = useState<Set<string>>(new Set());
   const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
   const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
@@ -284,6 +295,9 @@ const App: React.FC = () => {
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
   const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
+  const previousQuestCompletionItemIdsRef = useRef<Set<number> | null>(null);
+  const previousQuestCompletionNamesRef = useRef<Set<string> | null>(null);
+  const completedQuestNamesRef = useRef<Set<string>>(new Set());
   const celebrationTimeoutRef = useRef<number | null>(null);
   const immersiveResumeTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
@@ -291,6 +305,10 @@ const App: React.FC = () => {
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   const isAndroidImmersiveActive = isAndroidImmersive && !isAndroidImmersiveSuspended;
+
+  useEffect(() => {
+    completedQuestNamesRef.current = completedQuestNames;
+  }, [completedQuestNames]);
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -393,6 +411,29 @@ const App: React.FC = () => {
       mediaQuery.removeEventListener("change", handleChange);
     };
   }, []);
+
+  useEffect(() => {
+    if (!isPortraitTabletLayout || !isJournalOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      const dock = journalDockRef.current;
+      if (!(target instanceof Node) || !dock) {
+        return;
+      }
+      if (dock.contains(target)) {
+        return;
+      }
+      setIsJournalOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown, true);
+    };
+  }, [isJournalOpen, isPortraitTabletLayout]);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -619,28 +660,90 @@ const App: React.FC = () => {
     });
   }, [visibleChallengeTargets]);
 
-  const completedQuestNames = useMemo(() => {
-    const normalizedItems = items.map((item) =>
-      normalizeQuestText(item.normalizedName || item.name)
-    );
-    const completed = new Set<string>();
+  useEffect(() => {
+    let cancelled = false;
 
-    for (const quest of visibleChallengeTargets) {
-      const normalizedQuest = normalizeQuestText(quest.name);
-      if (!normalizedQuest) continue;
-      if (
-        normalizedItems.some(
-          (itemName) =>
-            itemName === normalizedQuest ||
-            compactQuestText(itemName) === compactQuestText(normalizedQuest) ||
-            isContainedQuestPhrase(itemName, normalizedQuest)
-        )
-      ) {
-        completed.add(quest.name);
-      }
+    const visibleQuestNames = visibleChallengeTargets.map((quest) => quest.name);
+    const currentVisibleQuestNameSet = new Set(visibleQuestNames);
+    const previousQuestNames = previousQuestCompletionNamesRef.current;
+    const previousItemIds = previousQuestCompletionItemIdsRef.current;
+
+    if (visibleQuestNames.length === 0) {
+      setCompletedQuestNames((prev) => (prev.size === 0 ? prev : new Set()));
+      previousQuestCompletionNamesRef.current = new Set();
+      previousQuestCompletionItemIdsRef.current = new Set(items.map((item) => item.id));
+      return () => {
+        cancelled = true;
+      };
     }
 
-    return completed;
+    void (async () => {
+      try {
+        const currentItemIds = new Set(items.map((item) => item.id));
+        const currentItemNames = items.map((item) => item.name);
+        const nextKnownCompleted = new Set(
+          [...completedQuestNamesRef.current].filter((name) =>
+            currentVisibleQuestNameSet.has(name)
+          )
+        );
+
+        const newlyAddedQuestNames =
+          previousQuestNames == null
+            ? visibleQuestNames.filter((name) => !nextKnownCompleted.has(name))
+            : visibleQuestNames.filter(
+                (name) => !previousQuestNames.has(name) && !nextKnownCompleted.has(name)
+              );
+
+        const newlyDiscoveredItemNames =
+          previousItemIds == null
+            ? []
+            : items
+                .filter((item) => !previousItemIds.has(item.id))
+                .map((item) => item.name);
+
+        let shouldSyncAll = previousQuestNames == null || previousItemIds == null;
+        if (shouldSyncAll) {
+          const completedNames = await fetchCompletedQuestNames(
+            visibleQuestNames.filter((name) => !nextKnownCompleted.has(name))
+          );
+          completedNames.forEach((name) => nextKnownCompleted.add(name));
+        } else {
+          if (newlyAddedQuestNames.length > 0) {
+            const completedNames = await fetchCompletedQuestNames(newlyAddedQuestNames);
+            completedNames.forEach((name) => nextKnownCompleted.add(name));
+          }
+
+          const remainingQuestNames = visibleQuestNames.filter(
+            (name) => !nextKnownCompleted.has(name)
+          );
+          if (remainingQuestNames.length > 0 && newlyDiscoveredItemNames.length > 0) {
+            const completedNames = await fetchCompletedQuestNames(remainingQuestNames, {
+              candidateNames: newlyDiscoveredItemNames,
+            });
+            completedNames.forEach((name) => nextKnownCompleted.add(name));
+          }
+        }
+
+        if (cancelled) {
+          return;
+        }
+        setCompletedQuestNames((prev) =>
+          setsEqual(prev, nextKnownCompleted) ? prev : nextKnownCompleted
+        );
+        previousQuestCompletionNamesRef.current = currentVisibleQuestNameSet;
+        previousQuestCompletionItemIdsRef.current = currentItemIds;
+      } catch {
+        if (!cancelled) {
+          setCompletedQuestNames((prev) =>
+            new Set([...prev].filter((name) => currentVisibleQuestNameSet.has(name)))
+          );
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
   }, [items, visibleChallengeTargets]);
 
   useEffect(() => {
@@ -884,6 +987,10 @@ const App: React.FC = () => {
     selectedQuestName == null
       ? null
       : visibleChallengeTargets.find((entry) => entry.name === selectedQuestName) ?? null;
+  const primaryTrackedQuest =
+    visibleChallengeTargets.find(
+      (quest) => trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
+    ) ?? null;
   const selectedQuestItem =
     selectedQuest == null
       ? null
@@ -1571,15 +1678,32 @@ const App: React.FC = () => {
               )}
               <div className="graph-canvas">
                 {isPortraitTabletLayout ? (
-                  <button
-                    type="button"
-                    className="graph-fullscreen-button graph-quests-button-overlay"
-                    onClick={() => openJournal()}
-                    aria-label="Open quests"
-                    title="Open quests"
-                  >
-                    <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
-                  </button>
+                  <div className="graph-quests-button-overlay">
+                    <button
+                      type="button"
+                      className="graph-fullscreen-button graph-quests-button-trigger"
+                      onClick={() => openJournal()}
+                      aria-label="Open quests"
+                      title="Open quests"
+                    >
+                      <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                    {primaryTrackedQuest ? (
+                      <button
+                        type="button"
+                        className="graph-quest-target-chip"
+                        onClick={() => openJournal()}
+                        title={primaryTrackedQuest.name}
+                      >
+                        <span className="graph-quest-target-chip-marker" aria-hidden="true">
+                          ◎
+                        </span>
+                        <span className="graph-quest-target-chip-label">
+                          {primaryTrackedQuest.name}
+                        </span>
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
                 {isPortraitTabletLayout ? (
                   <button

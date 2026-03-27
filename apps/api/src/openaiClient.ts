@@ -422,6 +422,80 @@ export async function generateChallengeTargets(params: {
   return result.data;
 }
 
+export async function judgeQuestCompletionCandidate(params: {
+  target: string;
+  candidate: string;
+  model?: OpenAiModel;
+}) {
+  const openai = getOpenAI();
+  const model = params.model ?? "gpt-5-nano";
+  const prompt = `
+You are judging whether a discovered word should satisfy a quest target in a word-combination discovery game.
+
+Be generous for very close lexical variants and inflections of the same core word, such as:
+- tense changes
+- participles / gerunds
+- singular / plural
+- closely related derivational forms when they would reasonably count in play
+
+Do not accept words that are only loosely related, adjacent in meaning, or merely in the same topic.
+
+Target quest word: ${JSON.stringify(params.target)}
+Discovered word: ${JSON.stringify(params.candidate)}
+
+Return ONLY valid JSON:
+{"match":true}
+`.trim();
+
+  console.log("[openai][quest-judge] sending request", {
+    model,
+    target: params.target,
+    candidate: params.candidate,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 0,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  });
+
+  const promptTokens = response.usage?.prompt_tokens ?? 0;
+  const completionTokens = response.usage?.completion_tokens ?? 0;
+  const cachedPromptTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const responseModel = response.model ?? model;
+  logUsageAndCost({
+    logPrefix: "[openai][quest-judge]",
+    responseModel,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][quest-judge] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  if (typeof parsed !== "object" || parsed == null || typeof (parsed as { match?: unknown }).match !== "boolean") {
+    throw new Error("OpenAI quest judge failed validation");
+  }
+
+  return {
+    match: (parsed as { match: boolean }).match,
+  };
+}
+
 export async function generateEmbeddings(texts: string[]) {
   const openai = getOpenAI();
   const cleanTexts = texts.map((text) => text.trim()).filter(Boolean);
