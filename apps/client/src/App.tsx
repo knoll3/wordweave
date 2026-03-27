@@ -15,9 +15,9 @@ import {
 import type {
   AutoUnlockedActionWord,
   AiModel,
-  ChallengeTarget,
   FeatureUnlockStatus,
   Item,
+  QuestRecord,
   SelectionCombineLayout,
   UnlockKey,
   WorkspaceItem,
@@ -27,10 +27,12 @@ import GraphView from "./components/Graph/GraphView";
 import JournalDock from "./components/Journal/JournalDock";
 import {
   combineElements,
-  fetchCompletedQuestNames,
+  fetchQuests,
   generateChallengeTargets,
   fetchQuestTargetReference,
   fetchUnlockStatuses,
+  importLegacyQuestState,
+  updateQuestStatus,
   type ItemReference,
 } from "./lib/api";
 import {
@@ -49,9 +51,9 @@ const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
-const CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
-const TRACKED_QUEST_NAMES_STORAGE_KEY = "wordweave.tracked-quests";
-const ABANDONED_QUEST_NAMES_STORAGE_KEY = "wordweave.abandoned-quests";
+const LEGACY_CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
+const LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY = "wordweave.tracked-quests";
+const LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY = "wordweave.abandoned-quests";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
@@ -65,6 +67,11 @@ type QuestCelebrationState = {
 
 type ActionUnlockModalState = {
   unlockedWords: AutoUnlockedActionWord[];
+};
+
+type LegacyChallengeTarget = {
+  name: string;
+  icon: string;
 };
 
 type VirtualKeyboardApi = {
@@ -112,12 +119,12 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   }
 };
 
-const loadStoredChallengeTargets = (): ChallengeTarget[] => {
+const loadLegacyStoredChallengeTargets = (): LegacyChallengeTarget[] => {
   if (typeof window === "undefined") {
     return [];
   }
 
-  const stored = window.localStorage.getItem(CHALLENGE_TARGETS_STORAGE_KEY);
+  const stored = window.localStorage.getItem(LEGACY_CHALLENGE_TARGETS_STORAGE_KEY);
   if (!stored) {
     return [];
   }
@@ -129,7 +136,7 @@ const loadStoredChallengeTargets = (): ChallengeTarget[] => {
     }
 
     return parsed.filter(
-      (entry): entry is ChallengeTarget =>
+      (entry): entry is LegacyChallengeTarget =>
         !!entry &&
         typeof entry.name === "string" &&
         entry.name.trim().length > 0 &&
@@ -175,66 +182,17 @@ function truncateAchievementReference(value: string, limit: number) {
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
-function setsEqual<T>(left: Set<T>, right: Set<T>) {
-  if (left === right) return true;
-  if (left.size !== right.size) return false;
-  for (const value of left) {
-    if (!right.has(value)) return false;
-  }
-  return true;
+function normalizeName(value: string) {
+  return value.trim().toLowerCase();
 }
 
-function normalizeQuestText(value: string) {
-  return value
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .trim()
-    .toLowerCase()
-    .replace(/[’']/g, "")
-    .replace(/[-–—]+/g, " ")
-    .replace(/[^a-z0-9\s]+/g, " ")
-    .replace(/\b(the|a|an)\b/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function compactQuestText(value: string) {
-  return normalizeQuestText(value).replace(/\s+/g, "");
-}
-
-function questsCloselyMatch(left: string, right: string) {
-  const normalizedLeft = normalizeQuestText(left);
-  const normalizedRight = normalizeQuestText(right);
-  if (!normalizedLeft || !normalizedRight) {
-    return false;
+function clearLegacyQuestStorage() {
+  if (typeof window === "undefined") {
+    return;
   }
-  if (normalizedLeft === normalizedRight) {
-    return true;
-  }
-  return compactQuestText(normalizedLeft) === compactQuestText(normalizedRight);
-}
-
-function isContainedQuestPhrase(itemName: string, questName: string) {
-  const itemTokens = itemName.split(/\s+/).filter(Boolean);
-  const questTokens = questName.split(/\s+/).filter(Boolean);
-  if (questTokens.length < 2 || itemTokens.length <= questTokens.length) {
-    return false;
-  }
-
-  for (let start = 0; start <= itemTokens.length - questTokens.length; start += 1) {
-    let matches = true;
-    for (let offset = 0; offset < questTokens.length; offset += 1) {
-      if (itemTokens[start + offset] !== questTokens[offset]) {
-        matches = false;
-        break;
-      }
-    }
-    if (matches) {
-      return true;
-    }
-  }
-
-  return false;
+  window.localStorage.removeItem(LEGACY_CHALLENGE_TARGETS_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY);
+  window.localStorage.removeItem(LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY);
 }
 
 const App: React.FC = () => {
@@ -259,20 +217,11 @@ const App: React.FC = () => {
   const [questReferences, setQuestReferences] = useState<
     Record<string, ItemReference | null | undefined>
   >({});
-  const [challengeTargets, setChallengeTargets] = useState<ChallengeTarget[]>(
-    loadStoredChallengeTargets
-  );
-  const [trackedQuestNames, setTrackedQuestNames] = useState<Set<string>>(
-    () => loadStoredNameSet(TRACKED_QUEST_NAMES_STORAGE_KEY)
-  );
-  const [abandonedQuestNames, setAbandonedQuestNames] = useState<Set<string>>(
-    () => loadStoredNameSet(ABANDONED_QUEST_NAMES_STORAGE_KEY)
-  );
+  const [quests, setQuests] = useState<QuestRecord[]>([]);
   const [isGeneratingChallengeTargets, setIsGeneratingChallengeTargets] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
-  const [completedQuestNames, setCompletedQuestNames] = useState<Set<string>>(new Set());
   const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
   const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
@@ -293,11 +242,6 @@ const App: React.FC = () => {
   });
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
-  const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
-  const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
-  const previousQuestCompletionItemIdsRef = useRef<Set<number> | null>(null);
-  const previousQuestCompletionNamesRef = useRef<Set<string> | null>(null);
-  const completedQuestNamesRef = useRef<Set<string>>(new Set());
   const celebrationTimeoutRef = useRef<number | null>(null);
   const immersiveResumeTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
@@ -305,10 +249,6 @@ const App: React.FC = () => {
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   const isAndroidImmersiveActive = isAndroidImmersive && !isAndroidImmersiveSuspended;
-
-  useEffect(() => {
-    completedQuestNamesRef.current = completedQuestNames;
-  }, [completedQuestNames]);
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -510,20 +450,6 @@ const App: React.FC = () => {
   }, [forceUnlocks]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      TRACKED_QUEST_NAMES_STORAGE_KEY,
-      JSON.stringify([...trackedQuestNames])
-    );
-  }, [trackedQuestNames]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      ABANDONED_QUEST_NAMES_STORAGE_KEY,
-      JSON.stringify([...abandonedQuestNames])
-    );
-  }, [abandonedQuestNames]);
-
-  useEffect(() => {
     if (!isAndroidDevice) {
       setAndroidViewportHeight(null);
       setAndroidKeyboardHeight(0);
@@ -628,13 +554,6 @@ const App: React.FC = () => {
   }, [combiningNodeIds, workspaceItems]);
 
   useEffect(() => {
-    window.localStorage.setItem(
-      CHALLENGE_TARGETS_STORAGE_KEY,
-      JSON.stringify(challengeTargets)
-    );
-  }, [challengeTargets]);
-
-  useEffect(() => {
     if (!errorMessage) return;
     const timeoutId = window.setTimeout(() => {
       setErrorMessage(null);
@@ -646,155 +565,60 @@ const App: React.FC = () => {
     void loadFeatureUnlocks();
   }, []);
 
-  const visibleChallengeTargets = useMemo(
-    () =>
-      challengeTargets.filter((quest) => !abandonedQuestNames.has(quest.name)),
-    [abandonedQuestNames, challengeTargets]
-  );
-
-  useEffect(() => {
-    const visibleQuestNames = new Set(visibleChallengeTargets.map((quest) => quest.name));
-    setTrackedQuestNames((prev) => {
-      const next = new Set([...prev].filter((name) => visibleQuestNames.has(name)));
-      return next.size === prev.size ? prev : next;
-    });
-  }, [visibleChallengeTargets]);
-
   useEffect(() => {
     let cancelled = false;
 
-    const visibleQuestNames = visibleChallengeTargets.map((quest) => quest.name);
-    const currentVisibleQuestNameSet = new Set(visibleQuestNames);
-    const previousQuestNames = previousQuestCompletionNamesRef.current;
-    const previousItemIds = previousQuestCompletionItemIdsRef.current;
-
-    if (visibleQuestNames.length === 0) {
-      setCompletedQuestNames((prev) => (prev.size === 0 ? prev : new Set()));
-      previousQuestCompletionNamesRef.current = new Set();
-      previousQuestCompletionItemIdsRef.current = new Set(items.map((item) => item.id));
-      return () => {
-        cancelled = true;
-      };
-    }
-
     void (async () => {
       try {
-        const currentItemIds = new Set(items.map((item) => item.id));
-        const currentItemNames = items.map((item) => item.name);
-        const nextKnownCompleted = new Set(
-          [...completedQuestNamesRef.current].filter((name) =>
-            currentVisibleQuestNameSet.has(name)
-          )
-        );
-
-        const newlyAddedQuestNames =
-          previousQuestNames == null
-            ? visibleQuestNames.filter((name) => !nextKnownCompleted.has(name))
-            : visibleQuestNames.filter(
-                (name) => !previousQuestNames.has(name) && !nextKnownCompleted.has(name)
-              );
-
-        const newlyDiscoveredItemNames =
-          previousItemIds == null
-            ? []
-            : items
-                .filter((item) => !previousItemIds.has(item.id))
-                .map((item) => item.name);
-
-        let shouldSyncAll = previousQuestNames == null || previousItemIds == null;
-        if (shouldSyncAll) {
-          const completedNames = await fetchCompletedQuestNames(
-            visibleQuestNames.filter((name) => !nextKnownCompleted.has(name))
-          );
-          completedNames.forEach((name) => nextKnownCompleted.add(name));
-        } else {
-          if (newlyAddedQuestNames.length > 0) {
-            const completedNames = await fetchCompletedQuestNames(newlyAddedQuestNames);
-            completedNames.forEach((name) => nextKnownCompleted.add(name));
-          }
-
-          const remainingQuestNames = visibleQuestNames.filter(
-            (name) => !nextKnownCompleted.has(name)
-          );
-          if (remainingQuestNames.length > 0 && newlyDiscoveredItemNames.length > 0) {
-            const completedNames = await fetchCompletedQuestNames(remainingQuestNames, {
-              candidateNames: newlyDiscoveredItemNames,
+        let nextQuests = await fetchQuests();
+        if (!cancelled && nextQuests.length === 0) {
+          const legacyQuests = loadLegacyStoredChallengeTargets();
+          if (legacyQuests.length > 0) {
+            nextQuests = await importLegacyQuestState({
+              quests: legacyQuests.map((quest) => ({
+                name: quest.name,
+                icon: quest.icon,
+              })),
+              trackedNames: [...loadStoredNameSet(LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY)],
+              abandonedNames: [...loadStoredNameSet(LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY)],
             });
-            completedNames.forEach((name) => nextKnownCompleted.add(name));
+            clearLegacyQuestStorage();
           }
         }
-
-        if (cancelled) {
-          return;
-        }
-        setCompletedQuestNames((prev) =>
-          setsEqual(prev, nextKnownCompleted) ? prev : nextKnownCompleted
-        );
-        previousQuestCompletionNamesRef.current = currentVisibleQuestNameSet;
-        previousQuestCompletionItemIdsRef.current = currentItemIds;
-      } catch {
         if (!cancelled) {
-          setCompletedQuestNames((prev) =>
-            new Set([...prev].filter((name) => currentVisibleQuestNameSet.has(name)))
-          );
+          setQuests(nextQuests);
         }
+      } catch {
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [items, visibleChallengeTargets]);
+  }, []);
 
-  useEffect(() => {
-    const previousCompleted = initialQuestSnapshotRef.current;
-    const previousItemIds = previousQuestItemIdsRef.current;
-
-    if (previousCompleted == null || previousItemIds == null) {
-      initialQuestSnapshotRef.current = new Set(completedQuestNames);
-      previousQuestItemIdsRef.current = new Set(items.map((item) => item.id));
-      return;
-    }
-
-    const newlyCompleted = visibleChallengeTargets.filter(
-      (quest) => completedQuestNames.has(quest.name) && !previousCompleted.has(quest.name)
-    );
-    const newlyCompletedTrackedCount = newlyCompleted.filter((quest) =>
-      trackedQuestNames.has(quest.name)
-    ).length;
-
-    const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
-    const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
-    const celebrationNodeId =
-      newestDiscoveredItem != null
-        ? [...workspaceItems]
-            .reverse()
-            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ??
-          null
-        : null;
-
-    if (newlyCompleted.length > 0) {
-      showProgressCelebration(
-        "Quest Complete",
-        newlyCompleted.length === 1
-          ? newlyCompleted[0].name
-          : `${newlyCompleted.length} quests completed`,
-        newlyCompleted.length === 1
-          ? trackedQuestNames.has(newlyCompleted[0].name)
-            ? "You discovered one of your active quests."
-            : "You discovered one of your available quests."
-          : newlyCompletedTrackedCount === newlyCompleted.length
-            ? "You completed multiple active quests."
-            : newlyCompletedTrackedCount === 0
-              ? "You completed multiple available quests."
-              : "You completed multiple quests.",
-        celebrationNodeId
-      );
-    }
-
-    initialQuestSnapshotRef.current = new Set(completedQuestNames);
-    previousQuestItemIdsRef.current = new Set(items.map((item) => item.id));
-  }, [completedQuestNames, items, trackedQuestNames, visibleChallengeTargets, workspaceItems]);
+  const visibleChallengeTargets = useMemo(
+    () => quests.filter((quest) => quest.status !== "abandoned"),
+    [quests]
+  );
+  const trackedQuestNames = useMemo(
+    () =>
+      new Set(
+        visibleChallengeTargets
+          .filter((quest) => quest.status === "tracked")
+          .map((quest) => quest.name)
+      ),
+    [visibleChallengeTargets]
+  );
+  const completedQuestNames = useMemo(
+    () =>
+      new Set(
+        visibleChallengeTargets
+          .filter((quest) => quest.status === "completed")
+          .map((quest) => quest.name)
+      ),
+    [visibleChallengeTargets]
+  );
 
   useEffect(() => {
     if (!isJournalOpen || visibleChallengeTargets.length === 0) {
@@ -858,30 +682,12 @@ const App: React.FC = () => {
   async function generateQuests(difficulty: "easy" | "hard") {
     setIsGeneratingChallengeTargets(true);
     try {
-      const completedQuestTargets = challengeTargets
-        .filter((target) => completedQuestNames.has(target.name))
-        .map((target) => target.name)
-        .slice(-50);
-      const response = await generateChallengeTargets({
+      const nextQuests = await generateChallengeTargets({
         count: 10,
         difficulty,
-        recentTargets: visibleChallengeTargets.map((target) => target.name),
-        completedTargets: completedQuestTargets,
         model: selectedModel,
       });
-      setChallengeTargets((prev) => {
-        const seen = new Set(prev.map((target) => target.name.trim().toLowerCase()));
-        const next = [...prev];
-        for (const target of response.targets) {
-          const normalized = target.name.trim().toLowerCase();
-          if (!normalized || seen.has(normalized)) {
-            continue;
-          }
-          seen.add(normalized);
-          next.push(target);
-        }
-        return next;
-      });
+      setQuests(nextQuests);
       setRightPanelMode("journal");
       setIsJournalOpen(true);
     } catch (err) {
@@ -897,36 +703,40 @@ const App: React.FC = () => {
     setIsJournalOpen(true);
   }
 
-  function openQuestDetails(quest: ChallengeTarget) {
+  function openQuestDetails(quest: QuestRecord) {
     setSelectedQuestName(quest.name);
     setRightPanelMode("quest");
     setIsJournalOpen(true);
   }
 
-  function trackQuest(questName: string) {
-    setTrackedQuestNames((prev) => new Set(prev).add(questName));
-  }
-
-  function untrackQuest(questName: string) {
-    setTrackedQuestNames((prev) => {
-      const next = new Set(prev);
-      next.delete(questName);
-      return next;
-    });
-  }
-
-  function abandonQuest(questName: string) {
-    setTrackedQuestNames((prev) => {
-      const next = new Set(prev);
-      next.delete(questName);
-      return next;
-    });
-    setAbandonedQuestNames((prev) => new Set(prev).add(questName));
-    if (selectedQuestName === questName) {
-      setSelectedQuestName(null);
-      setRightPanelMode("journal");
+  async function trackQuest(questName: string) {
+    try {
+      setQuests(await updateQuestStatus({ name: questName, status: "tracked" }));
+    } catch (err) {
+      showError("Failed to update quest.", err);
     }
-    setPendingAbandonedQuestName(null);
+  }
+
+  async function untrackQuest(questName: string) {
+    try {
+      setQuests(await updateQuestStatus({ name: questName, status: "available" }));
+    } catch (err) {
+      showError("Failed to update quest.", err);
+    }
+  }
+
+  async function abandonQuest(questName: string) {
+    try {
+      const nextQuests = await updateQuestStatus({ name: questName, status: "abandoned" });
+      setQuests(nextQuests);
+      if (selectedQuestName === questName) {
+        setSelectedQuestName(null);
+        setRightPanelMode("journal");
+      }
+      setPendingAbandonedQuestName(null);
+    } catch (err) {
+      showError("Failed to update quest.", err);
+    }
   }
 
   async function toggleFullscreen() {
@@ -967,6 +777,48 @@ const App: React.FC = () => {
     }, QUEST_CELEBRATION_DURATION_MS);
   }
 
+  function applyNewlyCompletedQuests(
+    newlyCompletedQuestNames: string[],
+    celebrationNodeId: string | null
+  ) {
+    if (newlyCompletedQuestNames.length === 0) {
+      return;
+    }
+
+    const completedNameSet = new Set(newlyCompletedQuestNames);
+    const newlyCompletedTrackedCount = quests.filter(
+      (quest) => completedNameSet.has(quest.name) && quest.status === "tracked"
+    ).length;
+
+    setQuests((prev) =>
+      prev.map((quest) =>
+        completedNameSet.has(quest.name)
+          ? {
+              ...quest,
+              status: "completed",
+            }
+          : quest
+      )
+    );
+
+    showProgressCelebration(
+      "Quest Complete",
+      newlyCompletedQuestNames.length === 1
+        ? newlyCompletedQuestNames[0]
+        : `${newlyCompletedQuestNames.length} quests completed`,
+      newlyCompletedQuestNames.length === 1
+        ? newlyCompletedTrackedCount === 1
+          ? "You discovered one of your active quests."
+          : "You discovered one of your available quests."
+        : newlyCompletedTrackedCount === newlyCompletedQuestNames.length
+          ? "You completed multiple active quests."
+          : newlyCompletedTrackedCount === 0
+            ? "You completed multiple available quests."
+            : "You completed multiple quests.",
+      celebrationNodeId
+    );
+  }
+
   useEffect(
     () => () => {
       if (celebrationTimeoutRef.current != null) {
@@ -994,9 +846,13 @@ const App: React.FC = () => {
   const selectedQuestItem =
     selectedQuest == null
       ? null
-      : items.find(
-          (entry) => questsCloselyMatch(entry.normalizedName || entry.name, selectedQuest.name)
-        ) ?? null;
+      : selectedQuest.matchedItemName == null
+        ? null
+        : items.find(
+            (entry) =>
+              normalizeName(entry.normalizedName || entry.name) ===
+              normalizeName(selectedQuest.matchedItemName || "")
+          ) ?? null;
   const unlockedCatalystFamilyKeys = useMemo(() => {
     const discoveredTriggerNames = new Set(
       items.map((item) => normalizeActionTrigger(item.normalizedName || item.name))
@@ -1384,6 +1240,7 @@ const App: React.FC = () => {
             ? [recipe.resultElement]
             : [];
       const autoUnlockedActionWords = recipe.autoUnlockedActionWords ?? [];
+      const newlyCompletedQuestNames = recipe.newlyCompletedQuestNames ?? [];
 
       if (producedItems.length === 0) {
         showError("Combine returned no result item.", null);
@@ -1409,6 +1266,13 @@ const App: React.FC = () => {
       const hasNewDiscovery = producedItemsWithDiscovery.some(
         (produced) => produced.isNewDiscovery
       );
+      const newlyDiscoveredProducedItems = producedItemsWithDiscovery.filter(
+        (produced) => produced.isNewDiscovery
+      );
+      const newestDiscoveredItem =
+        newlyDiscoveredProducedItems.length > 0
+          ? newlyDiscoveredProducedItems[newlyDiscoveredProducedItems.length - 1].item
+          : null;
       if (autoUnlockedActionWords.length > 0) {
         setActionUnlockModal({
           unlockedWords: autoUnlockedActionWords,
@@ -1480,6 +1344,20 @@ const App: React.FC = () => {
           }));
           return [...withoutInputs, ...spawned];
         }, { recordHistory: false });
+      }
+      const celebrationNodeId =
+        newestDiscoveredItem != null
+          ? [...workspaceItems]
+              .reverse()
+              .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ??
+            null
+          : null;
+      applyNewlyCompletedQuests(newlyCompletedQuestNames, celebrationNodeId);
+      if (newlyCompletedQuestNames.length > 0) {
+        try {
+          setQuests(await fetchQuests());
+        } catch {
+        }
       }
       if (hasNewDiscovery) {
         void loadFeatureUnlocks();

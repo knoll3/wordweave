@@ -135,6 +135,7 @@ export interface Recipe {
   resultElement?: Item;
   resultElements?: Item[];
   autoUnlockedActionWords?: AutoUnlockedActionWord[];
+  newlyCompletedQuestNames?: string[];
 }
 
 export interface RecentRecipe {
@@ -313,8 +314,18 @@ export interface ChallengeTarget {
   icon: string;
 }
 
-export interface ChallengeTargetsResponse {
-  targets: ChallengeTarget[];
+export type QuestStatus = "available" | "tracked" | "completed" | "abandoned";
+
+export interface QuestRecord extends ChallengeTarget {
+  status: QuestStatus;
+  matchedItemName: string | null;
+  completionMethod: "exact" | "embedding" | "judge" | null;
+  createdAt: string | null;
+  completedAt: string | null;
+}
+
+export interface QuestListResponse {
+  quests: QuestRecord[];
 }
 
 export interface FeatureUnlockStatus {

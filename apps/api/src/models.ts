@@ -28,6 +28,7 @@ export interface RecipeDTO {
     triggerWord: string;
     element: ElementDTO;
   }>;
+  newlyCompletedQuestNames?: string[];
 }
 
 export interface RecentRecipeDTO {
@@ -103,6 +104,7 @@ export function buildCombineResponse(params: {
   resultElement?: ElementDTO;
   resultElements?: ElementDTO[];
   autoUnlockedActionWords?: RecipeDTO["autoUnlockedActionWords"];
+  newlyCompletedQuestNames?: string[];
 }): RecipeDTO {
   const {
     recipeRow,
@@ -110,6 +112,7 @@ export function buildCombineResponse(params: {
     resultElement,
     resultElements,
     autoUnlockedActionWords,
+    newlyCompletedQuestNames,
   } = params;
 
   const inputs = JSON.parse(recipeRow.input_display_json) as {
@@ -129,6 +132,10 @@ export function buildCombineResponse(params: {
     autoUnlockedActionWords:
       autoUnlockedActionWords && autoUnlockedActionWords.length > 0
         ? autoUnlockedActionWords
+        : undefined,
+    newlyCompletedQuestNames:
+      newlyCompletedQuestNames && newlyCompletedQuestNames.length > 0
+        ? newlyCompletedQuestNames
         : undefined,
   };
 }

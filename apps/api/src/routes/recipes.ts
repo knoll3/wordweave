@@ -29,6 +29,7 @@ import {
   normalizeInputs,
   toTitleCaseWords,
 } from "../models";
+import { syncQuestCompletions } from "../questState";
 
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
@@ -511,14 +512,25 @@ router.post("/combine", async (req, res) => {
         triggerWord: string;
         element: ElementDTO;
       }> = [];
+      let newlyCompletedQuestNames: string[] = [];
 
       if (resultElement) {
-        discoverElement(db, Number(resultElement.id));
+        const wasNewResultDiscovery = discoverElement(db, Number(resultElement.id));
         autoUnlockedActionWords = maybeAutoUnlockActionWords(db, [resultElement]);
         await syncSearchIndex(db, [
           Number(resultElement.id),
           ...autoUnlockedActionWords.map((entry) => entry.element.id),
         ]);
+        const candidateNames = [
+          ...(wasNewResultDiscovery ? [resultElement.name] : []),
+          ...autoUnlockedActionWords.map((entry) => entry.element.name),
+        ];
+        if (candidateNames.length > 0) {
+          const completionResult = await syncQuestCompletions(db, {
+            candidateNames,
+          });
+          newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        }
         persistDatabase(db);
       }
 
@@ -595,7 +607,7 @@ router.post("/combine", async (req, res) => {
           normalizedName,
           icon: chosenIcon,
         });
-        discoverElement(db, elementId);
+        const wasNewResultDiscovery = discoverElement(db, elementId);
 
         const updateRecipeStmt = db.prepare(
           "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -619,6 +631,16 @@ router.post("/combine", async (req, res) => {
           elementId,
           ...autoUnlockedActionWords.map((entry) => entry.element.id),
         ]);
+        const candidateNames = [
+          ...(wasNewResultDiscovery && resultElement ? [resultElement.name] : []),
+          ...autoUnlockedActionWords.map((entry) => entry.element.name),
+        ];
+        if (candidateNames.length > 0) {
+          const completionResult = await syncQuestCompletions(db, {
+            candidateNames,
+          });
+          newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        }
         persistDatabase(db);
       }
 
@@ -628,6 +650,7 @@ router.post("/combine", async (req, res) => {
           candidates: candidatesRows,
           resultElement,
           autoUnlockedActionWords,
+          newlyCompletedQuestNames,
         })
       );
     }
@@ -718,6 +741,7 @@ router.post("/combine", async (req, res) => {
       triggerWord: string;
       element: ElementDTO;
     }> = [];
+    const newlyDiscoveredQuestCandidateNames: string[] = [];
     try {
       const insertRecipeStmt = db.prepare(
         "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
@@ -768,7 +792,9 @@ router.post("/combine", async (req, res) => {
         normalizedName,
         icon: primaryGeneratedResult.icon,
       });
-      discoverElement(db, elementId);
+      if (discoverElement(db, elementId)) {
+        newlyDiscoveredQuestCandidateNames.push(primaryGeneratedResult.name);
+      }
       const additionalElementIds: number[] = [];
       for (const [extraIndex, extraResult] of generatedResults.slice(1).entries()) {
         const extraElementId = ensureElement(db, {
@@ -776,7 +802,9 @@ router.post("/combine", async (req, res) => {
           normalizedName: extraResult.name.trim().toLowerCase(),
           icon: extraResult.icon,
         });
-        discoverElement(db, extraElementId);
+        if (discoverElement(db, extraElementId)) {
+          newlyDiscoveredQuestCandidateNames.push(extraResult.name);
+        }
         additionalElementIds.push(extraElementId);
 
         const secondaryInputKey = buildSecondaryStoredRecipeInputKey(
@@ -863,6 +891,18 @@ router.post("/combine", async (req, res) => {
 
     persistDatabase(db);
 
+    newlyDiscoveredQuestCandidateNames.push(
+      ...autoUnlockedActionWords.map((entry) => entry.element.name)
+    );
+    let newlyCompletedQuestNames: string[] = [];
+    if (newlyDiscoveredQuestCandidateNames.length > 0) {
+      const completionResult = await syncQuestCompletions(db, {
+        candidateNames: newlyDiscoveredQuestCandidateNames,
+      });
+      newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+      persistDatabase(db);
+    }
+
     // Load back inserted data
     stmt = db.prepare("SELECT * FROM recipes WHERE input_key = ?");
     recipeRow = stmt.getAsObject([storedRecipeInputKey]);
@@ -899,6 +939,7 @@ router.post("/combine", async (req, res) => {
         resultElement,
         resultElements,
         autoUnlockedActionWords,
+        newlyCompletedQuestNames,
       })
     );
   } catch (err) {
@@ -955,7 +996,7 @@ router.post("/:id/select", async (req, res) => {
         normalizedName,
         icon: candidateIcon,
       });
-      discoverElement(db, elementId);
+      const wasNewResultDiscovery = discoverElement(db, elementId);
       const resultElement = getElementById(db, elementId);
       const autoUnlockedActionWords = resultElement
         ? maybeAutoUnlockActionWords(db, [resultElement])
@@ -982,6 +1023,19 @@ router.post("/:id/select", async (req, res) => {
 
       persistDatabase(db);
 
+      const candidateNames = [
+        ...(wasNewResultDiscovery ? [candidateName] : []),
+        ...autoUnlockedActionWords.map((entry) => entry.element.name),
+      ];
+      let newlyCompletedQuestNames: string[] = [];
+      if (candidateNames.length > 0) {
+        const completionResult = await syncQuestCompletions(db, {
+          candidateNames,
+        });
+        newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        persistDatabase(db);
+      }
+
       return res.json({
         recipeId,
         chosenCandidateId: candidateId,
@@ -994,6 +1048,8 @@ router.post("/:id/select", async (req, res) => {
             }
           : null,
         autoUnlockedActionWords,
+        newlyCompletedQuestNames:
+          newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
       });
     } catch (err) {
       db.run("ROLLBACK");

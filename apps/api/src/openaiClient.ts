@@ -432,13 +432,28 @@ export async function judgeQuestCompletionCandidate(params: {
   const prompt = `
 You are judging whether a discovered word should satisfy a quest target in a word-combination discovery game.
 
-Be generous for very close lexical variants and inflections of the same core word, such as:
+Only accept very close lexical variants of the same core word.
+
+Be generous for:
 - tense changes
 - participles / gerunds
 - singular / plural
-- closely related derivational forms when they would reasonably count in play
+- obvious inflectional variants
+- very near derivational variants only when they are plainly the same word family in play
 
-Do not accept words that are only loosely related, adjacent in meaning, or merely in the same topic.
+Do not accept:
+- synonyms
+- paraphrases
+- adjacent meanings
+- same-topic words
+- broader or narrower category words
+
+Examples:
+- target "unlisted", discovered "unlist" => match true
+- target "running", discovered "run" => match true
+- target "spoof", discovered "parody" => match false
+- target "teacher", discovered "school" => match false
+- target "hidden", discovered "secret" => match false
 
 Target quest word: ${JSON.stringify(params.target)}
 Discovered word: ${JSON.stringify(params.candidate)}
@@ -456,7 +471,6 @@ Return ONLY valid JSON:
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 0,
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
   });

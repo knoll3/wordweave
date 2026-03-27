@@ -1,7 +1,6 @@
 import type {
   AiModel,
   CacheRecipe,
-  ChallengeTargetsResponse,
   FeatureUnlockStatus,
   GenerateCacheRecipesResult,
   Item,
@@ -9,6 +8,8 @@ import type {
   PromptBatchPair,
   PromptCatalogResponse,
   PromptTestResponse,
+  QuestListResponse,
+  QuestRecord,
   Recipe,
   RecentRecipe,
   SemanticClustersResponse,
@@ -196,6 +197,7 @@ export async function selectCandidate(
   recipeId: number;
   chosenCandidateId: number;
   resultElement: Item | null;
+  newlyCompletedQuestNames?: string[];
   autoUnlockedActionWords?: Array<{
     familyKey: string;
     familyTitle: string;
@@ -244,10 +246,8 @@ export async function fetchQuestTargetReference(
 export async function generateChallengeTargets(params: {
   count?: number;
   difficulty?: "easy" | "hard";
-  recentTargets?: string[];
-  completedTargets?: string[];
   model?: AiModel;
-} = {}): Promise<ChallengeTargetsResponse> {
+} = {}): Promise<QuestRecord[]> {
   const res = await fetch(`${API_BASE}/quests/generate`, {
     method: "POST",
     headers: {
@@ -256,30 +256,48 @@ export async function generateChallengeTargets(params: {
     body: JSON.stringify({
       count: params.count,
       difficulty: params.difficulty,
-      recentTargets: params.recentTargets,
-      completedTargets: params.completedTargets,
       model: params.model,
     }),
   });
-  return handleResponse<ChallengeTargetsResponse>(res);
+  const data = await handleResponse<QuestListResponse>(res);
+  return data.quests ?? [];
 }
 
-export async function fetchCompletedQuestNames(
-  targets: string[],
-  options?: { candidateNames?: string[] }
-): Promise<string[]> {
-  const res = await fetch(`${API_BASE}/quests/complete`, {
+export async function fetchQuests(): Promise<QuestRecord[]> {
+  const res = await fetch(`${API_BASE}/quests`);
+  const data = await handleResponse<QuestListResponse>(res);
+  return data.quests ?? [];
+}
+
+export async function updateQuestStatus(params: {
+  name: string;
+  status: "available" | "tracked" | "abandoned";
+}): Promise<QuestRecord[]> {
+  const res = await fetch(`${API_BASE}/quests/status`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      targets,
-      candidateNames: options?.candidateNames,
-    }),
+    body: JSON.stringify(params),
   });
-  const data = await handleResponse<{ completedNames: string[] }>(res);
-  return data.completedNames ?? [];
+  const data = await handleResponse<QuestListResponse>(res);
+  return data.quests ?? [];
+}
+
+export async function importLegacyQuestState(params: {
+  quests: Array<{ name: string; icon: string }>;
+  trackedNames?: string[];
+  abandonedNames?: string[];
+}): Promise<QuestRecord[]> {
+  const res = await fetch(`${API_BASE}/quests/import-legacy`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await handleResponse<QuestListResponse>(res);
+  return data.quests ?? [];
 }
 
 export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {

@@ -1,6 +1,6 @@
 import React from "react";
 import { PanelRightClose } from "lucide-react";
-import type { ChallengeTarget, Item } from "../../types";
+import type { Item, QuestRecord } from "../../types";
 import type { ItemReference } from "../../lib/api";
 import ItemDetailsDrawer from "../Graph/ItemDetailsDrawer";
 import QuestDetailsPanel from "../Graph/QuestDetailsPanel";
@@ -12,11 +12,11 @@ interface Props {
   mode: "journal" | "item" | "quest";
   questReferences: Record<string, ItemReference | null | undefined>;
   referencePreviewLimit: number;
-  challengeTargets: ChallengeTarget[];
+  challengeTargets: QuestRecord[];
   trackedQuestNames: Set<string>;
   completedQuestNames: Set<string>;
   isGeneratingChallengeTargets: boolean;
-  selectedQuest: ChallengeTarget | null;
+  selectedQuest: QuestRecord | null;
   selectedQuestItem: Item | null;
   item: Item | null;
   items: Item[];
@@ -32,7 +32,7 @@ interface Props {
   onCollapse: () => void;
   onGenerateEasyQuests: () => void;
   onGenerateHardQuests: () => void;
-  onSelectQuest: (quest: ChallengeTarget) => void;
+  onSelectQuest: (quest: QuestRecord) => void;
   onTrackQuest: (questName: string) => void;
   onUntrackQuest: (questName: string) => void;
   onRequestAbandonQuest: (questName: string) => void;
@@ -83,7 +83,7 @@ const JournalDock: React.FC<Props> = ({
   );
 
   const renderQuestCard = (
-    quest: ChallengeTarget,
+    quest: QuestRecord,
     section: "tracked" | "available" | "completed"
   ) => {
     const questReference = questReferences[quest.name];

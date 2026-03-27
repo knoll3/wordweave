@@ -126,12 +126,29 @@ function createSchema(db: Database): void {
       source_matched_word TEXT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS quests (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL UNIQUE,
+      icon TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'tracked', 'completed', 'abandoned')),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME NULL,
+      matched_item_name TEXT NULL,
+      completion_method TEXT NULL
+    );
+
   `);
 
   ensureColumn(db, "elements", "reference_record_id", "INTEGER NULL");
   ensureColumn(db, "item_references", "image_url", "TEXT NULL");
   ensureColumn(db, "player_unlocks", "source_item_name", "TEXT NULL");
   ensureColumn(db, "player_unlocks", "source_matched_word", "TEXT NULL");
+  ensureColumn(db, "quests", "matched_item_name", "TEXT NULL");
+  ensureColumn(db, "quests", "completion_method", "TEXT NULL");
+  ensureColumn(db, "quests", "completed_at", "DATETIME NULL");
+  ensureColumn(db, "quests", "updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
 }
 
 function ensureColumn(
