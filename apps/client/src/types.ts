@@ -38,6 +38,71 @@ export const ACTION_MODIFIER_ITEM: Item = {
   icon: "⚡",
 };
 
+export const SPLIT_CATALYST_ITEM_ID = -11;
+export const OPPOSITE_CATALYST_ITEM_ID = -12;
+export const SYNONYM_CATALYST_ITEM_ID = -13;
+export const EVOLVE_CATALYST_ITEM_ID = -14;
+export const POP_CULTURE_CATALYST_ITEM_ID = -15;
+export const COMPOUND_CATALYST_ITEM_ID = -16;
+export const ESSENCE_CATALYST_ITEM_ID = -17;
+export const COMMON_CATALYST_ITEM_ID = -18;
+
+export const SPLIT_CATALYST_ITEM: Item = {
+  id: SPLIT_CATALYST_ITEM_ID,
+  name: "Split Catalyst",
+  normalizedName: "split catalyst",
+  icon: "✂️",
+};
+
+export const OPPOSITE_CATALYST_ITEM: Item = {
+  id: OPPOSITE_CATALYST_ITEM_ID,
+  name: "Opposite Catalyst",
+  normalizedName: "opposite catalyst",
+  icon: "↔️",
+};
+
+export const SYNONYM_CATALYST_ITEM: Item = {
+  id: SYNONYM_CATALYST_ITEM_ID,
+  name: "Synonym Catalyst",
+  normalizedName: "synonym catalyst",
+  icon: "🪞",
+};
+
+export const EVOLVE_CATALYST_ITEM: Item = {
+  id: EVOLVE_CATALYST_ITEM_ID,
+  name: "Evolve Catalyst",
+  normalizedName: "evolve catalyst",
+  icon: "🧬",
+};
+
+export const POP_CULTURE_CATALYST_ITEM: Item = {
+  id: POP_CULTURE_CATALYST_ITEM_ID,
+  name: "Pop Culture Catalyst",
+  normalizedName: "pop culture catalyst",
+  icon: "🎬",
+};
+
+export const COMPOUND_CATALYST_ITEM: Item = {
+  id: COMPOUND_CATALYST_ITEM_ID,
+  name: "Compound Catalyst",
+  normalizedName: "compound catalyst",
+  icon: "🧩",
+};
+
+export const ESSENCE_CATALYST_ITEM: Item = {
+  id: ESSENCE_CATALYST_ITEM_ID,
+  name: "Essence Catalyst",
+  normalizedName: "essence catalyst",
+  icon: "💧",
+};
+
+export const COMMON_CATALYST_ITEM: Item = {
+  id: COMMON_CATALYST_ITEM_ID,
+  name: "Common Catalyst",
+  normalizedName: "common catalyst",
+  icon: "🔗",
+};
+
 export const COMBINE_RESULT_PLACEHOLDER_ITEM_ID = -7;
 
 export const COMBINE_RESULT_PLACEHOLDER_ITEM: Item = {

@@ -382,8 +382,8 @@ body.page-scrollable {
 }
 
 .app-root {
-  height: 100dvh;
-  max-height: 100dvh;
+  height: var(--app-viewport-height, 100dvh);
+  max-height: var(--app-viewport-height, 100dvh);
   display: flex;
   align-items: stretch;
   justify-content: stretch;
@@ -473,11 +473,11 @@ body.page-scrollable {
 }
 
 .library-toolbar {
-  display: grid;
-  grid-template-columns: auto 104px;
+  display: flex;
   align-items: center;
   gap: 10px;
-  justify-content: end;
+  justify-content: space-between;
+  flex-wrap: nowrap;
 }
 
 .sort-controls {
@@ -488,9 +488,10 @@ body.page-scrollable {
 }
 
 .library-secondary-slot {
-  width: 104px;
   display: flex;
   justify-content: flex-end;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .library-mode-controls,
@@ -532,10 +533,14 @@ body.page-scrollable {
 }
 
 .library-tree-actions {
-  width: 100%;
   display: flex;
   justify-content: flex-end;
   gap: 6px;
+}
+
+.random-items-button {
+  flex: 0 0 auto;
+  white-space: nowrap;
 }
 
 .library-action-button {
@@ -681,25 +686,20 @@ body.page-scrollable {
 }
 
 .search-input-wrap {
-  position: relative;
-}
-
-.search-input-wrap .search-input {
-  padding-right: 34px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .search-clear-button {
-  position: absolute;
-  top: 50%;
-  right: 8px;
-  transform: translateY(-50%);
-  width: 20px;
-  height: 20px;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.18);
   color: var(--text-soft);
-  font-size: 0.85rem;
+  font-size: 1rem;
   line-height: 1;
   display: inline-flex;
   align-items: center;
@@ -803,50 +803,14 @@ body.page-scrollable {
   z-index: 11;
 }
 
-.graph-canvas-menu {
+.graph-quests-button-overlay {
   position: absolute;
-  top: 12px;
-  left: 12px;
-  z-index: 13;
-}
-
-.graph-canvas-menu-button {
-  position: relative;
-  z-index: 1;
-}
-
-.graph-canvas-menu-panel {
-  position: absolute;
-  top: 42px;
-  left: 0;
-  min-width: 180px;
-  padding: 8px;
-  border-radius: 14px;
-  border: 1px solid rgba(148, 163, 184, 0.18);
-  background:
-    radial-gradient(circle at top left, rgba(96, 165, 250, 0.1), transparent 38%),
-    rgba(2, 6, 23, 0.94);
-  box-shadow: 0 20px 40px rgba(2, 6, 23, 0.42);
-  backdrop-filter: blur(14px);
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.graph-canvas-menu-action {
-  width: 100%;
-  border: 0;
-  border-radius: 10px;
-  padding: 10px 12px;
-  background: transparent;
-  color: var(--text-main);
-  text-align: left;
-  font: inherit;
-  cursor: pointer;
-}
-
-.graph-canvas-menu-action:hover {
-  background: rgba(148, 163, 184, 0.12);
+  top: 54px;
+  right: 12px;
+  z-index: 11;
+  width: 36px;
+  min-width: 36px;
+  padding: 0;
 }
 
 .section-help {
@@ -1445,9 +1409,9 @@ body.page-scrollable {
   left: 12px;
   bottom: 12px;
   z-index: 8;
-  width: 72px;
-  height: 72px;
-  min-width: 72px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   padding: 0;
   border-radius: 999px;
   display: inline-flex;
@@ -1517,11 +1481,40 @@ body.page-scrollable {
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 12px;
+  gap: 8px;
   margin: 0;
-  padding: 12px 16px;
+  padding: 6px 12px;
+  height: 44px;
   min-height: 44px;
   border-radius: 999px;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-header-main {
+  gap: 8px;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-copy {
+  gap: 0;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-meta,
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-count {
+  display: none;
+}
+
+.graph-catalyst-dock.is-collapsed .graph-catalyst-dock-header-end {
+  gap: 0;
 }
 
 .graph-catalyst-dock-label {
@@ -1731,7 +1724,7 @@ body.page-scrollable {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.45rem;
+  font-size: 1.1rem;
   line-height: 1;
   width: 100%;
   height: 100%;
@@ -2468,10 +2461,10 @@ body.page-scrollable {
 }
 
 .quest-generate-actions {
-  display: inline-flex;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
-  flex-wrap: wrap;
+  width: 100%;
 }
 
 .quest-generate-button-secondary {
@@ -2497,20 +2490,14 @@ body.page-scrollable {
 }
 
 .quest-card.quest-card-target {
-  appearance: none;
   gap: 6px;
   width: 100%;
   text-align: left;
   font: inherit;
-  cursor: pointer;
-  transition:
-    transform 140ms ease,
-    border-color 140ms ease,
-    background 140ms ease;
+  cursor: default;
 }
 
 .quest-card.quest-card-target:hover {
-  transform: translateY(-1px);
   border-color: rgba(96, 165, 250, 0.26);
   background:
     radial-gradient(circle at top right, rgba(96, 165, 250, 0.1), transparent 34%),
@@ -2525,7 +2512,9 @@ body.page-scrollable {
 
 .quest-card-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: flex-start;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .quest-card-action-note {
@@ -3914,6 +3903,11 @@ body.page-scrollable {
   .main-area {
     order: 1;
     min-height: 0;
+    padding: 0;
+    gap: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
 
   .sidebar {
@@ -3936,14 +3930,19 @@ body.page-scrollable {
 
   .workspace-layout {
     position: relative;
+    gap: 0;
   }
 
   .graph-wrapper {
     min-width: 0;
+    gap: 0;
   }
 
   .graph-canvas {
     min-height: 320px;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
   }
 
   .graph-selection-button {
@@ -3952,19 +3951,19 @@ body.page-scrollable {
   }
 
   .graph-catalyst-dock {
-    left: 96px;
+    left: 64px;
     bottom: 12px;
-    width: min(320px, calc(100% - 108px));
+    width: min(320px, calc(100% - 76px));
   }
 
   .journal-dock {
     position: absolute;
-    top: 12px;
+    top: 0;
     right: 0;
-    bottom: auto;
+    bottom: 0;
     width: min(400px, calc(100% - 24px));
     max-width: calc(100% - 24px);
-    height: min(460px, calc(100% - 88px));
+    height: auto;
     z-index: 12;
     pointer-events: none;
   }

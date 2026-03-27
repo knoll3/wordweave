@@ -22,7 +22,7 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
   }
 
   return (
-    <div className={`graph-catalyst-dock${isOpen ? "" : " is-collapsed"}`} aria-label="Modifiers">
+    <div className={`graph-catalyst-dock${isOpen ? "" : " is-collapsed"}`} aria-label="Catalysts">
       <button
         type="button"
         className="graph-catalyst-dock-header"
@@ -35,7 +35,7 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
             <Sparkles size={14} strokeWidth={2} />
           </span>
           <span className="graph-catalyst-dock-copy">
-            <span className="graph-catalyst-dock-label">Modifiers</span>
+            <span className="graph-catalyst-dock-label">Catalysts</span>
             <span className="graph-catalyst-dock-meta">{catalystActions.length} ready</span>
           </span>
         </span>

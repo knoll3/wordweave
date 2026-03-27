@@ -134,7 +134,7 @@ const ElementSidebar: React.FC<Props> = ({
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
-  const [browseMode, setBrowseMode] = useState<"all" | "tree">("tree");
+  const [browseMode, setBrowseMode] = useState<"all" | "tree">("all");
   const [clusters, setClusters] = useState<SemanticCluster[]>([]);
   const [clustersLoading, setClustersLoading] = useState(false);
   const [clustersStale, setClustersStale] = useState(false);
@@ -424,100 +424,94 @@ const ElementSidebar: React.FC<Props> = ({
         </p>
       </header>
 
-      {randomUnlocked ? (
-        <div className="sidebar-quick-actions">
-          <button
-            type="button"
-            className="button secondary random-items-button"
-            onClick={handleAddRandomItems}
-            disabled={loadingItems || items.length === 0}
-            title="Add random library items to the workspace"
-            aria-label="Add random library items to the workspace"
-          >
-            <span className="random-items-icon" aria-hidden="true">
-              🎲
-            </span>
-            Random
-          </button>
-        </div>
-      ) : null}
-
       <section className="sidebar-section library-section">
-        <div className="library-header-row">
-          <h2 className="section-title">Library</h2>
-          <div className="library-toolbar">
-            <div
-              className="sort-controls library-mode-controls"
-              role="group"
-              aria-label="Browse library"
+        <div className="library-toolbar">
+          <div
+            className="sort-controls library-mode-controls"
+            role="group"
+            aria-label="Browse library"
+          >
+            <button
+              type="button"
+              className={`sort-button ${browseMode === "all" ? "active" : ""}`}
+              onClick={() => setBrowseMode("all")}
             >
-              <button
-                type="button"
-                className={`sort-button ${browseMode === "all" ? "active" : ""}`}
-                onClick={() => setBrowseMode("all")}
-              >
-                All
-              </button>
-              <button
-                type="button"
-                className={`sort-button ${browseMode === "tree" ? "active" : ""}`}
-                onClick={() => setBrowseMode("tree")}
-              >
-                Tree
-              </button>
-            </div>
-            <div className="library-secondary-slot">
-              {browseMode === "all" ? (
-                <div
-                  className="sort-controls library-sort-controls"
-                  role="group"
-                  aria-label="Sort library"
-                >
-                  <button
-                    type="button"
-                    className={`sort-button ${sortBy === "time" ? "active" : ""}`}
-                    onClick={() => setSortBy("time")}
-                  >
-                    Time
-                  </button>
-                  <button
-                    type="button"
-                    className={`sort-button ${sortBy === "name" ? "active" : ""}`}
-                    onClick={() => setSortBy("name")}
-                  >
-                    Name
-                  </button>
-                </div>
-              ) : (
-                <div
-                  className="library-tree-actions"
-                  role="group"
-                  aria-label="Tree controls"
-                >
-                  <button
-                    type="button"
-                    className="button secondary library-action-button"
-                    onClick={expandAllClusters}
-                    disabled={clusters.length === 0}
-                    aria-label="Expand all"
-                    title="Expand all"
-                  >
-                    <SquarePlus aria-hidden="true" />
-                  </button>
-                  <button
-                    type="button"
-                    className="button secondary library-action-button"
-                    onClick={collapseAllClusters}
-                    disabled={expandedClusterIds.length === 0}
-                    aria-label="Collapse all"
-                    title="Collapse all"
-                  >
-                    <SquareMinus aria-hidden="true" />
-                  </button>
-                </div>
-              )}
-            </div>
+              All
+            </button>
+            <button
+              type="button"
+              className={`sort-button ${browseMode === "tree" ? "active" : ""}`}
+              onClick={() => setBrowseMode("tree")}
+            >
+              Tree
+            </button>
           </div>
+          <div className="library-secondary-slot">
+            {browseMode === "all" ? (
+              <div
+                className="sort-controls library-sort-controls"
+                role="group"
+                aria-label="Sort library"
+              >
+                <button
+                  type="button"
+                  className={`sort-button ${sortBy === "time" ? "active" : ""}`}
+                  onClick={() => setSortBy("time")}
+                >
+                  Time
+                </button>
+                <button
+                  type="button"
+                  className={`sort-button ${sortBy === "name" ? "active" : ""}`}
+                  onClick={() => setSortBy("name")}
+                >
+                  Name
+                </button>
+              </div>
+            ) : (
+              <div
+                className="library-tree-actions"
+                role="group"
+                aria-label="Tree controls"
+              >
+                <button
+                  type="button"
+                  className="button secondary library-action-button"
+                  onClick={expandAllClusters}
+                  disabled={clusters.length === 0}
+                  aria-label="Expand all"
+                  title="Expand all"
+                >
+                  <SquarePlus aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  className="button secondary library-action-button"
+                  onClick={collapseAllClusters}
+                  disabled={expandedClusterIds.length === 0}
+                  aria-label="Collapse all"
+                  title="Collapse all"
+                >
+                  <SquareMinus aria-hidden="true" />
+                </button>
+              </div>
+            )}
+          </div>
+          {randomUnlocked ? (
+            <button
+              type="button"
+              className="button secondary random-items-button"
+              onClick={handleAddRandomItems}
+              disabled={loadingItems || items.length === 0}
+              title="Add random library items to the workspace"
+              aria-label="Add random library items to the workspace"
+            >
+              <span className="random-items-icon" aria-hidden="true">
+                🎲
+              </span>
+              Random
+            </button>
+          ) : null}
         </div>
         <ElementSearch value={search} onChange={handleSearchChange} />
         {loadingItems ? (

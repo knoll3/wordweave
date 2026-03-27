@@ -20,6 +20,7 @@ import {
   CREATIVE_ITEM_ID,
 } from "../../types";
 import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
+import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
 import CatalystDock, { type CatalystAction } from "./CatalystDock";
 
 interface Props {
@@ -82,11 +83,19 @@ type SelectionDragState = {
   startScreenY: number;
 };
 
-type PinchState = {
+type TouchGestureState = {
+  startCenterX: number;
+  startCenterY: number;
   startDistance: number;
   startZoom: number;
   startCenterWorldX: number;
   startCenterWorldY: number;
+};
+
+type PendingTouchSelectionState = {
+  pointerId: number;
+  startScreenX: number;
+  startScreenY: number;
 };
 
 type ItemView = {
@@ -155,7 +164,8 @@ function isCatalystItemId(itemId: number) {
   return (
     itemId === ACTION_MODIFIER_ITEM_ID ||
     itemId === CATEGORY_MODIFIER_ITEM_ID ||
-    itemId === CREATIVE_ITEM_ID
+    itemId === CREATIVE_ITEM_ID ||
+    ACTION_CATALYST_BY_ID.has(itemId)
   );
 }
 
@@ -174,6 +184,14 @@ function getNodeTint(itemId: number) {
   if (itemId === ACTION_MODIFIER_ITEM_ID) return 0xfbbf24;
   if (itemId === CATEGORY_MODIFIER_ITEM_ID) return 0x5eead4;
   if (itemId === CREATIVE_ITEM_ID) return 0xa78bfa;
+  if (itemId === -11) return 0xfb923c;
+  if (itemId === -12) return 0x60a5fa;
+  if (itemId === -13) return 0xc084fc;
+  if (itemId === -14) return 0x4ade80;
+  if (itemId === -15) return 0xf472b6;
+  if (itemId === -16) return 0xfacc15;
+  if (itemId === -17) return 0x2dd4bf;
+  if (itemId === -18) return 0x94a3b8;
   if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x64748b;
   return 0x94a3b8;
 }
@@ -359,7 +377,8 @@ function GraphView({
   const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
-  const pinchStateRef = useRef<PinchState | null>(null);
+  const touchGestureStateRef = useRef<TouchGestureState | null>(null);
+  const pendingTouchSelectionRef = useRef<PendingTouchSelectionState | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
   const resizeFrameRef = useRef<number>(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -593,10 +612,14 @@ function GraphView({
     clearHoverTarget();
   };
 
-  const beginPinchGesture = () => {
+  const cancelPendingTouchSelection = () => {
+    pendingTouchSelectionRef.current = null;
+  };
+
+  const beginTouchGesture = () => {
     const touchPoints = [...activeTouchPointsRef.current.values()];
     if (touchPoints.length < 2) {
-      pinchStateRef.current = null;
+      touchGestureStateRef.current = null;
       return;
     }
 
@@ -609,10 +632,16 @@ function GraphView({
       Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
     );
 
+    cancelPendingTouchSelection();
+    selectionDragRef.current = null;
+    selectionDragRectRef.current = null;
+    setSelectionDragRect(null);
     cancelActiveDrag();
     panStateRef.current = null;
 
-    pinchStateRef.current = {
+    touchGestureStateRef.current = {
+      startCenterX: centerScreenX,
+      startCenterY: centerScreenY,
       startDistance,
       startZoom: cameraRef.current.zoom,
       startCenterWorldX: centerWorld.x,
@@ -690,7 +719,9 @@ function GraphView({
             ? layout.placeholderPosition
             : layout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
         const liveView = itemViewsRef.current.get(nodeId);
-        const position = layoutPosition ?? (liveView ? getViewTopLeftPosition(liveView) : null);
+        const position = liveView
+          ? getViewTopLeftPosition(liveView)
+          : layoutPosition;
         const width =
           layout?.placeholderNodeId === nodeId
             ? Math.max(
@@ -1185,7 +1216,7 @@ function GraphView({
           y: event.global.y,
         });
         if (activeTouchPointsRef.current.size >= 2) {
-          beginPinchGesture();
+          beginTouchGesture();
           return;
         }
       }
@@ -1428,11 +1459,25 @@ function GraphView({
           y: event.global.y,
         });
         if (activeTouchPointsRef.current.size >= 2) {
-          beginPinchGesture();
+          beginTouchGesture();
           return;
         }
       }
       if (dragStateRef.current) return;
+      if (
+        event.pointerType === "touch" &&
+        (event.target === appRef.current?.stage || event.target === backgroundRef.current)
+      ) {
+        clearPendingDrawerOpen();
+        lastItemClickRef.current = null;
+        pendingTouchSelectionRef.current = {
+          pointerId: event.pointerId,
+          startScreenX: event.global.x,
+          startScreenY: event.global.y,
+        };
+        panStateRef.current = null;
+        return;
+      }
       if (selectionModeRef.current) {
         beginSelectionDrag(event.pointerId, event.global.x, event.global.y);
         return;
@@ -1495,8 +1540,8 @@ function GraphView({
           });
         }
 
-        const pinchState = pinchStateRef.current;
-        if (pinchState && activeTouchPointsRef.current.size >= 2) {
+        const touchGestureState = touchGestureStateRef.current;
+        if (touchGestureState && activeTouchPointsRef.current.size >= 2) {
           const [firstPoint, secondPoint] = [...activeTouchPointsRef.current.values()];
           const currentCenterX = (firstPoint.x + secondPoint.x) / 2;
           const currentCenterY = (firstPoint.y + secondPoint.y) / 2;
@@ -1505,15 +1550,32 @@ function GraphView({
             Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
           );
           const nextZoom = clamp(
-            pinchState.startZoom * (currentDistance / pinchState.startDistance),
+            touchGestureState.startZoom *
+              (currentDistance / touchGestureState.startDistance),
             MIN_ZOOM,
             MAX_ZOOM
           );
           cameraRef.current.zoom = nextZoom;
-          cameraRef.current.x = currentCenterX - pinchState.startCenterWorldX * nextZoom;
-          cameraRef.current.y = currentCenterY - pinchState.startCenterWorldY * nextZoom;
+          cameraRef.current.x =
+            currentCenterX - touchGestureState.startCenterWorldX * nextZoom;
+          cameraRef.current.y =
+            currentCenterY - touchGestureState.startCenterWorldY * nextZoom;
           applyCamera();
           return;
+        }
+
+        const pendingTouchSelection = pendingTouchSelectionRef.current;
+        if (
+          pendingTouchSelection &&
+          pendingTouchSelection.pointerId === event.pointerId &&
+          activeTouchPointsRef.current.size === 1
+        ) {
+          beginSelectionDrag(
+            event.pointerId,
+            pendingTouchSelection.startScreenX,
+            pendingTouchSelection.startScreenY
+          );
+          pendingTouchSelectionRef.current = null;
         }
       }
 
@@ -1554,10 +1616,19 @@ function GraphView({
       if (event.pointerType === "touch") {
         activeTouchPointsRef.current.delete(event.pointerId);
         if (activeTouchPointsRef.current.size < 2) {
-          pinchStateRef.current = null;
-        } else if (pinchStateRef.current) {
-          beginPinchGesture();
+          touchGestureStateRef.current = null;
+        } else if (touchGestureStateRef.current) {
+          beginTouchGesture();
         }
+      }
+
+      const pendingTouchSelection = pendingTouchSelectionRef.current;
+      if (
+        pendingTouchSelection &&
+        pendingTouchSelection.pointerId === event.pointerId
+      ) {
+        pendingTouchSelectionRef.current = null;
+        return;
       }
 
       const selectionDrag = selectionDragRef.current;
@@ -2012,7 +2083,8 @@ function GraphView({
       selectionDragRef.current = null;
       selectionDragRectRef.current = null;
       activeTouchPointsRef.current.clear();
-      pinchStateRef.current = null;
+      touchGestureStateRef.current = null;
+      pendingTouchSelectionRef.current = null;
     };
   }, []);
 

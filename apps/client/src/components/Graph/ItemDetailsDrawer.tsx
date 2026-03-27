@@ -1,8 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   ACTION_MODIFIER_ITEM_ID,
+  COMMON_CATALYST_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
+  COMPOUND_CATALYST_ITEM_ID,
   CREATIVE_ITEM_ID,
+  ESSENCE_CATALYST_ITEM_ID,
+  EVOLVE_CATALYST_ITEM_ID,
+  OPPOSITE_CATALYST_ITEM_ID,
+  POP_CULTURE_CATALYST_ITEM_ID,
+  SPLIT_CATALYST_ITEM_ID,
+  SYNONYM_CATALYST_ITEM_ID,
 } from "../../types";
 import type { Item } from "../../types";
 import {
@@ -37,6 +45,38 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
     description:
       "Pushes the combination away from the most literal answer and toward something more playful, silly, vivid, and memorable. It prefers expressive or delightfully weird ideas over dry or academic ones, and it can invent a fun made-up term if it still clearly fits the inputs.",
     example: "Example: Shark + Tornado + Creative Spark -> Sharknado",
+  },
+  [SPLIT_CATALYST_ITEM_ID]: {
+    description: "Runs the split prompt family as a direct catalyst item.",
+    example: "Example: Split Catalyst + Steam Engine -> Steam + Engine.",
+  },
+  [OPPOSITE_CATALYST_ITEM_ID]: {
+    description: "Runs the opposite prompt family as a direct catalyst item.",
+    example: "Example: Opposite Catalyst + Hot -> Cold.",
+  },
+  [SYNONYM_CATALYST_ITEM_ID]: {
+    description: "Runs the synonym prompt family as a direct catalyst item.",
+    example: "Example: Synonym Catalyst + Couch -> Sofa.",
+  },
+  [EVOLVE_CATALYST_ITEM_ID]: {
+    description: "Runs the evolve prompt family as a direct catalyst item.",
+    example: "Example: Evolve Catalyst + Tadpole -> Frog.",
+  },
+  [POP_CULTURE_CATALYST_ITEM_ID]: {
+    description: "Runs the pop culture prompt family as a direct catalyst item.",
+    example: "Example: Pop Culture Catalyst + Wizard + Scar -> Harry Potter.",
+  },
+  [COMPOUND_CATALYST_ITEM_ID]: {
+    description: "Runs the compound prompt family as a direct catalyst item.",
+    example: "Example: Compound Catalyst + Rain + Bow -> Rainbow.",
+  },
+  [ESSENCE_CATALYST_ITEM_ID]: {
+    description: "Runs the essence prompt family as a direct catalyst item.",
+    example: "Example: Essence Catalyst + Ocean -> Water.",
+  },
+  [COMMON_CATALYST_ITEM_ID]: {
+    description: "Runs the common prompt family as a direct catalyst item.",
+    example: "Example: Common Catalyst + Cat + Monkey -> Mammal.",
   },
 };
 

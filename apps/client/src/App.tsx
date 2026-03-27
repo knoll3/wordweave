@@ -1,10 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Menu,
   Maximize2,
   Minimize2,
-  Zap,
+  ScrollText,
   Tags,
+  Zap,
 } from "lucide-react";
 import {
   ACTION_MODIFIER_ITEM_ID,
@@ -13,7 +13,6 @@ import {
   CREATIVE_ITEM_ID,
 } from "./types";
 import type {
-  AchievementSummary,
   AutoUnlockedActionWord,
   AiModel,
   ChallengeTarget,
@@ -26,8 +25,6 @@ import type {
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import JournalDock from "./components/Journal/JournalDock";
-import JournalSummaryStrip from "./components/Journal/JournalSummaryStrip";
-import { evaluateAchievements } from "./lib/achievements";
 import {
   combineElements,
   generateChallengeTargets,
@@ -36,6 +33,12 @@ import {
   type ItemReference,
 } from "./lib/api";
 import {
+  ACTION_PROMPT_FAMILY_REFERENCES,
+  normalizeActionTrigger,
+} from "./lib/actionPromptFamilies";
+import {
+  ACTION_CATALYSTS,
+  ACTION_CATALYST_BY_ID,
   NON_INGREDIENT_ITEM_IDS,
   SPECIAL_ITEM_BY_ID,
   SPECIAL_ITEMS,
@@ -46,6 +49,8 @@ const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
 const CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
+const TRACKED_QUEST_NAMES_STORAGE_KEY = "wordweave.tracked-quests";
+const ABANDONED_QUEST_NAMES_STORAGE_KEY = "wordweave.abandoned-quests";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
@@ -122,6 +127,32 @@ const loadStoredChallengeTargets = (): ChallengeTarget[] => {
   }
 };
 
+const loadStoredNameSet = (storageKey: string): Set<string> => {
+  if (typeof window === "undefined") {
+    return new Set();
+  }
+
+  const stored = window.localStorage.getItem(storageKey);
+  if (!stored) {
+    return new Set();
+  }
+
+  try {
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) {
+      return new Set();
+    }
+    return new Set(
+      parsed
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => value.trim())
+        .filter(Boolean)
+    );
+  } catch {
+    return new Set();
+  }
+};
+
 function truncateAchievementReference(value: string, limit: number) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length <= limit) {
@@ -137,10 +168,27 @@ function normalizeQuestText(value: string) {
     .trim()
     .toLowerCase()
     .replace(/[’']/g, "")
-    .replace(/[^a-z0-9\s-]+/g, " ")
+    .replace(/[-–—]+/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
     .replace(/\b(the|a|an)\b/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function compactQuestText(value: string) {
+  return normalizeQuestText(value).replace(/\s+/g, "");
+}
+
+function questsCloselyMatch(left: string, right: string) {
+  const normalizedLeft = normalizeQuestText(left);
+  const normalizedRight = normalizeQuestText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+  return compactQuestText(normalizedLeft) === compactQuestText(normalizedRight);
 }
 
 function isContainedQuestPhrase(itemName: string, questName: string) {
@@ -182,17 +230,17 @@ const App: React.FC = () => {
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
-  const [journalTab, setJournalTab] = useState<"achievements" | "quests">(
-    "achievements"
-  );
-  const [achievementReferences, setAchievementReferences] = useState<
-    Record<string, ItemReference | null | undefined>
-  >({});
   const [questReferences, setQuestReferences] = useState<
     Record<string, ItemReference | null | undefined>
   >({});
   const [challengeTargets, setChallengeTargets] = useState<ChallengeTarget[]>(
     loadStoredChallengeTargets
+  );
+  const [trackedQuestNames, setTrackedQuestNames] = useState<Set<string>>(
+    () => loadStoredNameSet(TRACKED_QUEST_NAMES_STORAGE_KEY)
+  );
+  const [abandonedQuestNames, setAbandonedQuestNames] = useState<Set<string>>(
+    () => loadStoredNameSet(ABANDONED_QUEST_NAMES_STORAGE_KEY)
   );
   const [isGeneratingChallengeTargets, setIsGeneratingChallengeTargets] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
@@ -205,24 +253,24 @@ const App: React.FC = () => {
   );
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
   const [selectedQuestName, setSelectedQuestName] = useState<string | null>(null);
+  const [pendingAbandonedQuestName, setPendingAbandonedQuestName] = useState<string | null>(null);
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
   );
-  const [isCanvasMenuOpen, setIsCanvasMenuOpen] = useState(false);
   const [isPortraitTabletLayout, setIsPortraitTabletLayout] = useState(() => {
     if (typeof window === "undefined") {
       return false;
     }
     return window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY).matches;
   });
-  const initialAchievementSnapshotRef = useRef<Set<string> | null>(null);
-  const previousItemIdsRef = useRef<Set<number> | null>(null);
+  const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
   const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
-  const canvasMenuRef = useRef<HTMLDivElement | null>(null);
+  const isAndroidDevice =
+    typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -268,26 +316,76 @@ const App: React.FC = () => {
   }, [forceUnlocks]);
 
   useEffect(() => {
-    if (!isCanvasMenuOpen) {
+    window.localStorage.setItem(
+      TRACKED_QUEST_NAMES_STORAGE_KEY,
+      JSON.stringify([...trackedQuestNames])
+    );
+  }, [trackedQuestNames]);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      ABANDONED_QUEST_NAMES_STORAGE_KEY,
+      JSON.stringify([...abandonedQuestNames])
+    );
+  }, [abandonedQuestNames]);
+
+  useEffect(() => {
+    if (!isAndroidDevice) {
+      setAndroidViewportHeight(null);
+      document.documentElement.style.removeProperty("--android-viewport-height");
       return;
     }
 
-    const handlePointerDown = (event: PointerEvent) => {
-      const target = event.target;
-      if (!(target instanceof Element)) {
-        return;
-      }
-      if (canvasMenuRef.current?.contains(target)) {
-        return;
-      }
-      setIsCanvasMenuOpen(false);
+    const applyViewportHeight = () => {
+      const nextHeight = Math.round(
+        window.visualViewport?.height ?? window.innerHeight
+      );
+      setAndroidViewportHeight(nextHeight);
+      document.documentElement.style.setProperty(
+        "--android-viewport-height",
+        `${nextHeight}px`
+      );
+      window.scrollTo(0, 0);
     };
 
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
+    const scheduleRefresh = () => {
+      applyViewportHeight();
+      window.requestAnimationFrame(applyViewportHeight);
+      window.setTimeout(applyViewportHeight, 120);
+      window.setTimeout(applyViewportHeight, 280);
     };
-  }, [isCanvasMenuOpen]);
+
+    scheduleRefresh();
+    window.addEventListener("resize", scheduleRefresh);
+    window.visualViewport?.addEventListener("resize", scheduleRefresh);
+    window.visualViewport?.addEventListener("scroll", scheduleRefresh);
+
+    const handlePointerDownCapture = (event: PointerEvent) => {
+      const target = event.target;
+      const activeElement = document.activeElement;
+      if (
+        !(target instanceof Element) ||
+        !(activeElement instanceof HTMLElement) ||
+        !["INPUT", "TEXTAREA"].includes(activeElement.tagName)
+      ) {
+        return;
+      }
+      if (activeElement.contains(target) || target.closest("input, textarea")) {
+        return;
+      }
+      activeElement.blur();
+      scheduleRefresh();
+    };
+
+    document.addEventListener("pointerdown", handlePointerDownCapture, true);
+
+    return () => {
+      window.removeEventListener("resize", scheduleRefresh);
+      window.visualViewport?.removeEventListener("resize", scheduleRefresh);
+      window.visualViewport?.removeEventListener("scroll", scheduleRefresh);
+      document.removeEventListener("pointerdown", handlePointerDownCapture, true);
+    };
+  }, [isAndroidDevice]);
 
   useEffect(() => {
     if (combiningNodeIds.length > 0) return;
@@ -320,23 +418,35 @@ const App: React.FC = () => {
     void loadFeatureUnlocks();
   }, []);
 
-  const achievementSummary: AchievementSummary = useMemo(
-    () => evaluateAchievements(items),
-    [items]
+  const visibleChallengeTargets = useMemo(
+    () =>
+      challengeTargets.filter((quest) => !abandonedQuestNames.has(quest.name)),
+    [abandonedQuestNames, challengeTargets]
   );
+
+  useEffect(() => {
+    const visibleQuestNames = new Set(visibleChallengeTargets.map((quest) => quest.name));
+    setTrackedQuestNames((prev) => {
+      const next = new Set([...prev].filter((name) => visibleQuestNames.has(name)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [visibleChallengeTargets]);
+
   const completedQuestNames = useMemo(() => {
     const normalizedItems = items.map((item) =>
       normalizeQuestText(item.normalizedName || item.name)
     );
     const completed = new Set<string>();
 
-    for (const quest of challengeTargets) {
+    for (const quest of visibleChallengeTargets) {
       const normalizedQuest = normalizeQuestText(quest.name);
       if (!normalizedQuest) continue;
       if (
         normalizedItems.some(
           (itemName) =>
-            itemName === normalizedQuest || isContainedQuestPhrase(itemName, normalizedQuest)
+            itemName === normalizedQuest ||
+            compactQuestText(itemName) === compactQuestText(normalizedQuest) ||
+            isContainedQuestPhrase(itemName, normalizedQuest)
         )
       ) {
         completed.add(quest.name);
@@ -344,65 +454,7 @@ const App: React.FC = () => {
     }
 
     return completed;
-  }, [challengeTargets, items]);
-
-  useEffect(() => {
-    const completedIds = new Set(
-      achievementSummary.categories.flatMap((category) =>
-        category.groups.flatMap((group) =>
-          group.achievements.filter((achievement) => achievement.completed).map((achievement) => achievement.id)
-        )
-      )
-    );
-    const previousCompletedIds = initialAchievementSnapshotRef.current;
-    const previousItemIds = previousItemIdsRef.current;
-
-    if (previousCompletedIds == null || previousItemIds == null) {
-      initialAchievementSnapshotRef.current = completedIds;
-      previousItemIdsRef.current = new Set(items.map((item) => item.id));
-      return;
-    }
-
-    const newlyCompleted = achievementSummary.categories
-      .flatMap((category) => category.groups.flatMap((group) => group.achievements))
-      .filter(
-        (achievement) =>
-          achievement.completed && !previousCompletedIds.has(achievement.id)
-      );
-
-    const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
-    const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
-    const celebrationNodeId =
-      newestDiscoveredItem != null
-        ? [...workspaceItems]
-            .reverse()
-            .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ?? null
-        : drawerItemId == null
-          ? null
-          : [...workspaceItems]
-              .reverse()
-              .find((workspaceItem) => workspaceItem.itemId === drawerItemId)?.nodeId ?? null;
-
-    if (newlyCompleted.length > 0) {
-      const earnedPoints = newlyCompleted.reduce(
-        (sum, achievement) => sum + achievement.points,
-        0
-      );
-      showProgressCelebration(
-        "Achievement Earned",
-        newlyCompleted.length === 1
-          ? newlyCompleted[0].title
-          : `${newlyCompleted.length} achievements earned`,
-        newlyCompleted.length === 1
-          ? `+${earnedPoints} achievement points`
-          : `+${earnedPoints} achievement points added to your total.`,
-        celebrationNodeId
-      );
-    }
-
-    initialAchievementSnapshotRef.current = completedIds;
-    previousItemIdsRef.current = new Set(items.map((item) => item.id));
-  }, [achievementSummary, drawerItemId, items, workspaceItems]);
+  }, [items, visibleChallengeTargets]);
 
   useEffect(() => {
     const previousCompleted = initialQuestSnapshotRef.current;
@@ -414,8 +466,9 @@ const App: React.FC = () => {
       return;
     }
 
-    const newlyCompleted = challengeTargets.filter(
+    const newlyCompleted = visibleChallengeTargets.filter(
       (quest) =>
+        trackedQuestNames.has(quest.name) &&
         completedQuestNames.has(quest.name) && !previousCompleted.has(quest.name)
     );
 
@@ -444,58 +497,14 @@ const App: React.FC = () => {
 
     initialQuestSnapshotRef.current = new Set(completedQuestNames);
     previousQuestItemIdsRef.current = new Set(items.map((item) => item.id));
-  }, [challengeTargets, completedQuestNames, items, workspaceItems]);
+  }, [completedQuestNames, items, trackedQuestNames, visibleChallengeTargets, workspaceItems]);
 
   useEffect(() => {
-    if (!isJournalOpen || journalTab !== "achievements") {
+    if (!isJournalOpen || visibleChallengeTargets.length === 0) {
       return;
     }
 
-    const visibleAchievements = achievementSummary.categories.flatMap((category) =>
-      category.groups.flatMap((group) => group.achievements)
-    );
-    const missing = visibleAchievements.filter(
-      (achievement) => achievementReferences[achievement.id] === undefined
-    );
-
-    if (missing.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    void Promise.all(
-      missing.map(async (achievement) => {
-        try {
-          const reference = await fetchQuestTargetReference(achievement.lookupName);
-          return [achievement.id, reference] as const;
-        } catch {
-          return [achievement.id, null] as const;
-        }
-      })
-    ).then((results) => {
-      if (cancelled) {
-        return;
-      }
-      setAchievementReferences((prev) => {
-        const next = { ...prev };
-        for (const [achievementId, reference] of results) {
-          next[achievementId] = reference;
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [achievementReferences, achievementSummary, isJournalOpen, journalTab]);
-
-  useEffect(() => {
-    if (!isJournalOpen || journalTab !== "quests" || challengeTargets.length === 0) {
-      return;
-    }
-
-    const missing = challengeTargets.filter(
+    const missing = visibleChallengeTargets.filter(
       (quest) => questReferences[quest.name] === undefined
     );
 
@@ -529,7 +538,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [challengeTargets, isJournalOpen, journalTab, questReferences]);
+  }, [isJournalOpen, questReferences, visibleChallengeTargets]);
 
   function showError(message: string, err: unknown) {
     void err;
@@ -556,7 +565,7 @@ const App: React.FC = () => {
         count: 10,
         difficulty,
         discoveredNames: items.map((item) => item.name),
-        recentTargets: challengeTargets.map((target) => target.name),
+        recentTargets: visibleChallengeTargets.map((target) => target.name),
         model: selectedModel,
       });
       setChallengeTargets((prev) => {
@@ -573,7 +582,6 @@ const App: React.FC = () => {
         return next;
       });
       setRightPanelMode("journal");
-      setJournalTab("quests");
       setIsJournalOpen(true);
     } catch (err) {
       showError("Failed to generate challenge targets.", err);
@@ -582,18 +590,42 @@ const App: React.FC = () => {
     }
   }
 
-  function openJournal(tab: "achievements" | "quests") {
-    setJournalTab(tab);
+  function openJournal() {
     setSelectedQuestName(null);
     setRightPanelMode("journal");
     setIsJournalOpen(true);
-    setIsCanvasMenuOpen(false);
   }
 
   function openQuestDetails(quest: ChallengeTarget) {
     setSelectedQuestName(quest.name);
     setRightPanelMode("quest");
     setIsJournalOpen(true);
+  }
+
+  function trackQuest(questName: string) {
+    setTrackedQuestNames((prev) => new Set(prev).add(questName));
+  }
+
+  function untrackQuest(questName: string) {
+    setTrackedQuestNames((prev) => {
+      const next = new Set(prev);
+      next.delete(questName);
+      return next;
+    });
+  }
+
+  function abandonQuest(questName: string) {
+    setTrackedQuestNames((prev) => {
+      const next = new Set(prev);
+      next.delete(questName);
+      return next;
+    });
+    setAbandonedQuestNames((prev) => new Set(prev).add(questName));
+    if (selectedQuestName === questName) {
+      setSelectedQuestName(null);
+      setRightPanelMode("journal");
+    }
+    setPendingAbandonedQuestName(null);
   }
 
   async function toggleFullscreen() {
@@ -646,14 +678,25 @@ const App: React.FC = () => {
   const selectedQuest =
     selectedQuestName == null
       ? null
-      : challengeTargets.find((entry) => entry.name === selectedQuestName) ?? null;
+      : visibleChallengeTargets.find((entry) => entry.name === selectedQuestName) ?? null;
   const selectedQuestItem =
     selectedQuest == null
       ? null
       : items.find(
-          (entry) =>
-            entry.normalizedName === selectedQuest.name.trim().toLowerCase()
+          (entry) => questsCloselyMatch(entry.normalizedName || entry.name, selectedQuest.name)
         ) ?? null;
+  const unlockedCatalystFamilyKeys = useMemo(() => {
+    const discoveredTriggerNames = new Set(
+      items.map((item) => normalizeActionTrigger(item.normalizedName || item.name))
+    );
+    return new Set(
+      ACTION_PROMPT_FAMILY_REFERENCES.filter((family) =>
+        family.triggerWords.some((word) =>
+          discoveredTriggerNames.has(normalizeActionTrigger(word))
+        )
+      ).map((family) => family.key)
+    );
+  }, [items]);
   const catalystActions = useMemo(() => {
     const actions: Array<{
       key: string;
@@ -663,6 +706,15 @@ const App: React.FC = () => {
       iconTint: string;
       onClick: () => void;
     }> = [];
+
+    actions.push({
+      key: "creative",
+      title: "Creative",
+      icon: "✨",
+      tint: "rgba(167, 139, 250, 0.22)",
+      iconTint: "#ddd6fe",
+      onClick: () => addItemToWorkspace(CREATIVE_ITEM_ID),
+    });
 
     actions.push({
       key: "category",
@@ -679,17 +731,25 @@ const App: React.FC = () => {
       icon: <Zap size={16} strokeWidth={2} />,
       tint: "rgba(251, 191, 36, 0.22)",
       iconTint: "#fde68a",
-      onClick: () => {
-        addItemToWorkspace(ACTION_MODIFIER_ITEM_ID);
-        const actionItem = findItemById(ACTION_MODIFIER_ITEM_ID);
-        if (actionItem) {
-          openItemDetails(actionItem);
-        }
-      },
+      onClick: () => addItemToWorkspace(ACTION_MODIFIER_ITEM_ID),
     });
 
+    for (const catalyst of ACTION_CATALYSTS) {
+      if (!unlockedCatalystFamilyKeys.has(catalyst.familyKey)) {
+        continue;
+      }
+      actions.push({
+        key: catalyst.familyKey,
+        title: catalyst.actionConstraint,
+        icon: catalyst.item.icon ?? catalyst.actionConstraint.charAt(0),
+        tint: catalyst.tint,
+        iconTint: catalyst.iconTint,
+        onClick: () => addItemToWorkspace(catalyst.item.id),
+      });
+    }
+
     return actions;
-  }, [viewportCenter, items]);
+  }, [items, unlockedCatalystFamilyKeys, viewportCenter]);
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -895,15 +955,23 @@ const App: React.FC = () => {
       .filter(Boolean) as Item[];
     if (selectedItems.length < 2) return false;
 
-    const hasCreativeCatalyst = selectedItems.some((item) => item.id === CREATIVE_ITEM_ID);
+    const creativeCatalyst = selectedItems.find((item) => item.id === CREATIVE_ITEM_ID) ?? null;
+    const actionCatalysts = selectedItems
+      .map((item) => ACTION_CATALYST_BY_ID.get(item.id) ?? null)
+      .filter((entry): entry is NonNullable<(typeof ACTION_CATALYSTS)[number]> => entry != null);
     const categoryAnchors = selectedNodes.filter(
       (node) => node.categoryConstraintName && node.categoryConstraintNormalizedName
     );
     const actionAnchors = selectedNodes.filter(
       (node) => node.actionConstraintName && node.actionConstraintNormalizedName
     );
-    const activeCatalystCount = [hasCreativeCatalyst].filter(Boolean).length;
+    const activeCatalystCount =
+      [creativeCatalyst, actionCatalysts[0] ?? null].filter(Boolean).length;
     if (activeCatalystCount > 1) {
+      showError("Use only one catalyst at a time.", null);
+      return false;
+    }
+    if (actionCatalysts.length > 1) {
       showError("Use only one catalyst at a time.", null);
       return false;
     }
@@ -917,6 +985,7 @@ const App: React.FC = () => {
     }
     const categoryAnchor = categoryAnchors[0] ?? null;
     const actionAnchor = actionAnchors[0] ?? null;
+    const actionCatalyst = actionCatalysts[0] ?? null;
     const actualInputItems = selectedItems.filter(
       (item) => !NON_INGREDIENT_ITEM_IDS.has(item.id)
     );
@@ -929,8 +998,10 @@ const App: React.FC = () => {
       .filter(
         (item): item is Item => !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id)
       );
-    const catalystLabel = hasCreativeCatalyst
+    const catalystLabel = creativeCatalyst
       ? "Creative Spark"
+      : actionCatalyst
+        ? actionCatalyst.actionConstraint
       : categoryAnchor && actionAnchor
         ? "Category + Action"
       : categoryAnchor
@@ -948,7 +1019,8 @@ const App: React.FC = () => {
       return false;
     }
     if (
-      !hasCreativeCatalyst &&
+      !creativeCatalyst &&
+      !actionCatalyst &&
       !categoryAnchor &&
       !actionAnchor &&
       actualInputItems.length < 2
@@ -988,9 +1060,12 @@ const App: React.FC = () => {
         Array.from(new Set([...prev, ...operationCombiningIds]))
       );
       const recipe = await combineElements(inputNames, {
-        creative: hasCreativeCatalyst,
+        creative: Boolean(creativeCatalyst),
         categoryConstraint: categoryAnchor?.categoryConstraintName ?? undefined,
-        actionConstraint: actionAnchor?.actionConstraintName ?? undefined,
+        actionConstraint:
+          actionAnchor?.actionConstraintName ??
+          actionCatalyst?.actionConstraint ??
+          undefined,
         model: selectedModel,
       });
 
@@ -1210,7 +1285,46 @@ const App: React.FC = () => {
           </div>
         </div>
       ) : null}
-      <div className="app-root">
+      {pendingAbandonedQuestName ? (
+        <div className="confirm-overlay" role="presentation">
+          <div
+            className="confirm-backdrop"
+            onClick={() => setPendingAbandonedQuestName(null)}
+          />
+          <div className="confirm-panel" role="dialog" aria-modal="true">
+            <h3 className="confirm-title">Abandon Quest?</h3>
+            <p className="confirm-text">
+              <strong>{pendingAbandonedQuestName}</strong> will be removed from the quest list.
+            </p>
+            <div className="confirm-actions">
+              <button
+                type="button"
+                className="button secondary"
+                onClick={() => setPendingAbandonedQuestName(null)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="button danger"
+                onClick={() => abandonQuest(pendingAbandonedQuestName)}
+              >
+                Abandon Quest
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+      <div
+        className="app-root"
+        style={
+          isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
+            ? ({
+                ["--app-viewport-height" as string]: `${androidViewportHeight}px`,
+              } as React.CSSProperties)
+            : undefined
+        }
+      >
         <aside className="sidebar">
           <ElementSidebar
             items={items}
@@ -1245,52 +1359,17 @@ const App: React.FC = () => {
                   </div>
                 </div>
               )}
-              {isPortraitTabletLayout ? null : (
-                <JournalSummaryStrip
-                  achievementSummary={achievementSummary}
-                  challengeTargets={challengeTargets}
-                  isGeneratingChallengeTargets={isGeneratingChallengeTargets}
-                  isQuestCelebrating={isQuestCelebrating}
-                  isJournalOpen={isJournalOpen}
-                  journalTab={journalTab}
-                  questCelebrationTitle={questCelebration?.title ?? null}
-                  onOpenJournal={openJournal}
-                />
-              )}
               <div className="graph-canvas">
                 {isPortraitTabletLayout ? (
-                  <div ref={canvasMenuRef} className="graph-canvas-menu">
-                    <button
-                      type="button"
-                      className="graph-fullscreen-button graph-canvas-menu-button"
-                      onClick={() => setIsCanvasMenuOpen((current) => !current)}
-                      aria-label="Open workspace menu"
-                      aria-haspopup="menu"
-                      aria-expanded={isCanvasMenuOpen}
-                    >
-                      <Menu size={16} strokeWidth={2} />
-                    </button>
-                    {isCanvasMenuOpen ? (
-                      <div className="graph-canvas-menu-panel" role="menu" aria-label="Workspace menu">
-                        <button
-                          type="button"
-                          className="graph-canvas-menu-action"
-                          role="menuitem"
-                          onClick={() => openJournal("achievements")}
-                        >
-                          Achievements
-                        </button>
-                        <button
-                          type="button"
-                          className="graph-canvas-menu-action"
-                          role="menuitem"
-                          onClick={() => openJournal("quests")}
-                        >
-                          Quests
-                        </button>
-                      </div>
-                    ) : null}
-                  </div>
+                  <button
+                    type="button"
+                    className="graph-fullscreen-button graph-quests-button-overlay"
+                    onClick={() => openJournal()}
+                    aria-label="Open quests"
+                    title="Open quests"
+                  >
+                    <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
+                  </button>
                 ) : null}
                 {isPortraitTabletLayout ? (
                   <button
@@ -1333,12 +1412,10 @@ const App: React.FC = () => {
                 isOpen={isJournalOpen}
                 isTransient={isPortraitTabletLayout}
                 mode={rightPanelMode}
-                journalTab={journalTab}
-                achievementSummary={achievementSummary}
-                achievementReferences={achievementReferences}
                 questReferences={questReferences}
-                achievementReferencePreviewLimit={ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT}
-                challengeTargets={challengeTargets}
+                referencePreviewLimit={ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT}
+                challengeTargets={visibleChallengeTargets}
+                trackedQuestNames={trackedQuestNames}
                 completedQuestNames={completedQuestNames}
                 isGeneratingChallengeTargets={isGeneratingChallengeTargets}
                 selectedQuest={selectedQuest}
@@ -1358,7 +1435,6 @@ const App: React.FC = () => {
                 onBackToJournal={openJournal}
                 onSelectItem={openItemDetails}
                 onCollapse={() => setIsJournalOpen(false)}
-                onSetJournalTab={setJournalTab}
                 onGenerateEasyQuests={() => {
                   void generateQuests("easy");
                 }}
@@ -1366,7 +1442,10 @@ const App: React.FC = () => {
                   void generateQuests("hard");
                 }}
                 onSelectQuest={openQuestDetails}
-                truncateAchievementReference={truncateAchievementReference}
+                onTrackQuest={trackQuest}
+                onUntrackQuest={untrackQuest}
+                onRequestAbandonQuest={setPendingAbandonedQuestName}
+                truncateReference={truncateAchievementReference}
               />
           </section>
         </main>
