@@ -48,6 +48,7 @@ const CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
+const PORTRAIT_TABLET_LAYOUT_QUERY = "(orientation: portrait)";
 
 type QuestCelebrationState = {
   kicker: string;
@@ -207,11 +208,18 @@ const App: React.FC = () => {
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
   );
+  const [isPortraitTabletLayout, setIsPortraitTabletLayout] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY).matches;
+  });
   const initialAchievementSnapshotRef = useRef<Set<string> | null>(null);
   const previousItemIdsRef = useRef<Set<number> | null>(null);
   const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
   const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
+  const journalDockRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -223,6 +231,19 @@ const App: React.FC = () => {
   useEffect(() => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY);
+    const handleChange = () => {
+      setIsPortraitTabletLayout(mediaQuery.matches);
+    };
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
 
   useEffect(() => {
     const handleFullscreenChange = () => {
@@ -823,10 +844,6 @@ const App: React.FC = () => {
     setWorkspaceItems([]);
   }
 
-  function handleLibraryReset() {
-    setWorkspaceItems([]);
-  }
-
   async function combineWorkspaceNodeIds(
     nodeIds: string[],
     options?: {
@@ -1172,7 +1189,6 @@ const App: React.FC = () => {
           <ElementSidebar
             items={items}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
-            onLibraryReset={handleLibraryReset}
             onItemsLoaded={setItems}
             randomUnlocked={isFeatureUnlocked("random_tools")}
           />
@@ -1181,12 +1197,45 @@ const App: React.FC = () => {
         <main className="main-area">
           <section className="workspace-layout">
             <div className="graph-wrapper">
-              <div className="graph-header">
-                <h2 className="section-title">Crafting workspace</h2>
-                <div className="graph-header-actions">
+              {isPortraitTabletLayout ? null : (
+                <div className="graph-header">
+                  <h2 className="section-title">Crafting workspace</h2>
+                  <div className="graph-header-actions">
+                    <button
+                      type="button"
+                      className="graph-fullscreen-button"
+                      onClick={() => {
+                        void toggleFullscreen();
+                      }}
+                      aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                      title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                    >
+                      {isFullscreen ? (
+                        <Minimize2 size={15} strokeWidth={2} />
+                      ) : (
+                        <Maximize2 size={15} strokeWidth={2} />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {isPortraitTabletLayout ? null : (
+                <JournalSummaryStrip
+                  achievementSummary={achievementSummary}
+                  challengeTargets={challengeTargets}
+                  isGeneratingChallengeTargets={isGeneratingChallengeTargets}
+                  isQuestCelebrating={isQuestCelebrating}
+                  isJournalOpen={isJournalOpen}
+                  journalTab={journalTab}
+                  questCelebrationTitle={questCelebration?.title ?? null}
+                  onOpenJournal={openJournal}
+                />
+              )}
+              <div className="graph-canvas">
+                {isPortraitTabletLayout ? (
                   <button
                     type="button"
-                    className="graph-fullscreen-button"
+                    className="graph-fullscreen-button graph-fullscreen-button-overlay"
                     onClick={() => {
                       void toggleFullscreen();
                     }}
@@ -1199,19 +1248,7 @@ const App: React.FC = () => {
                       <Maximize2 size={15} strokeWidth={2} />
                     )}
                   </button>
-                </div>
-              </div>
-              <JournalSummaryStrip
-                achievementSummary={achievementSummary}
-                challengeTargets={challengeTargets}
-                isGeneratingChallengeTargets={isGeneratingChallengeTargets}
-                isQuestCelebrating={isQuestCelebrating}
-                isJournalOpen={isJournalOpen}
-                journalTab={journalTab}
-                questCelebrationTitle={questCelebration?.title ?? null}
-                onOpenJournal={openJournal}
-              />
-              <div className="graph-canvas">
+                ) : null}
                 <GraphView
                   items={items}
                   workspaceItems={workspaceItems}
@@ -1232,7 +1269,9 @@ const App: React.FC = () => {
               </div>
             </div>
               <JournalDock
+                dockRef={journalDockRef}
                 isOpen={isJournalOpen}
+                isTransient={isPortraitTabletLayout}
                 mode={rightPanelMode}
                 journalTab={journalTab}
                 achievementSummary={achievementSummary}

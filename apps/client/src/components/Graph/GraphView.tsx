@@ -362,6 +362,7 @@ function GraphView({
   const pinchStateRef = useRef<PinchState | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
   const resizeFrameRef = useRef<number>(0);
+  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
@@ -532,6 +533,7 @@ function GraphView({
     if (!app || !host) return;
     app.renderer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
     drawBackground();
+    drawGrid();
     applyCamera();
   };
 
@@ -1419,35 +1421,6 @@ function GraphView({
       });
     };
 
-    const handleStagePointerMove = (event: FederatedPointerEvent) => {
-      const dragState = dragStateRef.current;
-      if (dragState && dragState.pointerId === event.pointerId) {
-        const worldPosition = pixiPointerToWorld(event);
-        if (dragState.draggedNodeIds.length > 1) {
-          const deltaX = worldPosition.x - dragState.pointerStartX;
-          const deltaY = worldPosition.y - dragState.pointerStartY;
-          for (const startPosition of dragState.nodeStartPositions) {
-            const view = itemViewsRef.current.get(startPosition.nodeId);
-            if (!view) continue;
-            setViewTopLeftPosition(view, {
-              x: startPosition.x + deltaX,
-              y: startPosition.y + deltaY,
-            });
-          }
-          refreshSelectionOverlay();
-        } else {
-          const view = itemViewsRef.current.get(dragState.nodeId);
-          if (view) {
-            setViewTopLeftPosition(view, {
-              x: worldPosition.x - dragState.offsetX,
-              y: worldPosition.y - dragState.offsetY,
-            });
-            updateHoverTarget(dragState.nodeId);
-          }
-        }
-      }
-    };
-
     const handleStagePointerDown = (event: FederatedPointerEvent) => {
       if (event.pointerType === "touch") {
         activeTouchPointsRef.current.set(event.pointerId, {
@@ -1480,6 +1453,38 @@ function GraphView({
     };
 
     const handleWindowPointerMove = (event: PointerEvent) => {
+      const dragState = dragStateRef.current;
+      if (dragState && dragState.pointerId === event.pointerId) {
+        const rect = host.getBoundingClientRect();
+        const worldPosition = screenPointToWorld(
+          event.clientX - rect.left,
+          event.clientY - rect.top
+        );
+        if (dragState.draggedNodeIds.length > 1) {
+          const deltaX = worldPosition.x - dragState.pointerStartX;
+          const deltaY = worldPosition.y - dragState.pointerStartY;
+          for (const startPosition of dragState.nodeStartPositions) {
+            const view = itemViewsRef.current.get(startPosition.nodeId);
+            if (!view) continue;
+            setViewTopLeftPosition(view, {
+              x: startPosition.x + deltaX,
+              y: startPosition.y + deltaY,
+            });
+          }
+          refreshSelectionOverlay();
+        } else {
+          const view = itemViewsRef.current.get(dragState.nodeId);
+          if (view) {
+            setViewTopLeftPosition(view, {
+              x: worldPosition.x - dragState.offsetX,
+              y: worldPosition.y - dragState.offsetY,
+            });
+            updateHoverTarget(dragState.nodeId);
+          }
+        }
+        return;
+      }
+
       if (event.pointerType === "touch") {
         const app = appRef.current;
         const rect = app?.canvas.getBoundingClientRect();
@@ -1956,13 +1961,18 @@ function GraphView({
       });
 
       app.stage.on("pointerdown", handleStagePointerDown);
-      app.stage.on("globalpointermove", handleStagePointerMove);
       app.canvas.addEventListener("mousedown", handleCanvasMouseDownCapture, true);
       window.addEventListener("pointermove", handleWindowPointerMove);
       window.addEventListener("pointerup", handlePointerUp);
       window.addEventListener("pointercancel", handlePointerUp);
       app.canvas.addEventListener("wheel", handleWheel, { passive: false });
       window.addEventListener("resize", handleWindowResize);
+
+      const resizeObserver = new ResizeObserver(() => {
+        handleWindowResize();
+      });
+      resizeObserver.observe(host);
+      resizeObserverRef.current = resizeObserver;
     };
 
     void init();
@@ -1980,11 +1990,12 @@ function GraphView({
       }
       if (app) {
         app.stage.off("pointerdown", handleStagePointerDown);
-        app.stage.off("globalpointermove", handleStagePointerMove);
         app.canvas.removeEventListener("mousedown", handleCanvasMouseDownCapture, true);
         app.canvas.removeEventListener("wheel", handleWheel);
         app.destroy(true, { children: true });
       }
+      resizeObserverRef.current?.disconnect();
+      resizeObserverRef.current = null;
       window.removeEventListener("resize", handleWindowResize);
       itemViewsRef.current.clear();
       appRef.current = null;

@@ -6,13 +6,11 @@ import ElementList from "./ElementList";
 import {
   fetchSemanticClusters,
   fetchItems,
-  resetLibrary,
 } from "../../lib/api";
 
 interface Props {
   items: Item[];
   onAddItemToWorkspace: (item: Item) => void;
-  onLibraryReset?: () => void;
   onItemsLoaded?: (items: Item[]) => void;
   randomUnlocked?: boolean;
 }
@@ -126,7 +124,6 @@ function collectClusterIds(clusters: SemanticCluster[]): Set<string> {
 const ElementSidebar: React.FC<Props> = ({
   items,
   onAddItemToWorkspace,
-  onLibraryReset,
   onItemsLoaded,
   randomUnlocked = false,
 }) => {
@@ -136,8 +133,6 @@ const ElementSidebar: React.FC<Props> = ({
   const [semanticPending, setSemanticPending] = useState(false);
   const [semanticLoading, setSemanticLoading] = useState(false);
   const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
-  const [isResettingLibrary, setIsResettingLibrary] = useState(false);
-  const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [sortBy, setSortBy] = useState<"time" | "name">("time");
   const [browseMode, setBrowseMode] = useState<"all" | "tree">("tree");
   const [clusters, setClusters] = useState<SemanticCluster[]>([]);
@@ -326,25 +321,6 @@ const ElementSidebar: React.FC<Props> = ({
   }
 
   const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
-
-  async function handleConfirmResetLibrary() {
-    if (isResettingLibrary) return;
-    try {
-      setIsResettingLibrary(true);
-      await resetLibrary();
-      setShowResetConfirm(false);
-      setSearch("");
-      setSemanticItems([]);
-      setClustersStale(false);
-      onLibraryReset?.();
-      await loadLibraryItems();
-      await loadSemanticClusters();
-    } catch {
-      setLibraryLoadError("Failed to reset library.");
-    } finally {
-      setIsResettingLibrary(false);
-    }
-  }
 
   function handleAddRandomItems() {
     if (!items.length) return;
@@ -583,50 +559,7 @@ const ElementSidebar: React.FC<Props> = ({
             />
           </div>
         )}
-        <div className="library-danger-actions">
-          <button
-            type="button"
-            className="button secondary clear-library-button"
-            onClick={() => setShowResetConfirm(true)}
-            disabled={isResettingLibrary}
-          >
-            Clear Library
-          </button>
-        </div>
       </section>
-      {showResetConfirm ? (
-        <div className="confirm-overlay" role="presentation">
-          <div
-            className="confirm-backdrop"
-            onClick={() => (isResettingLibrary ? null : setShowResetConfirm(false))}
-          />
-          <div className="confirm-panel" role="dialog" aria-modal="true">
-            <h3 className="confirm-title">Clear Library?</h3>
-            <p className="confirm-text">
-              This removes discovered items from the library and keeps only Fire,
-              Water, Earth, and Air. Cached combinations are preserved.
-            </p>
-            <div className="confirm-actions">
-              <button
-                type="button"
-                className="button secondary"
-                onClick={() => setShowResetConfirm(false)}
-                disabled={isResettingLibrary}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="button danger"
-                onClick={() => void handleConfirmResetLibrary()}
-                disabled={isResettingLibrary}
-              >
-                {isResettingLibrary ? "Clearing..." : "Clear Library"}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </>
   );
 };

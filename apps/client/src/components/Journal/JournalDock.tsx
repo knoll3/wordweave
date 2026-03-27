@@ -6,7 +6,9 @@ import ItemDetailsDrawer from "../Graph/ItemDetailsDrawer";
 import QuestDetailsPanel from "../Graph/QuestDetailsPanel";
 
 interface Props {
+  dockRef?: React.Ref<HTMLElement>;
   isOpen: boolean;
+  isTransient?: boolean;
   mode: "journal" | "item" | "quest";
   journalTab: "achievements" | "quests";
   achievementSummary: AchievementSummary;
@@ -38,7 +40,9 @@ interface Props {
 }
 
 const JournalDock: React.FC<Props> = ({
+  dockRef,
   isOpen,
+  isTransient = false,
   mode,
   journalTab,
   achievementSummary,
@@ -69,7 +73,12 @@ const JournalDock: React.FC<Props> = ({
   truncateAchievementReference,
 }) => {
   return (
-    <aside className={`journal-dock${isOpen ? "" : " is-collapsed"}`}>
+    <aside
+      ref={dockRef}
+      className={`journal-dock${isOpen ? "" : " is-collapsed"}${
+        isTransient ? " is-transient" : ""
+      }`}
+    >
       {isOpen ? (
         <div className="journal-dock-shell">
           {mode === "item" && item ? (
