@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Menu,
   Maximize2,
   Minimize2,
   Zap,
@@ -208,6 +209,7 @@ const App: React.FC = () => {
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
   );
+  const [isCanvasMenuOpen, setIsCanvasMenuOpen] = useState(false);
   const [isPortraitTabletLayout, setIsPortraitTabletLayout] = useState(() => {
     if (typeof window === "undefined") {
       return false;
@@ -220,6 +222,7 @@ const App: React.FC = () => {
   const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
+  const canvasMenuRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -263,6 +266,28 @@ const App: React.FC = () => {
       forceUnlocks ? "true" : "false"
     );
   }, [forceUnlocks]);
+
+  useEffect(() => {
+    if (!isCanvasMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) {
+        return;
+      }
+      if (canvasMenuRef.current?.contains(target)) {
+        return;
+      }
+      setIsCanvasMenuOpen(false);
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+    };
+  }, [isCanvasMenuOpen]);
 
   useEffect(() => {
     if (combiningNodeIds.length > 0) return;
@@ -562,6 +587,7 @@ const App: React.FC = () => {
     setSelectedQuestName(null);
     setRightPanelMode("journal");
     setIsJournalOpen(true);
+    setIsCanvasMenuOpen(false);
   }
 
   function openQuestDetails(quest: ChallengeTarget) {
@@ -1232,6 +1258,40 @@ const App: React.FC = () => {
                 />
               )}
               <div className="graph-canvas">
+                {isPortraitTabletLayout ? (
+                  <div ref={canvasMenuRef} className="graph-canvas-menu">
+                    <button
+                      type="button"
+                      className="graph-fullscreen-button graph-canvas-menu-button"
+                      onClick={() => setIsCanvasMenuOpen((current) => !current)}
+                      aria-label="Open workspace menu"
+                      aria-haspopup="menu"
+                      aria-expanded={isCanvasMenuOpen}
+                    >
+                      <Menu size={16} strokeWidth={2} />
+                    </button>
+                    {isCanvasMenuOpen ? (
+                      <div className="graph-canvas-menu-panel" role="menu" aria-label="Workspace menu">
+                        <button
+                          type="button"
+                          className="graph-canvas-menu-action"
+                          role="menuitem"
+                          onClick={() => openJournal("achievements")}
+                        >
+                          Achievements
+                        </button>
+                        <button
+                          type="button"
+                          className="graph-canvas-menu-action"
+                          role="menuitem"
+                          onClick={() => openJournal("quests")}
+                        >
+                          Quests
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
                 {isPortraitTabletLayout ? (
                   <button
                     type="button"
