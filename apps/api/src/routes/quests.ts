@@ -9,8 +9,8 @@ const router = express.Router();
 const generateTargetsRequestSchema = z.object({
   count: z.number().int().min(1).max(10).optional(),
   difficulty: z.enum(["easy", "hard"]).optional(),
-  discoveredNames: z.array(z.string().min(1).max(128)).optional(),
   recentTargets: z.array(z.string().min(1).max(128)).optional(),
+  completedTargets: z.array(z.string().min(1).max(128)).max(50).optional(),
   model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]).optional(),
 });
 
@@ -40,22 +40,30 @@ router.post("/generate", async (req, res) => {
   const count = parsed.data.count ?? 10;
   const requestCount = Math.min(count + 6, 20);
   const difficulty = parsed.data.difficulty ?? "hard";
-  const discoveredNames = uniqueNormalized(parsed.data.discoveredNames ?? []);
   const recentTargets = uniqueNormalized(parsed.data.recentTargets ?? []);
+  const completedTargets = uniqueNormalized(parsed.data.completedTargets ?? []).slice(-50);
   const model: OpenAiModel | undefined = parsed.data.model;
 
   try {
-    const discoveredSet = new Set(discoveredNames.map((name) => normalize(name)));
+    const db = await getDb();
     const recentSet = new Set(recentTargets.map((name) => normalize(name)));
+    const completedSet = new Set(completedTargets.map((name) => normalize(name)));
     const acceptedTargets: Array<{ name: string; icon: string }> = [];
     const seen = new Set<string>();
+    const discoveredSet = new Set<string>();
+    const discoveredStmt = db.prepare("SELECT name FROM elements");
+    while (discoveredStmt.step()) {
+      const row = discoveredStmt.getAsObject() as Record<string, unknown>;
+      discoveredSet.add(normalize(String(row.name ?? "")));
+    }
+    discoveredStmt.free();
 
     for (let attempt = 0; attempt < 2 && acceptedTargets.length < count; attempt += 1) {
       const generated = await generateChallengeTargets({
         count: requestCount,
         difficulty,
-        discoveredNames,
         recentTargets: [...recentTargets, ...acceptedTargets.map((target) => target.name)],
+        completedTargets,
         model,
       });
 
@@ -65,6 +73,7 @@ router.post("/generate", async (req, res) => {
         if (seen.has(normalized)) continue;
         if (discoveredSet.has(normalized)) continue;
         if (recentSet.has(normalized)) continue;
+        if (completedSet.has(normalized)) continue;
         seen.add(normalized);
         acceptedTargets.push(target);
         if (acceptedTargets.length >= count) break;

@@ -13,6 +13,8 @@ interface Props {
   onAddItemToWorkspace: (item: Item) => void;
   onItemsLoaded?: (items: Item[]) => void;
   randomUnlocked?: boolean;
+  canUndoWorkspace?: boolean;
+  onUndoWorkspace?: () => void;
 }
 
 const RANDOM_SPAWN_COUNT = 4;
@@ -126,6 +128,8 @@ const ElementSidebar: React.FC<Props> = ({
   onAddItemToWorkspace,
   onItemsLoaded,
   randomUnlocked = false,
+  canUndoWorkspace = false,
+  onUndoWorkspace,
 }) => {
   const [search, setSearch] = useState("");
   const [semanticItems, setSemanticItems] = useState<Item[]>([]);
@@ -447,6 +451,14 @@ const ElementSidebar: React.FC<Props> = ({
             </button>
           </div>
           <div className="library-secondary-slot">
+            <button
+              type="button"
+              className="sort-button library-undo-button"
+              onClick={() => onUndoWorkspace?.()}
+              disabled={!canUndoWorkspace}
+            >
+              Undo
+            </button>
             {browseMode === "all" ? (
               <div
                 className="sort-controls library-sort-controls"

@@ -256,7 +256,7 @@ What "challenging" means here:
 
 Good target styles:
 - deceptively simple words that are hard to reach
-- pop culture references
+- occasional pop culture references, movie/show-adjacent concepts, and other things a normal person would actually recognize
 - internet culture, meme-adjacent, or playful terms
 - abstract concepts
 - directional, relational, logical, or functional words
@@ -274,6 +274,7 @@ Bad target styles:
 - generic broad categories
 - dry academic obscurities chosen only to seem clever
 - batches that collapse into history, mythology, or scholarly references
+- trivia-night bait, lore dumps, or niche factoid answers that feel more like homework than play
 - random adjective+noun constructions made up just to seem difficult
 - clunky sentences or descriptive phrases
 - terms the player already has
@@ -283,21 +284,22 @@ Variety rules:
 - do not collapse into one topic, register, or tone
 - include a mix of concrete, abstract, referential, and strange-but-legitimate targets
 - include some quests that feel fun, weird, or lowbrow instead of only clever or highbrow
+- favor targets that feel culturally legible and fun for a broad audience, not like an academic exam
 
 Hard rules:
 - Return exactly {{TARGET_COUNT}} targets.
 - Prefer single words.
 - Two-word targets are allowed only if they are fixed, well-known concepts.
 - Every target must be short, recognizable, and plausible in this game.
-- Do not return anything from the discovered exclusion list.
 - Do not return anything from the recent target exclusion list.
 - Do not explain anything outside the JSON.
-
-Discovered exclusion list:
-{{DISCOVERED_NAMES_ARRAY}}
+- Already-discovered terms are filtered after generation, so do not waste the batch on obvious, generic, overused targets.
 
 Recent target exclusion list:
 {{RECENT_TARGETS_ARRAY}}
+
+Completed quest exclusion list:
+{{COMPLETED_TARGETS_ARRAY}}
 
 Return ONLY valid JSON in this format:
 

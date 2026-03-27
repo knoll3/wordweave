@@ -244,8 +244,8 @@ export async function fetchQuestTargetReference(
 export async function generateChallengeTargets(params: {
   count?: number;
   difficulty?: "easy" | "hard";
-  discoveredNames?: string[];
   recentTargets?: string[];
+  completedTargets?: string[];
   model?: AiModel;
 } = {}): Promise<ChallengeTargetsResponse> {
   const res = await fetch(`${API_BASE}/quests/generate`, {
@@ -256,8 +256,8 @@ export async function generateChallengeTargets(params: {
     body: JSON.stringify({
       count: params.count,
       difficulty: params.difficulty,
-      discoveredNames: params.discoveredNames,
       recentTargets: params.recentTargets,
+      completedTargets: params.completedTargets,
       model: params.model,
     }),
   });

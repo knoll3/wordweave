@@ -162,8 +162,8 @@ export function renderRecipeBatchPrompt(params: {
 
 export function renderChallengeTargetsPrompt(params: {
   count: number;
-  discoveredNames: string[];
   recentTargets: string[];
+  completedTargets: string[];
   difficulty: "easy" | "hard";
 }) {
   const difficultyGuidance =
@@ -174,8 +174,8 @@ export function renderChallengeTargetsPrompt(params: {
   return CHALLENGE_TARGETS_PROMPT
     .replace(/{{TARGET_COUNT}}/g, String(params.count))
     .replace(/{{QUEST_DIFFICULTY_GUIDANCE}}/g, difficultyGuidance)
-    .replace(/{{DISCOVERED_NAMES_ARRAY}}/g, JSON.stringify(params.discoveredNames))
-    .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets));
+    .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets))
+    .replace(/{{COMPLETED_TARGETS_ARRAY}}/g, JSON.stringify(params.completedTargets));
 }
 
 export async function generateResult(
@@ -361,8 +361,8 @@ export async function generateRecipeBatch(params: {
 
 export async function generateChallengeTargets(params: {
   count: number;
-  discoveredNames: string[];
   recentTargets: string[];
+  completedTargets: string[];
   difficulty: "easy" | "hard";
   model?: OpenAiModel;
 }) {
@@ -374,8 +374,8 @@ export async function generateChallengeTargets(params: {
     model,
     count: params.count,
     difficulty: params.difficulty,
-    discoveredCount: params.discoveredNames.length,
     recentCount: params.recentTargets.length,
+    completedCount: params.completedTargets.length,
     prompt,
   });
 

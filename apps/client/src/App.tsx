@@ -232,6 +232,7 @@ const App: React.FC = () => {
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(
     loadStoredWorkspaceItems
   );
+  const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [viewportCenter, setViewportCenter] = useState<{
@@ -286,9 +287,88 @@ const App: React.FC = () => {
   const celebrationTimeoutRef = useRef<number | null>(null);
   const immersiveResumeTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
+  const isRestoringWorkspaceRef = useRef(false);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   const isAndroidImmersiveActive = isAndroidImmersive && !isAndroidImmersiveSuspended;
+
+  function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
+    return entries.map((item) => ({
+      ...item,
+      position: { ...item.position },
+    }));
+  }
+
+  function workspaceItemsEqual(left: WorkspaceItem[], right: WorkspaceItem[]) {
+    if (left === right) return true;
+    if (left.length !== right.length) return false;
+    return left.every((leftItem, index) => {
+      const rightItem = right[index];
+      return (
+        leftItem.nodeId === rightItem.nodeId &&
+        leftItem.itemId === rightItem.itemId &&
+        leftItem.position.x === rightItem.position.x &&
+        leftItem.position.y === rightItem.position.y &&
+        (leftItem.isNewDiscovery ?? false) === (rightItem.isNewDiscovery ?? false) &&
+        (leftItem.categoryConstraintName ?? null) ===
+          (rightItem.categoryConstraintName ?? null) &&
+        (leftItem.categoryConstraintNormalizedName ?? null) ===
+          (rightItem.categoryConstraintNormalizedName ?? null) &&
+        (leftItem.actionConstraintName ?? null) ===
+          (rightItem.actionConstraintName ?? null) &&
+        (leftItem.actionConstraintNormalizedName ?? null) ===
+          (rightItem.actionConstraintNormalizedName ?? null)
+      );
+    });
+  }
+
+  function pushWorkspaceUndoSnapshot(snapshot: WorkspaceItem[]) {
+    setWorkspaceUndoStack((prev) => {
+      const nextSnapshot = cloneWorkspaceSnapshot(snapshot);
+      const lastSnapshot = prev[prev.length - 1];
+      if (lastSnapshot && workspaceItemsEqual(lastSnapshot, nextSnapshot)) {
+        return prev;
+      }
+      const next = [...prev, nextSnapshot];
+      return next.length > 40 ? next.slice(next.length - 40) : next;
+    });
+  }
+
+  function updateWorkspaceItems(
+    update: React.SetStateAction<WorkspaceItem[]>,
+    options?: { recordHistory?: boolean }
+  ) {
+    const shouldRecordHistory =
+      options?.recordHistory ?? !isRestoringWorkspaceRef.current;
+    setWorkspaceItems((prev) => {
+      const next = typeof update === "function" ? update(prev) : update;
+      if (workspaceItemsEqual(prev, next)) {
+        return prev;
+      }
+      if (shouldRecordHistory) {
+        pushWorkspaceUndoSnapshot(prev);
+      }
+      return next;
+    });
+  }
+
+  function undoWorkspaceBoardAction() {
+    if (combiningNodeIds.length > 0) {
+      return;
+    }
+    setWorkspaceUndoStack((prev) => {
+      const snapshot = prev[prev.length - 1];
+      if (!snapshot) {
+        return prev;
+      }
+      isRestoringWorkspaceRef.current = true;
+      setWorkspaceItems(cloneWorkspaceSnapshot(snapshot));
+      window.requestAnimationFrame(() => {
+        isRestoringWorkspaceRef.current = false;
+      });
+      return prev.slice(0, -1);
+    });
+  }
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -675,11 +755,15 @@ const App: React.FC = () => {
   async function generateQuests(difficulty: "easy" | "hard") {
     setIsGeneratingChallengeTargets(true);
     try {
+      const completedQuestTargets = challengeTargets
+        .filter((target) => completedQuestNames.has(target.name))
+        .map((target) => target.name)
+        .slice(-50);
       const response = await generateChallengeTargets({
         count: 10,
         difficulty,
-        discoveredNames: items.map((item) => item.name),
         recentTargets: visibleChallengeTargets.map((target) => target.name),
+        completedTargets: completedQuestTargets,
         model: selectedModel,
       });
       setChallengeTargets((prev) => {
@@ -895,7 +979,7 @@ const App: React.FC = () => {
           y: anchorPosition.y + (Math.random() - 0.5) * 120,
         };
 
-    setWorkspaceItems((prev) => [
+    updateWorkspaceItems((prev) => [
       ...prev,
       {
         nodeId: makeWorkspaceNodeId(),
@@ -925,7 +1009,7 @@ const App: React.FC = () => {
         y: 180,
       } as const);
 
-    setWorkspaceItems((prev) => [
+    updateWorkspaceItems((prev) => [
       ...prev,
       {
         nodeId: makeWorkspaceNodeId(),
@@ -941,7 +1025,7 @@ const App: React.FC = () => {
   }
 
   function attachCategoryModifier(sourceNodeId: string, targetNodeId: string) {
-    setWorkspaceItems((prev) => {
+    updateWorkspaceItems((prev) => {
       const targetNode = prev.find((item) => item.nodeId === targetNodeId);
       const targetItem = targetNode ? findItemById(targetNode.itemId) : null;
       if (!targetNode || !targetItem || targetItem.id < 0) {
@@ -962,7 +1046,7 @@ const App: React.FC = () => {
   }
 
   function attachActionModifier(sourceNodeId: string, targetNodeId: string) {
-    setWorkspaceItems((prev) => {
+    updateWorkspaceItems((prev) => {
       const targetNode = prev.find((item) => item.nodeId === targetNodeId);
       const targetItem = targetNode ? findItemById(targetNode.itemId) : null;
       if (!targetNode || !targetItem || targetItem.id < 0) {
@@ -983,7 +1067,7 @@ const App: React.FC = () => {
   }
 
   function clearCategoryModifier(nodeId: string) {
-    setWorkspaceItems((prev) =>
+    updateWorkspaceItems((prev) =>
       prev.map((item) =>
         item.nodeId === nodeId
           ? {
@@ -997,7 +1081,7 @@ const App: React.FC = () => {
   }
 
   function clearActionModifier(nodeId: string) {
-    setWorkspaceItems((prev) =>
+    updateWorkspaceItems((prev) =>
       prev.map((item) =>
         item.nodeId === nodeId
           ? {
@@ -1042,7 +1126,7 @@ const App: React.FC = () => {
   }
 
   function clearWorkspaceItems() {
-    setWorkspaceItems([]);
+    updateWorkspaceItems([]);
   }
 
   async function combineWorkspaceNodeIds(
@@ -1152,8 +1236,10 @@ const App: React.FC = () => {
         ? [...uniqueNodeIds, placeholderNodeId]
         : uniqueNodeIds;
 
+      pushWorkspaceUndoSnapshot(workspaceItems);
+
       if (selectionLayout) {
-        setWorkspaceItems((prev) => {
+        updateWorkspaceItems((prev) => {
           const next = prev.map((node) => {
             const layoutNode = selectionLayout.nodePositions.find(
               (entry) => entry.nodeId === node.nodeId
@@ -1168,7 +1254,7 @@ const App: React.FC = () => {
               position: selectionLayout.placeholderPosition,
             },
           ];
-        });
+        }, { recordHistory: false });
       }
 
       setCombiningNodeIds((prev) =>
@@ -1223,7 +1309,7 @@ const App: React.FC = () => {
       }
 
       if (selectionLayout) {
-        setWorkspaceItems((prev) => {
+        updateWorkspaceItems((prev) => {
           const updated = prev.map((node) =>
             node.nodeId === selectionLayout.placeholderNodeId
               ? {
@@ -1255,7 +1341,7 @@ const App: React.FC = () => {
           }));
 
           return [...updated, ...extras];
-        });
+        }, { recordHistory: false });
       } else {
         const center =
           options?.resultCenter ??
@@ -1273,7 +1359,7 @@ const App: React.FC = () => {
             };
           })();
 
-        setWorkspaceItems((prev) => {
+        updateWorkspaceItems((prev) => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
           const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
           const spawned = producedItemsWithDiscovery.map((produced, index) => ({
@@ -1286,7 +1372,7 @@ const App: React.FC = () => {
             isNewDiscovery: produced.isNewDiscovery,
           }));
           return [...withoutInputs, ...spawned];
-        });
+        }, { recordHistory: false });
       }
       if (hasNewDiscovery) {
         void loadFeatureUnlocks();
@@ -1294,8 +1380,10 @@ const App: React.FC = () => {
       return true;
     } catch (err) {
       if (options?.selectionLayout) {
-        setWorkspaceItems((prev) =>
-          prev.filter((node) => node.nodeId !== options.selectionLayout!.placeholderNodeId)
+        updateWorkspaceItems(
+          (prev) =>
+            prev.filter((node) => node.nodeId !== options.selectionLayout!.placeholderNodeId),
+          { recordHistory: false }
         );
       }
       showError(
@@ -1447,6 +1535,8 @@ const App: React.FC = () => {
             onAddItemToWorkspace={addLibraryItemToWorkspace}
             onItemsLoaded={setItems}
             randomUnlocked={isFeatureUnlocked("random_tools")}
+            canUndoWorkspace={workspaceUndoStack.length > 0 && combiningNodeIds.length === 0}
+            onUndoWorkspace={undoWorkspaceBoardAction}
           />
         </aside>
 
@@ -1514,7 +1604,7 @@ const App: React.FC = () => {
                   celebratedNodeId={celebratedQuestNodeId}
                   onAttachActionModifier={attachActionModifier}
                   onAttachCategoryModifier={attachCategoryModifier}
-                  onWorkspaceItemsChange={setWorkspaceItems}
+                  onWorkspaceItemsChange={updateWorkspaceItems}
                   onViewportCenterChange={setViewportCenter}
                   combiningNodeIds={combiningNodeIds}
                   onClearActionModifier={clearActionModifier}
