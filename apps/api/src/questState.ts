@@ -1,5 +1,12 @@
 import type { Database } from "sql.js";
 import { DEFAULT_EMBEDDING_MODEL_NAME, generateEmbeddings, judgeQuestCompletionCandidate } from "./openaiClient";
+import {
+  buildEmbeddingSearchText,
+  cosineSimilarity,
+  loadEmbeddingsByElementId,
+  loadQueryEmbedding,
+  saveQueryEmbedding,
+} from "./embeddingStore";
 import { ensureSearchIndexForElementIds } from "./search";
 
 export type QuestStatus = "available" | "tracked" | "completed" | "abandoned";
@@ -24,7 +31,7 @@ export function normalizeQuestName(value: string) {
   return value.trim().toLowerCase();
 }
 
-export function uniqueNormalized(values: string[]) {
+function uniqueNormalized(values: string[]) {
   const seen = new Set<string>();
   const result: string[] = [];
   for (const value of values) {
@@ -126,10 +133,6 @@ export function updateQuestStatus(
   `);
   stmt.run([params.status, normalizeQuestName(params.name)]);
   stmt.free();
-}
-
-function buildSearchText(name: string) {
-  return `Item: ${name.trim()}`;
 }
 
 function normalizeLexicalJudgeText(value: string) {
@@ -241,20 +244,6 @@ function isLexicallyCloseForQuestJudge(target: string, candidate: string) {
   return prefixLength >= Math.max(3, Math.floor(shorterLength / 2)) && distance <= maxDistance;
 }
 
-function cosine(left: number[], right: number[]) {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  const length = Math.min(left.length, right.length);
-  for (let i = 0; i < length; i += 1) {
-    dot += left[i] * right[i];
-    leftNorm += left[i] * left[i];
-    rightNorm += right[i] * right[i];
-  }
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
-}
-
 function loadIncompleteQuests(
   db: Database,
   options?: { targetNames?: string[] }
@@ -364,7 +353,7 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
     for (const row of discoveredRows) {
       const itemEmbedding = embeddingsById.get(row.id);
       if (!itemEmbedding) continue;
-      const similarity = cosine(queryEmbedding, itemEmbedding);
+      const similarity = cosineSimilarity(queryEmbedding, itemEmbedding);
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         bestMatchName = row.name;
@@ -385,59 +374,12 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
   return rejectedTargets;
 }
 
-function loadEmbeddingsByElementId(db: Database, elementIds: number[]) {
-  if (elementIds.length === 0) return new Map<number, number[]>();
-  const stmt = db.prepare(`
-    SELECT element_id, embedding_json
-    FROM element_embeddings
-    WHERE element_id IN (${elementIds.map(() => "?").join(", ")})
-  `);
-  stmt.bind(elementIds);
-  const embeddings = new Map<number, number[]>();
-  while (stmt.step()) {
-    const row = stmt.getAsObject() as Record<string, unknown>;
-    embeddings.set(Number(row.element_id), JSON.parse(String(row.embedding_json)) as number[]);
-  }
-  stmt.free();
-  return embeddings;
-}
-
-function loadQueryEmbedding(db: Database, queryText: string) {
-  const stmt = db.prepare(`
-    SELECT embedding_json
-    FROM search_query_embeddings
-    WHERE query_text = ?
-  `);
-  const row = stmt.getAsObject([queryText]) as Record<string, unknown>;
-  stmt.free();
-  if (row.embedding_json == null) return null;
-  return JSON.parse(String(row.embedding_json)) as number[];
-}
-
-function saveQueryEmbedding(
-  db: Database,
-  queryText: string,
-  model: string,
-  embedding: number[]
-) {
-  const stmt = db.prepare(`
-    INSERT INTO search_query_embeddings (query_text, model, embedding_json, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(query_text) DO UPDATE SET
-      model = excluded.model,
-      embedding_json = excluded.embedding_json,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-  stmt.run([queryText, model, JSON.stringify(embedding)]);
-  stmt.free();
-}
-
 async function getQuestQueryEmbeddings(db: Database, quests: QuestRecord[]) {
   const embeddings = new Map<string, number[]>();
   const missingQuests: QuestRecord[] = [];
 
   for (const quest of quests) {
-    const queryText = buildSearchText(quest.name);
+    const queryText = buildEmbeddingSearchText(quest.name);
     const cached = loadQueryEmbedding(db, queryText);
     if (cached) {
       embeddings.set(quest.normalizedName, cached);
@@ -448,14 +390,14 @@ async function getQuestQueryEmbeddings(db: Database, quests: QuestRecord[]) {
 
   if (missingQuests.length > 0) {
     const response = await generateEmbeddings(
-      missingQuests.map((quest) => buildSearchText(quest.name))
+      missingQuests.map((quest) => buildEmbeddingSearchText(quest.name))
     );
     response.embeddings.forEach((entry, index) => {
       const quest = missingQuests[index];
       embeddings.set(quest.normalizedName, entry.embedding);
       saveQueryEmbedding(
         db,
-        buildSearchText(quest.name),
+        buildEmbeddingSearchText(quest.name),
         response.model || DEFAULT_EMBEDDING_MODEL_NAME,
         entry.embedding
       );
@@ -565,7 +507,7 @@ export async function syncQuestCompletions(
     for (const row of discoveredRows) {
       const itemEmbedding = embeddingsById.get(row.id);
       if (!itemEmbedding) continue;
-      const similarity = cosine(queryEmbedding, itemEmbedding);
+      const similarity = cosineSimilarity(queryEmbedding, itemEmbedding);
       if (similarity > bestSimilarity) {
         bestSimilarity = similarity;
         bestMatchName = row.name;

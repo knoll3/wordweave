@@ -167,48 +167,6 @@ export interface SelectionCombineLayout {
   placeholderPosition: { x: number; y: number };
 }
 
-export interface AchievementProgress {
-  id: string;
-  title: string;
-  description: string;
-  lookupName: string;
-  points: number;
-  completed: boolean;
-  progressCurrent: number;
-  progressTarget: number;
-}
-
-export interface AchievementGroupProgress {
-  id: string;
-  title: string;
-  summary: string;
-  achievements: AchievementProgress[];
-  earnedPoints: number;
-  totalPoints: number;
-  completedCount: number;
-  totalCount: number;
-}
-
-export interface AchievementCategoryProgress {
-  id: string;
-  title: string;
-  summary: string;
-  groups: AchievementGroupProgress[];
-  earnedPoints: number;
-  totalPoints: number;
-  completedCount: number;
-  totalCount: number;
-}
-
-export interface AchievementSummary {
-  categories: AchievementCategoryProgress[];
-  earnedPoints: number;
-  totalPoints: number;
-  completedCount: number;
-  totalCount: number;
-  featuredProgress: AchievementProgress[];
-}
-
 export interface CacheRecipe {
   id: number;
   inputKey: string;
@@ -309,14 +267,11 @@ export interface PromptTestResponse {
   result: unknown;
 }
 
-export interface ChallengeTarget {
-  name: string;
-  icon: string;
-}
-
 export type QuestStatus = "available" | "tracked" | "completed" | "abandoned";
 
-export interface QuestRecord extends ChallengeTarget {
+export interface QuestRecord {
+  name: string;
+  icon: string;
   status: QuestStatus;
   matchedItemName: string | null;
   completionMethod: "exact" | "embedding" | "judge" | null;

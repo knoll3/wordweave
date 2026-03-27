@@ -10,7 +10,6 @@ import {
   normalizeQuestName,
   syncQuestCompletions,
   updateQuestStatus,
-  uniqueNormalized,
 } from "../questState";
 import { getOrCreateReferenceByName } from "../referenceLookup";
 
@@ -36,11 +35,6 @@ const importLegacyQuestsRequestSchema = z.object({
   ).max(500),
   trackedNames: z.array(z.string().min(1).max(128)).optional(),
   abandonedNames: z.array(z.string().min(1).max(128)).optional(),
-});
-
-const completeTargetsRequestSchema = z.object({
-  targets: z.array(z.string().min(1).max(128)).max(200).optional(),
-  candidateNames: z.array(z.string().min(1).max(128)).max(200).optional(),
 });
 
 router.get("/", async (_req, res) => {
@@ -176,29 +170,6 @@ router.post("/status", async (req, res) => {
     console.error("[api][quests] failed to update quest status", err);
     return res.status(500).json({
       error: err instanceof Error ? err.message : "Failed to update quest status",
-    });
-  }
-});
-
-router.post("/complete", async (req, res) => {
-  const parsed = completeTargetsRequestSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid quest completion request" });
-  }
-
-  try {
-    const db = await getDb();
-    const targetNames = uniqueNormalized(parsed.data.targets ?? []);
-    const result = await syncQuestCompletions(db, {
-      targetNames: targetNames.length > 0 ? targetNames : undefined,
-      candidateNames: parsed.data.candidateNames,
-    });
-    persistDatabase(db);
-    return res.json({ completedNames: result.newlyCompletedQuestNames });
-  } catch (err) {
-    console.error("[api][quests] failed to evaluate completions", err);
-    return res.status(500).json({
-      error: err instanceof Error ? err.message : "Failed to evaluate quest completions",
     });
   }
 });

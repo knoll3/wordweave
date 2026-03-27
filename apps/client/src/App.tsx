@@ -23,20 +23,26 @@ import type {
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import JournalDock from "./components/Journal/JournalDock";
+import { useQuestReferences } from "./hooks/useQuestReferences";
 import {
   combineElements,
   fetchQuests,
   generateChallengeTargets,
-  fetchQuestTargetReference,
   fetchUnlockStatuses,
   importLegacyQuestState,
   updateQuestStatus,
-  type ItemReference,
 } from "./lib/api";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
 } from "./lib/actionPromptFamilies";
+import {
+  clearLegacyQuestStorage,
+  LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY,
+  LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY,
+  loadLegacyStoredQuests,
+  loadStoredNameSet,
+} from "./lib/legacyQuestStorage";
 import {
   ACTION_CATALYSTS,
   ACTION_CATALYST_BY_ID,
@@ -49,12 +55,9 @@ const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
-const LEGACY_CHALLENGE_TARGETS_STORAGE_KEY = "wordweave.challenge-targets";
-const LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY = "wordweave.tracked-quests";
-const LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY = "wordweave.abandoned-quests";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
-const ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT = 180;
+const QUEST_REFERENCE_PREVIEW_LIMIT = 180;
 const PORTRAIT_TABLET_LAYOUT_QUERY = "(orientation: portrait)";
 
 type QuestCelebrationState = {
@@ -65,11 +68,6 @@ type QuestCelebrationState = {
 
 type ActionUnlockModalState = {
   unlockedWords: AutoUnlockedActionWord[];
-};
-
-type LegacyChallengeTarget = {
-  name: string;
-  icon: string;
 };
 
 type VirtualKeyboardApi = {
@@ -117,62 +115,7 @@ const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   }
 };
 
-const loadLegacyStoredChallengeTargets = (): LegacyChallengeTarget[] => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const stored = window.localStorage.getItem(LEGACY_CHALLENGE_TARGETS_STORAGE_KEY);
-  if (!stored) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter(
-      (entry): entry is LegacyChallengeTarget =>
-        !!entry &&
-        typeof entry.name === "string" &&
-        entry.name.trim().length > 0 &&
-        typeof entry.icon === "string" &&
-        entry.icon.trim().length > 0
-    );
-  } catch {
-    return [];
-  }
-};
-
-const loadStoredNameSet = (storageKey: string): Set<string> => {
-  if (typeof window === "undefined") {
-    return new Set();
-  }
-
-  const stored = window.localStorage.getItem(storageKey);
-  if (!stored) {
-    return new Set();
-  }
-
-  try {
-    const parsed = JSON.parse(stored);
-    if (!Array.isArray(parsed)) {
-      return new Set();
-    }
-    return new Set(
-      parsed
-        .filter((value): value is string => typeof value === "string")
-        .map((value) => value.trim())
-        .filter(Boolean)
-    );
-  } catch {
-    return new Set();
-  }
-};
-
-function truncateAchievementReference(value: string, limit: number) {
+function truncateReferencePreview(value: string, limit: number) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length <= limit) {
     return normalized;
@@ -180,17 +123,8 @@ function truncateAchievementReference(value: string, limit: number) {
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
 }
 
-function normalizeName(value: string) {
+function normalizeItemName(value: string) {
   return value.trim().toLowerCase();
-}
-
-function clearLegacyQuestStorage() {
-  if (typeof window === "undefined") {
-    return;
-  }
-  window.localStorage.removeItem(LEGACY_CHALLENGE_TARGETS_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_TRACKED_QUEST_NAMES_STORAGE_KEY);
-  window.localStorage.removeItem(LEGACY_ABANDONED_QUEST_NAMES_STORAGE_KEY);
 }
 
 const App: React.FC = () => {
@@ -209,11 +143,8 @@ const App: React.FC = () => {
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
-  const [questReferences, setQuestReferences] = useState<
-    Record<string, ItemReference | null | undefined>
-  >({});
   const [quests, setQuests] = useState<QuestRecord[]>([]);
-  const [isGeneratingChallengeTargets, setIsGeneratingChallengeTargets] = useState(false);
+  const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
@@ -494,7 +425,7 @@ const App: React.FC = () => {
       try {
         let nextQuests = await fetchQuests();
         if (!cancelled && nextQuests.length === 0) {
-          const legacyQuests = loadLegacyStoredChallengeTargets();
+          const legacyQuests = loadLegacyStoredQuests();
           if (legacyQuests.length > 0) {
             nextQuests = await importLegacyQuestState({
               quests: legacyQuests.map((quest) => ({
@@ -519,69 +450,29 @@ const App: React.FC = () => {
     };
   }, []);
 
-  const visibleChallengeTargets = useMemo(
+  const visibleQuests = useMemo(
     () => quests.filter((quest) => quest.status !== "abandoned"),
     [quests]
   );
+  const questReferences = useQuestReferences(visibleQuests, isJournalOpen);
   const trackedQuestNames = useMemo(
     () =>
       new Set(
-        visibleChallengeTargets
+        visibleQuests
           .filter((quest) => quest.status === "tracked")
           .map((quest) => quest.name)
       ),
-    [visibleChallengeTargets]
+    [visibleQuests]
   );
   const completedQuestNames = useMemo(
     () =>
       new Set(
-        visibleChallengeTargets
+        visibleQuests
           .filter((quest) => quest.status === "completed")
           .map((quest) => quest.name)
       ),
-    [visibleChallengeTargets]
+    [visibleQuests]
   );
-
-  useEffect(() => {
-    if (!isJournalOpen || visibleChallengeTargets.length === 0) {
-      return;
-    }
-
-    const missing = visibleChallengeTargets.filter(
-      (quest) => questReferences[quest.name] === undefined
-    );
-
-    if (missing.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    void Promise.all(
-      missing.map(async (quest) => {
-        try {
-          const reference = await fetchQuestTargetReference(quest.name);
-          return [quest.name, reference] as const;
-        } catch {
-          return [quest.name, null] as const;
-        }
-      })
-    ).then((results) => {
-      if (cancelled) {
-        return;
-      }
-      setQuestReferences((prev) => {
-        const next = { ...prev };
-        for (const [questName, reference] of results) {
-          next[questName] = reference;
-        }
-        return next;
-      });
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isJournalOpen, questReferences, visibleChallengeTargets]);
 
   function showError(message: string, err: unknown) {
     void err;
@@ -602,7 +493,7 @@ const App: React.FC = () => {
   }
 
   async function generateQuests(difficulty: "easy" | "hard") {
-    setIsGeneratingChallengeTargets(true);
+    setIsGeneratingQuests(true);
     try {
       const nextQuests = await generateChallengeTargets({
         count: 10,
@@ -615,7 +506,7 @@ const App: React.FC = () => {
     } catch (err) {
       showError("Failed to generate challenge targets.", err);
     } finally {
-      setIsGeneratingChallengeTargets(false);
+      setIsGeneratingQuests(false);
     }
   }
 
@@ -738,13 +629,23 @@ const App: React.FC = () => {
     }
     return next;
   }, [items]);
+  const itemByNormalizedName = useMemo(
+    () =>
+      new Map(
+        items.map((item) => [
+          normalizeItemName(item.normalizedName || item.name),
+          item,
+        ] as const)
+      ),
+    [items]
+  );
   const drawerItem = drawerItemId == null ? null : itemById.get(drawerItemId) ?? null;
   const selectedQuest =
     selectedQuestName == null
       ? null
-      : visibleChallengeTargets.find((entry) => entry.name === selectedQuestName) ?? null;
+      : visibleQuests.find((entry) => entry.name === selectedQuestName) ?? null;
   const primaryTrackedQuest =
-    visibleChallengeTargets.find(
+    visibleQuests.find(
       (quest) => trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
     ) ?? null;
   const selectedQuestItem =
@@ -752,11 +653,7 @@ const App: React.FC = () => {
       ? null
       : selectedQuest.matchedItemName == null
         ? null
-        : items.find(
-            (entry) =>
-              normalizeName(entry.normalizedName || entry.name) ===
-              normalizeName(selectedQuest.matchedItemName || "")
-          ) ?? null;
+        : itemByNormalizedName.get(normalizeItemName(selectedQuest.matchedItemName)) ?? null;
   const unlockedCatalystFamilyKeys = useMemo(() => {
     const discoveredTriggerNames = new Set(
       items.map((item) => normalizeActionTrigger(item.normalizedName || item.name))
@@ -1442,7 +1339,7 @@ const App: React.FC = () => {
                   <div className="graph-quests-button-overlay">
                     <button
                       type="button"
-                      className="graph-fullscreen-button graph-quests-button-trigger"
+                      className="graph-overlay-icon-button graph-quests-button-trigger"
                       onClick={() => openJournal()}
                       aria-label="Open quests"
                       title="Open quests"
@@ -1491,11 +1388,11 @@ const App: React.FC = () => {
                 isTransient={isPortraitTabletLayout}
                 mode={rightPanelMode}
                 questReferences={questReferences}
-                referencePreviewLimit={ACHIEVEMENT_REFERENCE_PREVIEW_LIMIT}
-                challengeTargets={visibleChallengeTargets}
+                referencePreviewLimit={QUEST_REFERENCE_PREVIEW_LIMIT}
+                quests={visibleQuests}
                 trackedQuestNames={trackedQuestNames}
                 completedQuestNames={completedQuestNames}
-                isGeneratingChallengeTargets={isGeneratingChallengeTargets}
+                isGeneratingQuests={isGeneratingQuests}
                 selectedQuest={selectedQuest}
                 selectedQuestItem={selectedQuestItem}
                 item={drawerItem}
@@ -1523,7 +1420,7 @@ const App: React.FC = () => {
                 onTrackQuest={trackQuest}
                 onUntrackQuest={untrackQuest}
                 onRequestAbandonQuest={setPendingAbandonedQuestName}
-                truncateReference={truncateAchievementReference}
+                truncateReference={truncateReferencePreview}
               />
           </section>
         </main>

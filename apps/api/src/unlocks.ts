@@ -1,5 +1,12 @@
 import type { Database } from "sql.js";
 import { generateEmbeddings } from "./openaiClient";
+import {
+  buildEmbeddingSearchText,
+  cosineSimilarity,
+  loadEmbeddingsByElementId,
+  loadQueryEmbedding,
+  saveQueryEmbedding,
+} from "./embeddingStore";
 import { ensureSearchIndexForElementIds } from "./search";
 
 export type UnlockKey =
@@ -112,24 +119,6 @@ const UNLOCK_DEFINITIONS: UnlockDefinition[] = [
   },
 ];
 
-function buildSearchText(name: string) {
-  return `Item: ${name.trim()}`;
-}
-
-function cosine(left: number[], right: number[]) {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  const length = Math.min(left.length, right.length);
-  for (let i = 0; i < length; i += 1) {
-    dot += left[i] * right[i];
-    leftNorm += left[i] * left[i];
-    rightNorm += right[i] * right[i];
-  }
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
-}
-
 function normalize(value: string) {
   return value.trim().toLowerCase();
 }
@@ -149,61 +138,8 @@ function loadDiscoveredRows(db: Database) {
   return rows;
 }
 
-function loadEmbeddingsByElementId(db: Database, elementIds: number[]) {
-  if (elementIds.length === 0) return new Map<number, number[]>();
-
-  const stmt = db.prepare(
-    `
-    SELECT element_id, embedding_json
-    FROM element_embeddings
-    WHERE element_id IN (${elementIds.map(() => "?").join(", ")})
-    `
-  );
-  stmt.bind(elementIds);
-  const embeddings = new Map<number, number[]>();
-  while (stmt.step()) {
-    const row = stmt.getAsObject() as Record<string, unknown>;
-    embeddings.set(
-      Number(row.element_id),
-      JSON.parse(String(row.embedding_json)) as number[]
-    );
-  }
-  stmt.free();
-  return embeddings;
-}
-
-function loadQueryEmbedding(db: Database, queryText: string) {
-  const stmt = db.prepare(`
-    SELECT embedding_json
-    FROM search_query_embeddings
-    WHERE query_text = ?
-  `);
-  const row = stmt.getAsObject([queryText]) as Record<string, unknown>;
-  stmt.free();
-  if (row.embedding_json == null) return null;
-  return JSON.parse(String(row.embedding_json)) as number[];
-}
-
-function saveQueryEmbedding(
-  db: Database,
-  queryText: string,
-  model: string,
-  embedding: number[]
-) {
-  const stmt = db.prepare(`
-    INSERT INTO search_query_embeddings (query_text, model, embedding_json, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(query_text) DO UPDATE SET
-      model = excluded.model,
-      embedding_json = excluded.embedding_json,
-      updated_at = CURRENT_TIMESTAMP
-  `);
-  stmt.run([queryText, model, JSON.stringify(embedding)]);
-  stmt.free();
-}
-
 async function getOrCreateQueryEmbedding(db: Database, query: string) {
-  const queryText = buildSearchText(query);
+  const queryText = buildEmbeddingSearchText(query);
   const cached = loadQueryEmbedding(db, queryText);
   if (cached) return cached;
   const response = await generateEmbeddings([queryText]);
@@ -220,10 +156,6 @@ function isUnlocked(db: Database, key: UnlockKey) {
   const row = stmt.getAsObject([key]) as Record<string, unknown>;
   stmt.free();
   return row["1"] != null || row.feature_key != null;
-}
-
-function insertUnlock(db: Database, key: UnlockKey) {
-  throw new Error("insertUnlock requires source metadata");
 }
 
 function insertUnlockWithSource(
@@ -293,7 +225,7 @@ export async function syncFeatureUnlocks(db: Database) {
       for (const discoveredRow of discoveredRows) {
         const itemEmbedding = embeddingsById.get(Number(discoveredRow.id));
         if (!itemEmbedding) continue;
-        const score = cosine(queryEmbedding, itemEmbedding);
+        const score = cosineSimilarity(queryEmbedding, itemEmbedding);
         if (score >= definition.similarityThreshold && score > matchedScore) {
           matchedWord = acceptedWord;
           matchedItem = discoveredRow.name;

@@ -1,5 +1,12 @@
 import type { Database } from "sql.js";
 import { generateEmbeddings } from "./openaiClient";
+import {
+  buildEmbeddingSearchText,
+  cosineSimilarity,
+  loadEmbeddingsByElementId,
+  loadQueryEmbedding,
+  saveQueryEmbedding,
+} from "./embeddingStore";
 import { mapElementRow } from "./models";
 
 const EMBEDDING_BATCH_SIZE = 64;
@@ -15,30 +22,12 @@ type IndexedElementRow = {
   discovered_at: string;
 };
 
-function buildSearchText(name: string) {
-  return `Item: ${name.trim()}`;
-}
-
 function tokenize(value: string) {
   return value
     .toLowerCase()
     .split(/[^a-z0-9]+/i)
     .map((part) => part.trim())
     .filter(Boolean);
-}
-
-function cosine(left: number[], right: number[]) {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  const length = Math.min(left.length, right.length);
-  for (let i = 0; i < length; i += 1) {
-    dot += left[i] * right[i];
-    leftNorm += left[i] * left[i];
-    rightNorm += right[i] * right[i];
-  }
-  if (leftNorm === 0 || rightNorm === 0) return 0;
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
 }
 
 function lexicalScore(query: string, candidateName: string) {
@@ -68,7 +57,10 @@ function scoreResult(params: {
   candidateEmbedding: number[];
 }) {
   const lexical = lexicalScore(params.query, params.candidateName);
-  const semantic = cosine(params.queryEmbedding, params.candidateEmbedding);
+  const semantic = cosineSimilarity(
+    params.queryEmbedding,
+    params.candidateEmbedding
+  );
 
   const exactBoost =
     params.candidateName.trim().toLowerCase() === params.query.trim().toLowerCase()
@@ -104,64 +96,6 @@ function loadDiscoveredElements(db: Database) {
   return rows;
 }
 
-function loadEmbeddingsByElementId(db: Database, elementIds: number[]) {
-  if (elementIds.length === 0) return new Map<number, number[]>();
-
-  const placeholders = elementIds.map(() => "?").join(", ");
-  const stmt = db.prepare(
-    `
-    SELECT element_id, embedding_json
-    FROM element_embeddings
-    WHERE element_id IN (${placeholders})
-    `
-  );
-  stmt.bind(elementIds);
-  const embeddings = new Map<number, number[]>();
-  while (stmt.step()) {
-    const row = stmt.getAsObject() as Record<string, unknown>;
-    embeddings.set(
-      Number(row.element_id),
-      JSON.parse(String(row.embedding_json)) as number[]
-    );
-  }
-  stmt.free();
-  return embeddings;
-}
-
-function loadQueryEmbedding(db: Database, queryText: string) {
-  const stmt = db.prepare(
-    `
-    SELECT embedding_json
-    FROM search_query_embeddings
-    WHERE query_text = ?
-    `
-  );
-  const row = stmt.getAsObject([queryText]) as Record<string, unknown>;
-  stmt.free();
-  if (row.embedding_json == null) return null;
-  return JSON.parse(String(row.embedding_json)) as number[];
-}
-
-function saveQueryEmbedding(
-  db: Database,
-  queryText: string,
-  model: string,
-  embedding: number[]
-) {
-  const stmt = db.prepare(
-    `
-    INSERT INTO search_query_embeddings (query_text, model, embedding_json, updated_at)
-    VALUES (?, ?, ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(query_text) DO UPDATE SET
-      model = excluded.model,
-      embedding_json = excluded.embedding_json,
-      updated_at = CURRENT_TIMESTAMP
-    `
-  );
-  stmt.run([queryText, model, JSON.stringify(embedding)]);
-  stmt.free();
-}
-
 async function upsertElementEmbeddings(
   db: Database,
   rows: Array<{ id: number; name: string }>
@@ -170,7 +104,7 @@ async function upsertElementEmbeddings(
 
   for (let offset = 0; offset < rows.length; offset += EMBEDDING_BATCH_SIZE) {
     const batch = rows.slice(offset, offset + EMBEDDING_BATCH_SIZE);
-    const texts = batch.map((row) => buildSearchText(row.name));
+    const texts = batch.map((row) => buildEmbeddingSearchText(row.name));
     const response = await generateEmbeddings(texts);
     const savepointName = `element_embedding_batch_${offset}`;
 
@@ -264,7 +198,7 @@ export async function searchDiscoveredElements(db: Database, query: string) {
     discoveredRows.map((row) => Number(row.id))
   );
 
-  const querySearchText = buildSearchText(trimmedQuery);
+  const querySearchText = buildEmbeddingSearchText(trimmedQuery);
   let queryEmbedding = loadQueryEmbedding(db, querySearchText);
   if (!queryEmbedding) {
     const queryEmbeddingResponse = await generateEmbeddings([querySearchText]);

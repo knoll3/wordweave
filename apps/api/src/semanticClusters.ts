@@ -1,5 +1,9 @@
 import type { Database } from "sql.js";
 import { generateEmbeddings } from "./openaiClient";
+import {
+  cosineSimilarity,
+  loadEmbeddingsByElementId,
+} from "./embeddingStore";
 import { ensureSearchIndexForElementIds } from "./search";
 
 type IndexedClusterElement = {
@@ -91,22 +95,6 @@ type LabelCandidate = {
   embedding: number[];
 };
 
-function cosine(left: number[], right: number[]) {
-  let dot = 0;
-  let leftNorm = 0;
-  let rightNorm = 0;
-  const length = Math.min(left.length, right.length);
-  for (let index = 0; index < length; index += 1) {
-    dot += left[index] * right[index];
-    leftNorm += left[index] * left[index];
-    rightNorm += right[index] * right[index];
-  }
-  if (leftNorm === 0 || rightNorm === 0) {
-    return 0;
-  }
-  return dot / (Math.sqrt(leftNorm) * Math.sqrt(rightNorm));
-}
-
 function averageEmbedding(vectors: number[][]) {
   if (vectors.length === 0) {
     return [];
@@ -173,33 +161,6 @@ function loadDiscoveredElements(db: Database) {
   return rows;
 }
 
-function loadEmbeddingsByElementId(db: Database, elementIds: number[]) {
-  if (elementIds.length === 0) {
-    return new Map<number, number[]>();
-  }
-
-  const placeholders = elementIds.map(() => "?").join(", ");
-  const stmt = db.prepare(
-    `
-    SELECT element_id, embedding_json
-    FROM element_embeddings
-    WHERE element_id IN (${placeholders})
-    `
-  );
-  stmt.bind(elementIds);
-
-  const embeddings = new Map<number, number[]>();
-  while (stmt.step()) {
-    const row = stmt.getAsObject() as Record<string, unknown>;
-    embeddings.set(
-      Number(row.element_id),
-      JSON.parse(String(row.embedding_json)) as number[]
-    );
-  }
-  stmt.free();
-  return embeddings;
-}
-
 function selectInitialCentroids(items: IndexedClusterElement[], clusterCount: number) {
   const centroids: number[][] = [];
   if (items.length === 0 || clusterCount === 0) {
@@ -213,7 +174,7 @@ function selectInitialCentroids(items: IndexedClusterElement[], clusterCount: nu
 
     for (const item of items) {
       const nearestSimilarity = centroids.reduce((best, centroid) => {
-        return Math.max(best, cosine(item.embedding, centroid));
+        return Math.max(best, cosineSimilarity(item.embedding, centroid));
       }, Number.NEGATIVE_INFINITY);
 
       const distance = 1 - nearestSimilarity;
@@ -340,11 +301,14 @@ function scoreCatalogLabel(params: {
   representativeEmbeddings: number[][];
   candidate: LabelCandidate;
 }) {
-  const centroidScore = cosine(params.centroid, params.candidate.embedding);
+  const centroidScore = cosineSimilarity(
+    params.centroid,
+    params.candidate.embedding
+  );
   const representativeScore =
     params.representativeEmbeddings.length > 0
       ? params.representativeEmbeddings.reduce((total, embedding) => {
-          return total + cosine(embedding, params.candidate.embedding);
+          return total + cosineSimilarity(embedding, params.candidate.embedding);
         }, 0) / params.representativeEmbeddings.length
       : 0;
 
@@ -445,7 +409,7 @@ function clusterItems(
       let bestClusterIndex = 0;
       let bestSimilarity = Number.NEGATIVE_INFINITY;
       for (let clusterIndex = 0; clusterIndex < centroids.length; clusterIndex += 1) {
-        const similarity = cosine(item.embedding, centroids[clusterIndex]);
+        const similarity = cosineSimilarity(item.embedding, centroids[clusterIndex]);
         if (similarity > bestSimilarity) {
           bestSimilarity = similarity;
           bestClusterIndex = clusterIndex;
@@ -479,7 +443,7 @@ function clusterItems(
       .filter((item) => assignments.get(item.id) === clusterIndex)
       .map((item) => ({
         item,
-        similarity: cosine(item.embedding, centroid),
+        similarity: cosineSimilarity(item.embedding, centroid),
       }))
       .sort((left, right) => right.similarity - left.similarity)
   );
@@ -649,7 +613,7 @@ export async function buildSemanticClusters(
     const similarities = centroids
       .map((centroid, clusterIndex) => ({
         clusterIndex,
-        similarity: cosine(item.embedding, centroid),
+        similarity: cosineSimilarity(item.embedding, centroid),
       }))
       .sort((left, right) => right.similarity - left.similarity);
 

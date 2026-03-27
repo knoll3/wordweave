@@ -3,13 +3,13 @@
 Local-first Infinite Craft–style prototype with:
 
 - React + Vite client
-- React Flow graph view
+- Pixi-powered crafting graph
 - Express + SQLite (via `sql.js`) API
 - OpenAI-powered multi-input crafting using `gpt-5-mini`
 
 ### Tech Stack
 
-- **Client**: React + TypeScript + Vite, React Flow for the crafting graph
+- **Client**: React + TypeScript + Vite, Pixi for the crafting graph
 - **API**: Express + TypeScript, SQLite stored on disk via `sql.js`
 - **LLM**: OpenAI `gpt-5-mini`, called from the backend only
 

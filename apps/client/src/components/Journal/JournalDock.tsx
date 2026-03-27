@@ -12,10 +12,10 @@ interface Props {
   mode: "journal" | "item" | "quest";
   questReferences: Record<string, ItemReference | null | undefined>;
   referencePreviewLimit: number;
-  challengeTargets: QuestRecord[];
+  quests: QuestRecord[];
   trackedQuestNames: Set<string>;
   completedQuestNames: Set<string>;
-  isGeneratingChallengeTargets: boolean;
+  isGeneratingQuests: boolean;
   selectedQuest: QuestRecord | null;
   selectedQuestItem: Item | null;
   item: Item | null;
@@ -46,10 +46,10 @@ const JournalDock: React.FC<Props> = ({
   mode,
   questReferences,
   referencePreviewLimit,
-  challengeTargets,
+  quests,
   trackedQuestNames,
   completedQuestNames,
-  isGeneratingChallengeTargets,
+  isGeneratingQuests,
   selectedQuest,
   selectedQuestItem,
   item,
@@ -72,13 +72,13 @@ const JournalDock: React.FC<Props> = ({
   onRequestAbandonQuest,
   truncateReference,
 }) => {
-  const trackedQuests = challengeTargets.filter((quest) =>
+  const trackedQuests = quests.filter((quest) =>
     trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
   );
-  const availableQuests = challengeTargets.filter(
+  const availableQuests = quests.filter(
     (quest) => !trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
   );
-  const completedQuests = challengeTargets.filter((quest) =>
+  const completedQuests = quests.filter((quest) =>
     completedQuestNames.has(quest.name)
   );
 
@@ -215,24 +215,24 @@ const JournalDock: React.FC<Props> = ({
                     type="button"
                     className="quest-generate-button quest-generate-button-secondary"
                     onClick={onGenerateEasyQuests}
-                    disabled={isGeneratingChallengeTargets}
+                    disabled={isGeneratingQuests}
                   >
-                    {isGeneratingChallengeTargets ? "Generating…" : "Generate Easier"}
+                    {isGeneratingQuests ? "Generating…" : "Generate Easier"}
                   </button>
                   <button
                     type="button"
                     className="quest-generate-button"
                     onClick={onGenerateHardQuests}
-                    disabled={isGeneratingChallengeTargets}
+                    disabled={isGeneratingQuests}
                   >
-                    {isGeneratingChallengeTargets ? "Generating…" : "Generate Hard"}
+                    {isGeneratingQuests ? "Generating…" : "Generate Hard"}
                   </button>
                 </div>
               </article>
 
               {trackedQuests.length > 0 ? (
                 <div className="quest-section-block">
-                  <div className="achievement-section-label">Active</div>
+                  <div className="quest-section-label">Active</div>
                   <div className="quest-card-list">
                     {trackedQuests.map((quest) => renderQuestCard(quest, "tracked"))}
                   </div>
@@ -247,7 +247,7 @@ const JournalDock: React.FC<Props> = ({
 
               {availableQuests.length > 0 ? (
                 <div className="quest-section-block quest-section-block-available">
-                  <div className="achievement-section-label">Available</div>
+                  <div className="quest-section-label">Available</div>
                   <div className="quest-card-list">
                     {availableQuests.map((quest) => renderQuestCard(quest, "available"))}
                   </div>
@@ -255,11 +255,11 @@ const JournalDock: React.FC<Props> = ({
               ) : null}
 
               {completedQuests.length > 0 ? (
-                <details className="achievement-archive quest-completed-archive">
-                  <summary className="achievement-archive-toggle">
+                <details className="quest-archive quest-completed-archive">
+                  <summary className="quest-archive-toggle">
                     Completed ({completedQuests.length})
                   </summary>
-                  <div className="achievement-archive-list">
+                  <div className="quest-archive-list">
                     <div className="quest-card-list">
                       {completedQuests.map((quest) => renderQuestCard(quest, "completed"))}
                     </div>
