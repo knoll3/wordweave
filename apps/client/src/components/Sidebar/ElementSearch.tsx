@@ -8,12 +8,11 @@ interface Props {
 const ElementSearch: React.FC<Props> = ({ value, onChange }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  function moveCursorToEnd() {
+  function selectAllText() {
     const input = inputRef.current;
     if (!input) return;
-    const end = input.value.length;
     window.requestAnimationFrame(() => {
-      input.setSelectionRange(end, end);
+      input.select();
     });
   }
 
@@ -33,8 +32,8 @@ const ElementSearch: React.FC<Props> = ({ value, onChange }) => {
             window.scrollTo(0, 0);
           }
         }}
-        onFocus={moveCursorToEnd}
-        onClick={moveCursorToEnd}
+        onFocus={selectAllText}
+        onClick={selectAllText}
       />
       {value ? (
         <button

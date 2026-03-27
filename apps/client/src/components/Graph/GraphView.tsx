@@ -142,7 +142,7 @@ const SPAWN_SCALE = 0.18;
 const SHRINK_SCALE = 0.18;
 const GRID_CELL_GAP_X = 18;
 const GRID_CELL_GAP_Y = 16;
-const SELECTION_PADDING = 22;
+const SELECTION_PADDING = 30;
 const PLACEHOLDER_WIDTH = 120;
 const PAN_DRAG_THRESHOLD = 4;
 const DUPLICATE_OFFSET_X = 14;
@@ -1914,9 +1914,19 @@ function GraphView({
       applyCamera();
       syncScene(workspaceItems);
       app.ticker.add(() => {
+        let shouldRefreshSelectionOverlay = false;
         itemViewsRef.current.forEach((view) => {
-          view.container.x = moveToward(view.container.x, view.targetX, POSITION_STEP);
-          view.container.y = moveToward(view.container.y, view.targetY, POSITION_STEP);
+          const nextX = moveToward(view.container.x, view.targetX, POSITION_STEP);
+          const nextY = moveToward(view.container.y, view.targetY, POSITION_STEP);
+          if (
+            (selectedNodeIdsRef.current.includes(view.nodeId) ||
+              selectionLayoutRef.current?.placeholderNodeId === view.nodeId) &&
+            (nextX !== view.container.x || nextY !== view.container.y)
+          ) {
+            shouldRefreshSelectionOverlay = true;
+          }
+          view.container.x = nextX;
+          view.container.y = nextY;
           if (view.loader) {
             view.loader.rotation += 0.18;
           }
@@ -2016,6 +2026,9 @@ function GraphView({
             itemViewsRef.current.delete(view.nodeId);
           }
         });
+        if (shouldRefreshSelectionOverlay) {
+          refreshSelectionOverlay();
+        }
       });
 
       app.stage.on("pointerdown", handleStagePointerDown);

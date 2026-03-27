@@ -66,6 +66,19 @@ type ActionUnlockModalState = {
   unlockedWords: AutoUnlockedActionWord[];
 };
 
+type VirtualKeyboardApi = {
+  overlaysContent: boolean;
+  boundingRect: DOMRectReadOnly;
+  addEventListener: (
+    type: "geometrychange",
+    listener: EventListenerOrEventListenerObject
+  ) => void;
+  removeEventListener: (
+    type: "geometrychange",
+    listener: EventListenerOrEventListenerObject
+  ) => void;
+};
+
 const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
   if (typeof window === "undefined") {
     return [];
@@ -229,6 +242,8 @@ const App: React.FC = () => {
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isAndroidImmersive, setIsAndroidImmersive] = useState(false);
+  const [isAndroidImmersiveSuspended, setIsAndroidImmersiveSuspended] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [questReferences, setQuestReferences] = useState<
     Record<string, ItemReference | null | undefined>
@@ -265,12 +280,15 @@ const App: React.FC = () => {
     return window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY).matches;
   });
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
+  const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const initialQuestSnapshotRef = useRef<Set<string> | null>(null);
   const previousQuestItemIdsRef = useRef<Set<number> | null>(null);
   const celebrationTimeoutRef = useRef<number | null>(null);
+  const immersiveResumeTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+  const isAndroidImmersiveActive = isAndroidImmersive && !isAndroidImmersiveSuspended;
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -309,6 +327,61 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!isAndroidDevice) {
+      return;
+    }
+    document.body.classList.toggle("android-immersive", isAndroidImmersiveActive);
+    return () => {
+      document.body.classList.remove("android-immersive");
+    };
+  }, [isAndroidDevice, isAndroidImmersiveActive]);
+
+  useEffect(() => {
+    if (!isAndroidDevice || !isAndroidImmersive) {
+      setIsAndroidImmersiveSuspended(false);
+      return;
+    }
+
+    const clearResumeTimeout = () => {
+      if (immersiveResumeTimeoutRef.current != null) {
+        window.clearTimeout(immersiveResumeTimeoutRef.current);
+        immersiveResumeTimeoutRef.current = null;
+      }
+    };
+
+    const handleFocusIn = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && ["INPUT", "TEXTAREA"].includes(event.target.tagName)) {
+        clearResumeTimeout();
+        setIsAndroidImmersiveSuspended(true);
+      }
+    };
+
+    const handleFocusOut = () => {
+      clearResumeTimeout();
+      immersiveResumeTimeoutRef.current = window.setTimeout(() => {
+        const activeElement = document.activeElement;
+        if (
+          activeElement instanceof HTMLElement &&
+          ["INPUT", "TEXTAREA"].includes(activeElement.tagName)
+        ) {
+          return;
+        }
+        setIsAndroidImmersiveSuspended(false);
+        immersiveResumeTimeoutRef.current = null;
+      }, 220);
+    };
+
+    document.addEventListener("focusin", handleFocusIn, true);
+    document.addEventListener("focusout", handleFocusOut, true);
+
+    return () => {
+      clearResumeTimeout();
+      document.removeEventListener("focusin", handleFocusIn, true);
+      document.removeEventListener("focusout", handleFocusOut, true);
+    };
+  }, [isAndroidDevice, isAndroidImmersive]);
+
+  useEffect(() => {
     window.localStorage.setItem(
       FORCE_UNLOCKS_STORAGE_KEY,
       forceUnlocks ? "true" : "false"
@@ -332,8 +405,18 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!isAndroidDevice) {
       setAndroidViewportHeight(null);
+      setAndroidKeyboardHeight(0);
       document.documentElement.style.removeProperty("--android-viewport-height");
+      document.documentElement.style.removeProperty("--android-keyboard-height");
       return;
+    }
+
+    const virtualKeyboard = (
+      navigator as Navigator & { virtualKeyboard?: VirtualKeyboardApi }
+    ).virtualKeyboard;
+
+    if (virtualKeyboard) {
+      virtualKeyboard.overlaysContent = true;
     }
 
     const applyViewportHeight = () => {
@@ -355,10 +438,25 @@ const App: React.FC = () => {
       window.setTimeout(applyViewportHeight, 280);
     };
 
+    const applyKeyboardGeometry = () => {
+      const nextKeyboardHeight = Math.max(
+        0,
+        Math.round(virtualKeyboard?.boundingRect.height ?? 0)
+      );
+      setAndroidKeyboardHeight(nextKeyboardHeight);
+      document.documentElement.style.setProperty(
+        "--android-keyboard-height",
+        `${nextKeyboardHeight}px`
+      );
+      scheduleRefresh();
+    };
+
     scheduleRefresh();
+    applyKeyboardGeometry();
     window.addEventListener("resize", scheduleRefresh);
     window.visualViewport?.addEventListener("resize", scheduleRefresh);
     window.visualViewport?.addEventListener("scroll", scheduleRefresh);
+    virtualKeyboard?.addEventListener("geometrychange", applyKeyboardGeometry);
 
     const handlePointerDownCapture = (event: PointerEvent) => {
       const target = event.target;
@@ -374,7 +472,10 @@ const App: React.FC = () => {
         return;
       }
       activeElement.blur();
-      scheduleRefresh();
+      window.requestAnimationFrame(() => {
+        window.scrollTo(0, 0);
+        applyKeyboardGeometry();
+      });
     };
 
     document.addEventListener("pointerdown", handlePointerDownCapture, true);
@@ -383,7 +484,13 @@ const App: React.FC = () => {
       window.removeEventListener("resize", scheduleRefresh);
       window.visualViewport?.removeEventListener("resize", scheduleRefresh);
       window.visualViewport?.removeEventListener("scroll", scheduleRefresh);
+      virtualKeyboard?.removeEventListener("geometrychange", applyKeyboardGeometry);
       document.removeEventListener("pointerdown", handlePointerDownCapture, true);
+      document.documentElement.style.removeProperty("--android-keyboard-height");
+      if (immersiveResumeTimeoutRef.current != null) {
+        window.clearTimeout(immersiveResumeTimeoutRef.current);
+        immersiveResumeTimeoutRef.current = null;
+      }
     };
   }, [isAndroidDevice]);
 
@@ -467,10 +574,11 @@ const App: React.FC = () => {
     }
 
     const newlyCompleted = visibleChallengeTargets.filter(
-      (quest) =>
-        trackedQuestNames.has(quest.name) &&
-        completedQuestNames.has(quest.name) && !previousCompleted.has(quest.name)
+      (quest) => completedQuestNames.has(quest.name) && !previousCompleted.has(quest.name)
     );
+    const newlyCompletedTrackedCount = newlyCompleted.filter((quest) =>
+      trackedQuestNames.has(quest.name)
+    ).length;
 
     const newlyDiscoveredItems = items.filter((item) => !previousItemIds.has(item.id));
     const newestDiscoveredItem = newlyDiscoveredItems[newlyDiscoveredItems.length - 1] ?? null;
@@ -489,8 +597,14 @@ const App: React.FC = () => {
           ? newlyCompleted[0].name
           : `${newlyCompleted.length} quests completed`,
         newlyCompleted.length === 1
-          ? "You discovered one of your active quests."
-          : "You completed multiple active quests.",
+          ? trackedQuestNames.has(newlyCompleted[0].name)
+            ? "You discovered one of your active quests."
+            : "You discovered one of your available quests."
+          : newlyCompletedTrackedCount === newlyCompleted.length
+            ? "You completed multiple active quests."
+            : newlyCompletedTrackedCount === 0
+              ? "You completed multiple available quests."
+              : "You completed multiple quests.",
         celebrationNodeId
       );
     }
@@ -629,6 +743,11 @@ const App: React.FC = () => {
   }
 
   async function toggleFullscreen() {
+    if (isAndroidDevice) {
+      setIsAndroidImmersive((current) => !current);
+      return;
+    }
+
     try {
       if (document.fullscreenElement) {
         await document.exitFullscreen();
@@ -638,6 +757,8 @@ const App: React.FC = () => {
     } catch {
     }
   }
+
+  const isFullscreenActive = isAndroidDevice ? isAndroidImmersive : isFullscreen;
 
   function showProgressCelebration(
     kicker: string,
@@ -1310,11 +1431,12 @@ const App: React.FC = () => {
         </div>
       ) : null}
       <div
-        className="app-root"
+        className={`app-root${isAndroidImmersiveActive ? " is-android-immersive" : ""}`}
         style={
           isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
             ? ({
                 ["--app-viewport-height" as string]: `${androidViewportHeight}px`,
+                ["--android-keyboard-height" as string]: `${androidKeyboardHeight}px`,
               } as React.CSSProperties)
             : undefined
         }
@@ -1341,10 +1463,14 @@ const App: React.FC = () => {
                       onClick={() => {
                         void toggleFullscreen();
                       }}
-                      aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                      title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                      aria-label={
+                        isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"
+                      }
+                      title={
+                        isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"
+                      }
                     >
-                      {isFullscreen ? (
+                      {isFullscreenActive ? (
                         <Minimize2 size={15} strokeWidth={2} />
                       ) : (
                         <Maximize2 size={15} strokeWidth={2} />
@@ -1372,10 +1498,10 @@ const App: React.FC = () => {
                     onClick={() => {
                       void toggleFullscreen();
                     }}
-                    aria-label={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
-                    title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                    aria-label={isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"}
+                    title={isFullscreenActive ? "Exit fullscreen" : "Enter fullscreen"}
                   >
-                    {isFullscreen ? (
+                    {isFullscreenActive ? (
                       <Minimize2 size={15} strokeWidth={2} />
                     ) : (
                       <Maximize2 size={15} strokeWidth={2} />

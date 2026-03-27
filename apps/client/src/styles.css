@@ -37,6 +37,10 @@ body {
   overflow: hidden;
 }
 
+body.android-immersive {
+  overflow: hidden;
+}
+
 body.page-scrollable {
   overflow-y: auto;
   overflow-x: hidden;
@@ -388,8 +392,20 @@ body.page-scrollable {
   align-items: stretch;
   justify-content: stretch;
   padding: 16px;
+  padding-bottom: calc(16px + var(--android-keyboard-height, 0px));
   gap: 16px;
   overflow: hidden;
+}
+
+.app-root.is-android-immersive {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  padding: 0;
+  gap: 0;
+  width: 100vw;
+  max-width: 100vw;
+  background: var(--bg);
 }
 
 .sidebar {
@@ -3929,6 +3945,7 @@ body.page-scrollable {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: minmax(0, 1fr) minmax(210px, 25.5dvh);
+    padding-bottom: var(--android-keyboard-height, 0px);
     max-height: 100dvh;
     overflow: hidden;
   }
