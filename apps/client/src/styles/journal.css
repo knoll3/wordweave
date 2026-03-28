@@ -685,6 +685,26 @@
   background: rgba(15, 23, 42, 0.96);
 }
 
+.quest-topic-summary {
+  display: flex;
+  align-items: center;
+  min-height: 52px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  background:
+    radial-gradient(circle at top right, rgba(125, 211, 252, 0.1), transparent 42%),
+    rgba(15, 23, 42, 0.72);
+}
+
+.quest-topic-summary-value {
+  color: #f8fafc;
+  font-size: 0.96rem;
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 .quest-topic-results {
   display: flex;
   flex-direction: column;
@@ -758,13 +778,21 @@
   color: #e2e8f0;
   font-size: 0.77rem;
   appearance: none;
+  outline: none;
   cursor: pointer;
-  transition:
-    background 140ms ease,
-    border-color 140ms ease,
-    color 140ms ease,
-    box-shadow 140ms ease,
-    transform 140ms ease;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.quest-topic-chip:focus {
+  outline: none;
+}
+
+.quest-topic-chip:focus-visible {
+  outline: none;
+}
+
+.quest-topic-chip:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .quest-topic-chip.is-recommended {
@@ -780,6 +808,10 @@
     radial-gradient(circle at top right, rgba(96, 165, 250, 0.18), transparent 44%),
     rgba(30, 64, 175, 0.32);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.18);
+}
+
+.quest-topic-chip:disabled {
+  cursor: default;
 }
 
 .quest-topic-chip-list-skeleton {

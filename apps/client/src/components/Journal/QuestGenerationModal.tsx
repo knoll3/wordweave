@@ -69,25 +69,34 @@ const QuestGenerationModal: React.FC<Props> = ({
         </div>
 
         <div className="quest-topic-body">
-          <label className="quest-topic-label" htmlFor="quest-topic-input">
+          <label
+            className="quest-topic-label"
+            htmlFor={!isLoading && !draft ? "quest-topic-input" : undefined}
+          >
             Topic
           </label>
-          <input
-            id="quest-topic-input"
-            className="quest-topic-input"
-            type="text"
-            value={topic}
-            onChange={(event) => onTopicChange(event.target.value)}
-            placeholder="Harry Potter spells, Pokemon, Ancient Egypt, ocean animals..."
-            autoFocus
-            disabled={isLoading}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                onSubmit();
-              }
-            }}
-          />
+          {!isLoading && !draft ? (
+            <input
+              id="quest-topic-input"
+              className="quest-topic-input"
+              type="text"
+              value={topic}
+              onChange={(event) => onTopicChange(event.target.value)}
+              placeholder="Harry Potter spells, Pokemon, Ancient Egypt, ocean animals..."
+              autoFocus
+              disabled={isLoading}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  onSubmit();
+                }
+              }}
+            />
+          ) : (
+            <div className="quest-topic-summary">
+              <div className="quest-topic-summary-value">{topic}</div>
+            </div>
+          )}
           {isLoading ? (
             <div
               className="quest-topic-loading"
