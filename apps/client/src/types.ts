@@ -280,7 +280,7 @@ export interface QuestRecord {
   pointsAwarded: number;
   status: QuestStatus;
   matchedItemName: string | null;
-  completionMethod: "exact" | "embedding" | "judge" | null;
+  completionMethod: "exact" | "normalized" | null;
   createdAt: string | null;
   completedAt: string | null;
 }

@@ -808,23 +808,28 @@ function GraphView({
       height: CARD_HEIGHT,
     };
 
-    const hoveredCandidates = Array.from(itemViewsRef.current.entries())
-      .filter(([nodeId]) => nodeId !== draggedNodeId)
-      .map(([nodeId, view]) => ({
-        nodeId,
-        view,
-        zIndex: world.getChildIndex(view.container),
-      }))
-      .filter(({ view }) =>
-        rectanglesOverlap(draggedBounds, {
-          ...getViewTopLeftPosition(view),
-          width: view.width,
-          height: CARD_HEIGHT,
-        })
-      )
-      .sort((a, b) => b.zIndex - a.zIndex);
+    let nextHoverTargetNodeId: string | null = null;
+    let nextHoverTargetZIndex = -1;
 
-    const nextHoverTargetNodeId = hoveredCandidates[0]?.nodeId ?? null;
+    itemViewsRef.current.forEach((view, nodeId) => {
+      if (nodeId === draggedNodeId) {
+        return;
+      }
+      const overlaps = rectanglesOverlap(draggedBounds, {
+        ...getViewTopLeftPosition(view),
+        width: view.width,
+        height: CARD_HEIGHT,
+      });
+      if (!overlaps) {
+        return;
+      }
+      const zIndex = world.getChildIndex(view.container);
+      if (zIndex > nextHoverTargetZIndex) {
+        nextHoverTargetNodeId = nodeId;
+        nextHoverTargetZIndex = zIndex;
+      }
+    });
+
     if (nextHoverTargetNodeId === hoverTargetNodeIdRef.current) return;
 
     clearHoverTarget();

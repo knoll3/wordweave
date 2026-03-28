@@ -1,13 +1,4 @@
 import type { Database } from "sql.js";
-import { DEFAULT_EMBEDDING_MODEL_NAME, generateEmbeddings, judgeQuestCompletionCandidate } from "./openaiClient";
-import {
-  buildEmbeddingSearchText,
-  cosineSimilarity,
-  loadEmbeddingsByElementId,
-  loadQueryEmbedding,
-  saveQueryEmbedding,
-} from "./embeddingStore";
-import { ensureSearchIndexForElementIds } from "./search";
 
 export type QuestStatus = "available" | "tracked" | "completed" | "abandoned";
 
@@ -20,7 +11,7 @@ export interface QuestRecord {
   pointsAwarded: number;
   status: QuestStatus;
   matchedItemName: string | null;
-  completionMethod: "exact" | "embedding" | "judge" | null;
+  completionMethod: "exact" | "normalized" | null;
   createdAt: string | null;
   completedAt: string | null;
 }
@@ -37,12 +28,7 @@ export interface PlayerQuestStats {
   totalPoints: number;
 }
 
-export const QUEST_COMPLETION_SIMILARITY_THRESHOLD = 0.865;
-export const QUEST_COMPLETION_JUDGE_THRESHOLD = 0.7;
 export const QUEST_POINTS_PER_TARGET = 10;
-export const QUEST_SET_COMPLETION_BONUS_POINTS = 50;
-
-const questJudgeDecisionCache = new Map<string, boolean>();
 
 export function normalizeQuestName(value: string) {
   return value.trim().toLowerCase();
@@ -170,6 +156,131 @@ export function updateQuestStatus(
   stmt.free();
 }
 
+function normalizeQuestLexicalBase(value: string) {
+  return value
+    .trim()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[\u2018\u2019\u2032]/g, "'")
+    .replace(/[\u2010-\u2015]/g, "-")
+    .replace(/[&]/g, " and ")
+    .replace(/[_/+-]+/g, " ")
+    .replace(/[^a-z0-9'\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function tokenizeQuestLexicalBase(value: string) {
+  return normalizeQuestLexicalBase(value)
+    .split(" ")
+    .map((token) => token.replace(/^'+|'+$/g, "").replace(/'/g, ""))
+    .filter(Boolean);
+}
+
+function maybeRestoreSilentE(stem: string, original: string, suffix: string) {
+  if ((suffix === "ing" || suffix === "ed") && !stem.endsWith("e") && /[bcdfghjklmnpqrstvwxyz]$/.test(stem)) {
+    if (/[aeiou][bcdfghjklmnpqrstvwxyz](ing|ed)$/.test(original)) {
+      return `${stem}e`;
+    }
+  }
+  return stem;
+}
+
+function normalizeQuestLexicalToken(token: string) {
+  let current = token;
+  if (!current) return "";
+
+  if (current.endsWith("ies") && current.length > 4) {
+    current = `${current.slice(0, -3)}y`;
+  } else if (current.endsWith("ing") && current.length > 5) {
+    current = current.slice(0, -3);
+    if (/(.)\1$/.test(current)) {
+      current = current.slice(0, -1);
+    }
+    current = maybeRestoreSilentE(current, token, "ing");
+  } else if (current.endsWith("ied") && current.length > 4) {
+    current = `${current.slice(0, -3)}y`;
+  } else if (current.endsWith("ed") && current.length > 4) {
+    current = current.slice(0, -2);
+    if (/(.)\1$/.test(current)) {
+      current = current.slice(0, -1);
+    }
+    current = maybeRestoreSilentE(current, token, "ed");
+  } else if (current.endsWith("est") && current.length > 5) {
+    current = current.slice(0, -3);
+    if (/(.)\1$/.test(current)) {
+      current = current.slice(0, -1);
+    }
+  } else if (current.endsWith("er") && current.length > 4) {
+    current = current.slice(0, -2);
+    if (/(.)\1$/.test(current)) {
+      current = current.slice(0, -1);
+    }
+  } else if (current.endsWith("es") && current.length > 4) {
+    current = current.slice(0, -2);
+  } else if (current.endsWith("s") && current.length > 3) {
+    current = current.slice(0, -1);
+  }
+
+  return current;
+}
+
+function buildQuestLexicalForms(value: string) {
+  const baseTokens = tokenizeQuestLexicalBase(value);
+  const normalizedTokens = baseTokens.map(normalizeQuestLexicalToken);
+  return {
+    canonicalKey: baseTokens.join(""),
+    normalizedKey: normalizedTokens.join(""),
+  };
+}
+
+function findProgrammaticQuestMatch(
+  quest: QuestRecord,
+  discoveredRows: Array<{ id: number; name: string; normalizedName: string }>
+) {
+  const questForms = buildQuestLexicalForms(quest.name);
+  for (const row of discoveredRows) {
+    const candidateForms = buildQuestLexicalForms(row.name);
+    if (candidateForms.canonicalKey === questForms.canonicalKey) {
+      return {
+        matchedItemName: row.name,
+        completionMethod: "normalized" as const,
+      };
+    }
+    if (
+      candidateForms.normalizedKey &&
+      candidateForms.normalizedKey === questForms.normalizedKey
+    ) {
+      return {
+        matchedItemName: row.name,
+        completionMethod: "normalized" as const,
+      };
+    }
+  }
+  return null;
+}
+
+function findProgrammaticQuestNameOverlap(
+  targetName: string,
+  candidateNames: string[]
+) {
+  const targetForms = buildQuestLexicalForms(targetName);
+  for (const candidateName of candidateNames) {
+    const candidateForms = buildQuestLexicalForms(candidateName);
+    if (candidateForms.canonicalKey === targetForms.canonicalKey) {
+      return candidateName;
+    }
+    if (
+      candidateForms.normalizedKey &&
+      candidateForms.normalizedKey === targetForms.normalizedKey
+    ) {
+      return candidateName;
+    }
+  }
+  return null;
+}
+
 function loadIncompleteQuests(
   db: Database,
   options?: { targetNames?: string[] }
@@ -232,8 +343,7 @@ function loadDiscoveredRows(
 
 export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
   db: Database,
-  targetNames: string[],
-  threshold = QUEST_COMPLETION_SIMILARITY_THRESHOLD
+  targetNames: string[]
 ) {
   const uniqueTargets = uniqueNormalized(targetNames);
   if (uniqueTargets.length === 0) {
@@ -245,56 +355,15 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
     return new Set<string>();
   }
 
-  await ensureSearchIndexForElementIds(
-    db,
-    discoveredRows.map((row) => row.id)
-  );
-
-  const embeddingsById = loadEmbeddingsByElementId(
-    db,
-    discoveredRows.map((row) => row.id)
-  );
-  const queryEmbeddings = await getQuestQueryEmbeddings(
-    db,
-    uniqueTargets.map((name) => ({
-      name,
-      normalizedName: normalizeQuestName(name),
-      icon: "🎯",
-      setId: null,
-      setTitle: null,
-      pointsAwarded: QUEST_POINTS_PER_TARGET,
-      status: "available" as const,
-      matchedItemName: null,
-      completionMethod: null,
-      createdAt: null,
-      completedAt: null,
-    }))
-  );
+  const discoveredNames = discoveredRows.map((row) => row.name);
 
   const rejectedTargets = new Set<string>();
   for (const target of uniqueTargets) {
-    const queryEmbedding = queryEmbeddings.get(normalizeQuestName(target));
-    if (!queryEmbedding) {
-      continue;
-    }
-    let bestSimilarity = 0;
-    let bestMatchName: string | null = null;
-    for (const row of discoveredRows) {
-      const itemEmbedding = embeddingsById.get(row.id);
-      if (!itemEmbedding) continue;
-      const similarity = cosineSimilarity(queryEmbedding, itemEmbedding);
-      if (similarity > bestSimilarity) {
-        bestSimilarity = similarity;
-        bestMatchName = row.name;
-      }
-    }
-
-    if (bestSimilarity >= threshold) {
-      console.log("[api][quests] generation rejected by discovery embedding", {
+    const overlapName = findProgrammaticQuestNameOverlap(target, discoveredNames);
+    if (overlapName) {
+      console.log("[api][quests] generation rejected by discovery lexical match", {
         target,
-        bestMatchName,
-        bestSimilarity: Number(bestSimilarity.toFixed(4)),
-        threshold,
+        matchedItemName: overlapName,
       });
       rejectedTargets.add(normalizeQuestName(target));
     }
@@ -303,45 +372,12 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
   return rejectedTargets;
 }
 
-async function getQuestQueryEmbeddings(db: Database, quests: QuestRecord[]) {
-  const embeddings = new Map<string, number[]>();
-  const missingQuests: QuestRecord[] = [];
-
-  for (const quest of quests) {
-    const queryText = buildEmbeddingSearchText(quest.name);
-    const cached = loadQueryEmbedding(db, queryText);
-    if (cached) {
-      embeddings.set(quest.normalizedName, cached);
-    } else {
-      missingQuests.push(quest);
-    }
-  }
-
-  if (missingQuests.length > 0) {
-    const response = await generateEmbeddings(
-      missingQuests.map((quest) => buildEmbeddingSearchText(quest.name))
-    );
-    response.embeddings.forEach((entry, index) => {
-      const quest = missingQuests[index];
-      embeddings.set(quest.normalizedName, entry.embedding);
-      saveQueryEmbedding(
-        db,
-        buildEmbeddingSearchText(quest.name),
-        response.model || DEFAULT_EMBEDDING_MODEL_NAME,
-        entry.embedding
-      );
-    });
-  }
-
-  return embeddings;
-}
-
 function markQuestCompleted(
   db: Database,
   params: {
     normalizedName: string;
     matchedItemName: string | null;
-    completionMethod: "exact" | "embedding" | "judge";
+    completionMethod: "exact" | "normalized";
   }
 ) {
   const stmt = db.prepare(`
@@ -367,7 +403,47 @@ function ensurePlayerStatRow(db: Database, key: string) {
   stmt.free();
 }
 
+function calculateQuestPointsSeedTotal(db: Database) {
+  const stmt = db.prepare(`
+    SELECT
+      COALESCE((SELECT SUM(points_awarded) FROM quests WHERE status = 'completed'), 0)
+      AS total_points
+  `);
+  const row = stmt.getAsObject() as Record<string, unknown>;
+  stmt.free();
+  return Number(row.total_points ?? 0);
+}
+
+function seedPlayerQuestPoints(db: Database) {
+  const totalPoints = calculateQuestPointsSeedTotal(db);
+  const stmt = db.prepare(`
+    INSERT INTO player_stats (key, value_integer, updated_at)
+    VALUES ('quest_points_total', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value_integer = excluded.value_integer, updated_at = CURRENT_TIMESTAMP
+  `);
+  stmt.run([totalPoints]);
+  stmt.free();
+  return totalPoints;
+}
+
+function repairPlayerQuestPointsIfNeeded(db: Database, currentTotalPoints: number) {
+  const seededTotalPoints = calculateQuestPointsSeedTotal(db);
+  if (currentTotalPoints >= seededTotalPoints) {
+    return currentTotalPoints;
+  }
+  const stmt = db.prepare(`
+    UPDATE player_stats
+    SET value_integer = ?, updated_at = CURRENT_TIMESTAMP
+    WHERE key = 'quest_points_total'
+  `);
+  stmt.run([seededTotalPoints]);
+  stmt.free();
+  return seededTotalPoints;
+}
+
 function incrementPlayerPoints(db: Database, points: number) {
+  const currentTotalPoints = getPlayerQuestStats(db).totalPoints;
+  repairPlayerQuestPointsIfNeeded(db, currentTotalPoints);
   if (points <= 0) {
     return;
   }
@@ -387,30 +463,12 @@ export function getPlayerQuestStats(db: Database): PlayerQuestStats {
   stmt.free();
   if (row.value_integer != null) {
     return {
-      totalPoints: Number(row.value_integer ?? 0),
+      totalPoints: repairPlayerQuestPointsIfNeeded(db, Number(row.value_integer ?? 0)),
     };
   }
 
-  const seedStmt = db.prepare(`
-    SELECT
-      COALESCE((SELECT SUM(points_awarded) FROM quests WHERE status = 'completed'), 0) +
-      COALESCE((SELECT SUM(bonus_points_awarded) FROM quest_sets WHERE completed_at IS NOT NULL), 0)
-      AS total_points
-  `);
-  const seedRow = seedStmt.getAsObject() as Record<string, unknown>;
-  seedStmt.free();
-  const seededTotalPoints = Number(seedRow.total_points ?? 0);
-
-  const insertStmt = db.prepare(`
-    INSERT INTO player_stats (key, value_integer, updated_at)
-    VALUES ('quest_points_total', ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(key) DO UPDATE SET value_integer = excluded.value_integer, updated_at = CURRENT_TIMESTAMP
-  `);
-  insertStmt.run([seededTotalPoints]);
-  insertStmt.free();
-
   return {
-    totalPoints: seededTotalPoints,
+    totalPoints: seedPlayerQuestPoints(db),
   };
 }
 
@@ -427,83 +485,9 @@ export function createQuestSet(
     params.title,
     params.topic,
     params.totalQuestCount,
-    QUEST_SET_COMPLETION_BONUS_POINTS,
+    0,
   ]);
   stmt.free();
-}
-
-function completeQuestSetsForQuestIds(
-  db: Database,
-  questIds: string[]
-): CompletedQuestSet[] {
-  if (questIds.length === 0) {
-    return [];
-  }
-
-  const placeholders = questIds.map(() => "?").join(", ");
-  const candidateSetStmt = db.prepare(`
-    SELECT DISTINCT set_id
-    FROM quests
-    WHERE normalized_name IN (${placeholders}) AND set_id IS NOT NULL
-  `);
-  candidateSetStmt.bind(questIds);
-  const candidateSetIds: string[] = [];
-  while (candidateSetStmt.step()) {
-    const row = candidateSetStmt.getAsObject() as Record<string, unknown>;
-    if (row.set_id != null) {
-      candidateSetIds.push(String(row.set_id));
-    }
-  }
-  candidateSetStmt.free();
-
-  if (candidateSetIds.length === 0) {
-    return [];
-  }
-
-  const setPlaceholders = candidateSetIds.map(() => "?").join(", ");
-  const summaryStmt = db.prepare(`
-    SELECT
-      qs.id,
-      qs.title,
-      qs.topic,
-      qs.total_quest_count,
-      qs.completed_at,
-      qs.bonus_points_awarded,
-      SUM(CASE WHEN q.status = 'completed' THEN 1 ELSE 0 END) AS completed_count
-    FROM quest_sets qs
-    JOIN quests q ON q.set_id = qs.id
-    WHERE qs.id IN (${setPlaceholders})
-    GROUP BY qs.id, qs.title, qs.topic, qs.total_quest_count, qs.completed_at, qs.bonus_points_awarded
-  `);
-  summaryStmt.bind(candidateSetIds);
-  const completedSets: CompletedQuestSet[] = [];
-  while (summaryStmt.step()) {
-    const row = summaryStmt.getAsObject() as Record<string, unknown>;
-    const totalQuestCount = Number(row.total_quest_count ?? 0);
-    const completedCount = Number(row.completed_count ?? 0);
-    if (row.completed_at != null || totalQuestCount <= 0 || completedCount < totalQuestCount) {
-      continue;
-    }
-
-    const updateStmt = db.prepare(`
-      UPDATE quest_sets
-      SET completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-      WHERE id = ? AND completed_at IS NULL
-    `);
-    updateStmt.run([String(row.id)]);
-    updateStmt.free();
-
-    completedSets.push({
-      id: String(row.id),
-      title: String(row.title ?? ""),
-      topic: String(row.topic ?? ""),
-      questCount: totalQuestCount,
-      earnedPoints: Number(row.bonus_points_awarded ?? QUEST_SET_COMPLETION_BONUS_POINTS),
-    });
-  }
-  summaryStmt.free();
-
-  return completedSets;
 }
 
 export async function syncQuestCompletions(
@@ -532,8 +516,6 @@ export async function syncQuestCompletions(
         targetCount: quests.length,
         discoveredCount: 0,
         candidateNameCount: options?.candidateNames?.length ?? 0,
-        threshold: QUEST_COMPLETION_SIMILARITY_THRESHOLD,
-        judgeThreshold: QUEST_COMPLETION_JUDGE_THRESHOLD,
       });
     }
     return {
@@ -544,21 +526,7 @@ export async function syncQuestCompletions(
     };
   }
 
-  await ensureSearchIndexForElementIds(
-    db,
-    discoveredRows.map((row) => row.id)
-  );
-
   const discoveredNames = new Set(discoveredRows.map((row) => row.normalizedName));
-  const embeddingsById = loadEmbeddingsByElementId(
-    db,
-    discoveredRows.map((row) => row.id)
-  );
-  const queryEmbeddings = await getQuestQueryEmbeddings(db, quests);
-  const borderlineChecksByCandidate = new Map<
-    string,
-    { quest: QuestRecord; candidate: string; similarity: number }
-  >();
   const newlyCompletedQuestNames: string[] = [];
   const newlyCompletedQuestIds: string[] = [];
 
@@ -581,124 +549,33 @@ export async function syncQuestCompletions(
       continue;
     }
 
-    const queryEmbedding = queryEmbeddings.get(quest.normalizedName);
-    if (!queryEmbedding) {
-      if (logEnabled) {
-        console.log("[api][quests] completion missing embedding", {
-          target: quest.name,
-          completed: false,
-        });
-      }
-      continue;
-    }
-
-    let bestSimilarity = 0;
-    let bestMatchName: string | null = null;
-    for (const row of discoveredRows) {
-      const itemEmbedding = embeddingsById.get(row.id);
-      if (!itemEmbedding) continue;
-      const similarity = cosineSimilarity(queryEmbedding, itemEmbedding);
-      if (similarity > bestSimilarity) {
-        bestSimilarity = similarity;
-        bestMatchName = row.name;
-      }
-    }
-
-    const completed = bestSimilarity >= QUEST_COMPLETION_SIMILARITY_THRESHOLD;
+    const programmaticMatch = findProgrammaticQuestMatch(quest, discoveredRows);
     if (logEnabled) {
-      console.log("[api][quests] completion semantic check", {
+      console.log("[api][quests] completion programmatic check", {
         target: quest.name,
-        bestMatchName,
-        bestSimilarity: Number(bestSimilarity.toFixed(4)),
-        threshold: QUEST_COMPLETION_SIMILARITY_THRESHOLD,
-        completed,
+        matchedItemName: programmaticMatch?.matchedItemName ?? null,
+        completed: programmaticMatch != null,
       });
     }
 
-    if (completed) {
+    if (programmaticMatch) {
       markQuestCompleted(db, {
         normalizedName: quest.normalizedName,
-        matchedItemName: bestMatchName,
-        completionMethod: "embedding",
+        matchedItemName: programmaticMatch.matchedItemName,
+        completionMethod: programmaticMatch.completionMethod,
       });
       newlyCompletedQuestNames.push(quest.name);
       newlyCompletedQuestIds.push(quest.normalizedName);
-      continue;
-    }
-
-    if (
-      options?.candidateNames &&
-      bestMatchName &&
-      bestSimilarity >= QUEST_COMPLETION_JUDGE_THRESHOLD
-    ) {
-      const candidateKey = normalizeQuestName(bestMatchName);
-      const existing = borderlineChecksByCandidate.get(candidateKey);
-      if (!existing || bestSimilarity > existing.similarity) {
-        borderlineChecksByCandidate.set(candidateKey, {
-          quest,
-          candidate: bestMatchName,
-          similarity: bestSimilarity,
-        });
-      }
-    }
-  }
-
-  for (const borderline of borderlineChecksByCandidate.values()) {
-    const cacheKey = `${borderline.quest.normalizedName}|${normalizeQuestName(borderline.candidate)}`;
-    let judgeDecision = questJudgeDecisionCache.get(cacheKey);
-    if (judgeDecision == null) {
-      if (logEnabled) {
-        console.log("[api][quests] completion judge trigger", {
-          target: borderline.quest.name,
-          candidate: borderline.candidate,
-          similarity: Number(borderline.similarity.toFixed(4)),
-          autoThreshold: QUEST_COMPLETION_SIMILARITY_THRESHOLD,
-          judgeThreshold: QUEST_COMPLETION_JUDGE_THRESHOLD,
-        });
-      }
-      const judgeResult = await judgeQuestCompletionCandidate({
-        target: borderline.quest.name,
-        candidate: borderline.candidate,
-      });
-      judgeDecision = judgeResult.match;
-      questJudgeDecisionCache.set(cacheKey, judgeDecision);
-    } else if (logEnabled) {
-      console.log("[api][quests] completion judge cache hit", {
-        target: borderline.quest.name,
-        candidate: borderline.candidate,
-        similarity: Number(borderline.similarity.toFixed(4)),
-        match: judgeDecision,
-      });
-    }
-
-    if (judgeDecision) {
-      markQuestCompleted(db, {
-        normalizedName: borderline.quest.normalizedName,
-        matchedItemName: borderline.candidate,
-        completionMethod: "judge",
-      });
-      newlyCompletedQuestNames.push(borderline.quest.name);
-      newlyCompletedQuestIds.push(borderline.quest.normalizedName);
-    }
-
-    if (logEnabled) {
-      console.log("[api][quests] completion judge result", {
-        target: borderline.quest.name,
-        candidate: borderline.candidate,
-        similarity: Number(borderline.similarity.toFixed(4)),
-        match: judgeDecision,
-      });
     }
   }
 
   const questPointAwards = quests
     .filter((quest) => newlyCompletedQuestIds.includes(quest.normalizedName))
     .reduce((sum, quest) => sum + (quest.pointsAwarded || QUEST_POINTS_PER_TARGET), 0);
-  const completedQuestSets = completeQuestSetsForQuestIds(db, newlyCompletedQuestIds);
-  const setBonusAwards = completedQuestSets.reduce((sum, set) => sum + set.earnedPoints, 0);
-  const awardedPoints = questPointAwards + setBonusAwards;
+  const completedQuestSets: CompletedQuestSet[] = [];
+  const awardedPoints = questPointAwards;
   incrementPlayerPoints(db, awardedPoints);
-  const playerStats = getPlayerQuestStats(db);
+  const totalPoints = getPlayerQuestStats(db).totalPoints;
 
   if (logEnabled) {
     console.log("[api][quests] completion summary", {
@@ -708,9 +585,7 @@ export async function syncQuestCompletions(
       completedCount: newlyCompletedQuestNames.length,
       completedSetCount: completedQuestSets.length,
       awardedPoints,
-      totalPoints: playerStats.totalPoints,
-      threshold: QUEST_COMPLETION_SIMILARITY_THRESHOLD,
-      judgeThreshold: QUEST_COMPLETION_JUDGE_THRESHOLD,
+      totalPoints,
     });
   }
 
@@ -718,6 +593,6 @@ export async function syncQuestCompletions(
     newlyCompletedQuestNames,
     completedQuestSets,
     awardedPoints,
-    totalPoints: playerStats.totalPoints,
+    totalPoints,
   };
 }

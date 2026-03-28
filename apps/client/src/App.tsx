@@ -145,10 +145,6 @@ const App: React.FC = () => {
   const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [viewportCenter, setViewportCenter] = useState<{
-    x: number;
-    y: number;
-  } | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
@@ -188,6 +184,10 @@ const App: React.FC = () => {
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const isRestoringWorkspaceRef = useRef(false);
+  const viewportCenterRef = useRef<{
+    x: number;
+    y: number;
+  } | null>(null);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
 
@@ -800,7 +800,7 @@ const App: React.FC = () => {
     }
 
     return actions;
-  }, [items, unlockedCatalystFamilyKeys, viewportCenter]);
+  }, [items, unlockedCatalystFamilyKeys]);
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
@@ -819,7 +819,7 @@ const App: React.FC = () => {
     if (!item) return;
     const anchorPosition =
       position ??
-      viewportCenter ??
+      viewportCenterRef.current ??
       ({
         x: 260,
         y: 180,
@@ -855,7 +855,7 @@ const App: React.FC = () => {
     );
 
     const anchorPosition =
-      viewportCenter ??
+      viewportCenterRef.current ??
       ({
         x: 260,
         y: 180,
@@ -979,6 +979,10 @@ const App: React.FC = () => {
 
   function clearWorkspaceItems() {
     updateWorkspaceItems([]);
+  }
+
+  function handleViewportCenterChange(position: { x: number; y: number }) {
+    viewportCenterRef.current = position;
   }
 
   async function combineWorkspaceNodeIds(
@@ -1533,7 +1537,7 @@ const App: React.FC = () => {
                   onAttachActionModifier={attachActionModifier}
                   onAttachCategoryModifier={attachCategoryModifier}
                   onWorkspaceItemsChange={updateWorkspaceItems}
-                  onViewportCenterChange={setViewportCenter}
+                  onViewportCenterChange={handleViewportCenterChange}
                   combiningNodeIds={combiningNodeIds}
                   onClearActionModifier={clearActionModifier}
                   onClearCategoryModifier={clearCategoryModifier}
