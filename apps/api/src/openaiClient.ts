@@ -430,18 +430,21 @@ export async function judgeQuestCompletionCandidate(params: {
 You are judging whether a discovered word should satisfy a quest target in a word-combination discovery game.
 
 This is NOT a semantic similarity task.
-Only accept cases where the discovered word is clearly the same underlying word as the target, with only a minor lexical variation.
+Only accept cases where the discovered word is clearly the exact same concept as the target, with only a minor surface-form variation.
 
-Be generous for:
+Accept only for:
 - tiny spelling differences or obvious typo-level variations
 - spacing or hyphenation differences
 - tense changes
 - participles / gerunds
 - singular / plural
-- obvious inflectional variants
-- very near derivational variants only when they are plainly still the same lexical word in play
+- obvious inflectional variants of the same word
 
 Do not accept:
+- shortened forms or partial phrases
+- one part of a compound term standing in for the full term
+- terms that merely share a root or stem
+- derivationally related but distinct concepts
 - synonyms
 - paraphrases
 - adjacent meanings
@@ -453,12 +456,13 @@ Examples:
 - target "running", discovered "run" => match true
 - target "zero-gravity", discovered "zero gravity" => match true
 - target "color", discovered "colour" => match true
+- target "dial-in", discovered "dial" => match false
+- target "teacher", discovered "teach" => match false
 - target "spoof", discovered "parody" => match false
 - target "teacher", discovered "school" => match false
 - target "hidden", discovered "secret" => match false
 - target "ancient", discovered "old" => match false
 - target "sad", discovered "unhappy" => match false
-- target "fast", discovered "faster" => match true
 
 Target quest word: ${JSON.stringify(params.target)}
 Discovered word: ${JSON.stringify(params.candidate)}

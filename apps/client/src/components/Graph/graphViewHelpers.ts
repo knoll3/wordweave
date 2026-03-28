@@ -32,6 +32,7 @@ export type ItemView = {
   contentAlpha: number;
   targetContentAlpha: number;
   destroyWhenSettled: boolean;
+  arrivalTintProgress: number;
   celebrationProgress: number;
   celebrationTintProgress: number;
   celebrationTintHoldFrames: number;
@@ -68,6 +69,7 @@ export const CLICK_MOVE_THRESHOLD = 6;
 export const CELEBRATION_PROGRESS_STEP = 0.022;
 export const CELEBRATION_TINT_FADE_STEP = 0.012;
 export const CELEBRATION_TINT_HOLD_FRAMES = 150;
+export const ARRIVAL_TINT_FADE_STEP = 0.028;
 export const DOUBLE_TAP_DISTANCE_THRESHOLD = 24;
 
 export function isCatalystItemId(itemId: number) {
@@ -126,6 +128,7 @@ export function drawItemCard(
   itemId: number,
   state: ItemVisualState,
   hasModifier = false,
+  arrivalAmount = 0,
   celebrationAmount = 0,
   celebrationPulse = 0
 ) {
@@ -134,6 +137,8 @@ export function drawItemCard(
   const isCatalyst = isCatalystItemId(itemId);
   const isModifierToken =
     itemId === CATEGORY_MODIFIER_ITEM_ID || itemId === ACTION_MODIFIER_ITEM_ID;
+  const arrivalFill = mixColor(0x1e293b, 0x0f766e, 0.72);
+  const arrivalStroke = mixColor(0x99f6e4, 0xf0fdfa, 0.48);
   const celebrationFill = mixColor(0x5b2a86, 0x7c3aed, celebrationPulse);
   const celebrationStroke = mixColor(0xe9d5ff, 0xf3e8ff, celebrationPulse);
   const fillColor = mixColor(
@@ -141,9 +146,10 @@ export function drawItemCard(
     isCatalyst ? nodeTint : 0x0f172a,
     isCatalyst ? 0.12 : 0
   );
-  const finalFillColor = mixColor(fillColor, celebrationFill, celebrationAmount);
+  const withArrivalFill = mixColor(fillColor, arrivalFill, arrivalAmount);
+  const finalFillColor = mixColor(withArrivalFill, celebrationFill, celebrationAmount);
   const strokeColor = mixColor(
-    hasModifier ? 0x5eead4 : nodeTint,
+    mixColor(hasModifier ? 0x5eead4 : nodeTint, arrivalStroke, arrivalAmount),
     celebrationStroke,
     celebrationAmount
   );
@@ -178,7 +184,10 @@ export function drawItemCard(
     background.stroke({
       width: hasModifier || isHighlighted ? 1.9 : 1.5,
       color: strokeColor,
-      alpha: ((isHighlighted || hasModifier) ? 0.56 : 0.42) + celebrationAmount * 0.28,
+      alpha:
+        ((isHighlighted || hasModifier) ? 0.56 : 0.42) +
+        arrivalAmount * 0.2 +
+        celebrationAmount * 0.28,
     });
   }
 }

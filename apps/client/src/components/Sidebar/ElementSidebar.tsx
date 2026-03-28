@@ -11,6 +11,7 @@ import {
 interface Props {
   items: Item[];
   totalQuestPoints?: number;
+  questPointsHighlightKey?: number;
   onAddItemToWorkspace: (item: Item) => void;
   onItemsLoaded?: (items: Item[]) => void;
   randomUnlocked?: boolean;
@@ -127,6 +128,7 @@ function collectClusterIds(clusters: SemanticCluster[]): Set<string> {
 const ElementSidebar: React.FC<Props> = ({
   items,
   totalQuestPoints = 0,
+  questPointsHighlightKey = 0,
   onAddItemToWorkspace,
   onItemsLoaded,
   randomUnlocked = false,
@@ -150,11 +152,25 @@ const ElementSidebar: React.FC<Props> = ({
   const latestClustersRequestIdRef = useRef(0);
   const elementListRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<number | null>(null);
+  const [isQuestPointsHighlighted, setIsQuestPointsHighlighted] = useState(false);
 
   useEffect(() => {
     void loadLibraryItems();
     void loadSemanticClusters();
   }, []);
+
+  useEffect(() => {
+    if (questPointsHighlightKey <= 0) {
+      return;
+    }
+    setIsQuestPointsHighlighted(true);
+    const timeoutId = window.setTimeout(() => {
+      setIsQuestPointsHighlighted(false);
+    }, 950);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [questPointsHighlightKey]);
 
   useEffect(() => {
     if (latestRequestIdRef.current === 0) {
@@ -513,9 +529,21 @@ const ElementSidebar: React.FC<Props> = ({
               </button>
             </div>
             <div className="library-count-label" aria-live="polite">
-              {items.length} items
+              {loadingItems ? (
+                <span
+                  className="library-count-skeleton"
+                  aria-hidden="true"
+                />
+              ) : (
+                `${items.length} items`
+              )}
             </div>
-            <div className="library-points-label" aria-live="polite">
+            <div
+              className={`library-points-label ${
+                isQuestPointsHighlighted ? "library-points-label-highlighted" : ""
+              }`}
+              aria-live="polite"
+            >
               {totalQuestPoints} points
             </div>
           </div>

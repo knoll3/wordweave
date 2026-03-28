@@ -23,6 +23,7 @@ import { resolveActionPromptFamilyKey } from "../../lib/actionPromptFamilies";
 import { ACTION_CATALYST_BY_ID, SPECIAL_ITEMS } from "../../lib/specialItems";
 import CatalystDock, { type CatalystAction } from "./CatalystDock";
 import {
+  ARRIVAL_TINT_FADE_STEP,
   CARD_HEIGHT,
   CARD_HORIZONTAL_PADDING,
   CELEBRATION_PROGRESS_STEP,
@@ -362,6 +363,7 @@ function GraphView({
       view.itemId,
       state,
       view.hasCategoryModifier || view.hasActionModifier,
+      view.arrivalTintProgress,
       view.celebrationTintProgress
     );
     view.targetScale = scale;
@@ -1070,6 +1072,7 @@ function GraphView({
         contentAlpha: 1,
         targetContentAlpha: 1,
         destroyWhenSettled: false,
+        arrivalTintProgress: 0,
         celebrationProgress: 0,
         celebrationTintProgress: 0,
         celebrationTintHoldFrames: 0,
@@ -1145,6 +1148,7 @@ function GraphView({
       contentAlpha: 1,
       targetContentAlpha: 1,
       destroyWhenSettled: false,
+      arrivalTintProgress: 0,
       celebrationProgress: 0,
       celebrationTintProgress: 0,
       celebrationTintHoldFrames: 0,
@@ -1221,6 +1225,9 @@ function GraphView({
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
+        if (addedNodeIds.includes(workspaceItem.nodeId)) {
+          view.arrivalTintProgress = 1;
+        }
         if (removedCombiningNodeIds.length > 0 && addedNodeIds.includes(workspaceItem.nodeId)) {
           view.container.scale.set(SPAWN_SCALE);
           view.targetScale = 1;
@@ -1761,6 +1768,13 @@ function GraphView({
           );
           view.container.alpha = view.contentAlpha;
 
+          if (view.arrivalTintProgress > 0) {
+            view.arrivalTintProgress = Math.max(
+              0,
+              view.arrivalTintProgress - ARRIVAL_TINT_FADE_STEP
+            );
+          }
+
           if (view.celebrationTintHoldFrames > 0) {
             view.celebrationTintHoldFrames -= 1;
           } else if (view.celebrationTintProgress > 0) {
@@ -1782,6 +1796,7 @@ function GraphView({
               view.itemId,
               "highlight",
               view.hasCategoryModifier || view.hasActionModifier,
+              view.arrivalTintProgress,
               view.celebrationTintProgress
             );
             view.celebration.visible = true;
@@ -1826,10 +1841,25 @@ function GraphView({
               view.itemId,
               selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
               view.hasCategoryModifier || view.hasActionModifier,
+              view.arrivalTintProgress,
               view.celebrationTintProgress,
               tintPulsePhase
             );
             view.container.scale.set(appliedScale);
+          } else if (view.arrivalTintProgress > 0) {
+            drawItemCard(
+              view.background,
+              view.width,
+              view.itemId,
+              selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
+              view.hasCategoryModifier || view.hasActionModifier,
+              view.arrivalTintProgress
+            );
+            const arrivalPulse =
+              Math.sin((1 - view.arrivalTintProgress) * Math.PI * 3) *
+              0.03 *
+              Math.max(view.arrivalTintProgress, 0.25);
+            view.container.scale.set(appliedScale + arrivalPulse);
           }
 
           if (

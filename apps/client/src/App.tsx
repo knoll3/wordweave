@@ -155,6 +155,7 @@ const App: React.FC = () => {
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [quests, setQuests] = useState<QuestRecord[]>([]);
   const [questStats, setQuestStats] = useState<PlayerQuestStats>({ totalPoints: 0 });
+  const [questPointsHighlightKey, setQuestPointsHighlightKey] = useState(0);
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [questTopicInput, setQuestTopicInput] = useState("");
   const [questDraft, setQuestDraft] = useState<QuestGenerationDraft | null>(null);
@@ -456,7 +457,7 @@ const App: React.FC = () => {
         }
         if (!cancelled) {
           setQuests(nextQuestData.quests);
-          setQuestStats(nextQuestData.stats);
+          applyQuestStats(nextQuestData.stats);
         }
       } catch {
       }
@@ -494,6 +495,19 @@ const App: React.FC = () => {
   function showError(message: string, err: unknown) {
     void err;
     setErrorMessage(message);
+  }
+
+  function applyQuestStats(nextStats: PlayerQuestStats) {
+    setQuestStats((prev) => {
+      const nextTotalPoints = Math.max(prev.totalPoints, nextStats.totalPoints);
+      if (nextTotalPoints > prev.totalPoints) {
+        setQuestPointsHighlightKey((current) => current + 1);
+      }
+      if (nextTotalPoints === prev.totalPoints) {
+        return prev;
+      }
+      return { totalPoints: nextTotalPoints };
+    });
   }
 
   async function loadFeatureUnlocks() {
@@ -559,7 +573,7 @@ const App: React.FC = () => {
         targets: questDraft.targets,
       });
       setQuests(nextQuests.quests);
-      setQuestStats(nextQuests.stats);
+      applyQuestStats(nextQuests.stats);
       setIsQuestModalOpen(false);
       setQuestTopicInput("");
       setQuestDraft(null);
@@ -588,7 +602,7 @@ const App: React.FC = () => {
     try {
       const result = await updateQuestStatus({ name: questName, status: "tracked" });
       setQuests(result.quests);
-      setQuestStats(result.stats);
+      applyQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
     }
@@ -598,7 +612,7 @@ const App: React.FC = () => {
     try {
       const result = await updateQuestStatus({ name: questName, status: "available" });
       setQuests(result.quests);
-      setQuestStats(result.stats);
+      applyQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
     }
@@ -608,7 +622,7 @@ const App: React.FC = () => {
     try {
       const result = await updateQuestStatus({ name: questName, status: "abandoned" });
       setQuests(result.quests);
-      setQuestStats(result.stats);
+      applyQuestStats(result.stats);
       if (selectedQuestName === questName) {
         setSelectedQuestName(null);
         setRightPanelMode("journal");
@@ -1249,7 +1263,7 @@ const App: React.FC = () => {
           : null;
       applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
       if (recipe.totalPoints != null) {
-        setQuestStats({
+        applyQuestStats({
           totalPoints: recipe.totalPoints,
         });
       }
@@ -1264,7 +1278,7 @@ const App: React.FC = () => {
         try {
           const result = await fetchQuests();
           setQuests(result.quests);
-          setQuestStats(result.stats);
+          applyQuestStats(result.stats);
         } catch {
         }
       }
@@ -1466,6 +1480,7 @@ const App: React.FC = () => {
           <ElementSidebar
             items={items}
             totalQuestPoints={questStats.totalPoints}
+            questPointsHighlightKey={questPointsHighlightKey}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
             onItemsLoaded={setItems}
             randomUnlocked={isFeatureUnlocked("random_tools")}
