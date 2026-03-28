@@ -35,6 +35,11 @@ const QuestGenerationModal: React.FC<Props> = ({
   }
 
   const selectedNames = new Set(selectedTargetNames);
+  const hasLockedTopic = isLoading || !!draft;
+  const modalTitle = hasLockedTopic ? "Review Quest Set" : "Choose a Topic";
+  const modalCopy = hasLockedTopic
+    ? "Review the suggested targets for this topic and keep the ones you want."
+    : "Enter a topic to generate a themed quest set around it.";
   const loadingTitle = draft ? "Updating quest targets" : "Generating quest set";
   const loadingCopy = draft
     ? "Finding a fresh set of replacement targets for this topic."
@@ -52,10 +57,8 @@ const QuestGenerationModal: React.FC<Props> = ({
         <div className="quest-topic-header">
           <div>
             <div className="quest-topic-kicker">Quest Generator</div>
-            <div className="quest-topic-title">Choose a Topic</div>
-            <div className="quest-topic-copy">
-              Enter a topic and generate a themed quest set around it.
-            </div>
+            <div className="quest-topic-title">{modalTitle}</div>
+            <div className="quest-topic-copy">{modalCopy}</div>
           </div>
           <button
             type="button"
@@ -134,7 +137,7 @@ const QuestGenerationModal: React.FC<Props> = ({
           {draft?.targets.length ? (
             <div className="quest-topic-results">
               <div className="quest-topic-results-label">
-                Generated targets
+                Suggested targets
                 <span className="quest-topic-results-meta">
                   {" "}
                   · {selectedTargetNames.length} selected
