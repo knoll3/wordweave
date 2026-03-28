@@ -1,4 +1,4 @@
-import type { Database } from "sql.js";
+import type { Database } from "./db";
 
 const WIKIPEDIA_API_BASE = "https://en.wikipedia.org";
 

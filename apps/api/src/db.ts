@@ -1,6 +1,85 @@
 import fs from "fs";
 import path from "path";
-import initSqlJs, { Database } from "sql.js";
+import BetterSqlite3 from "better-sqlite3";
+
+type RowObject = Record<string, unknown>;
+
+export class Statement {
+  private boundParams: unknown[] = [];
+  private rows: RowObject[] | null = null;
+  private rowIndex = -1;
+
+  constructor(
+    private readonly db: Database,
+    private readonly statement: BetterSqlite3.Statement
+  ) {}
+
+  bind(params: unknown[] = []) {
+    this.boundParams = params;
+    this.rows = null;
+    this.rowIndex = -1;
+  }
+
+  step() {
+    if (this.rows == null) {
+      this.rows = this.statement.all(...this.boundParams) as RowObject[];
+      this.rowIndex = -1;
+    }
+    if (this.rowIndex + 1 >= this.rows.length) {
+      return false;
+    }
+    this.rowIndex += 1;
+    return true;
+  }
+
+  getAsObject(params?: unknown[]) {
+    if (params) {
+      return (this.statement.get(...params) as RowObject | undefined) ?? {};
+    }
+    if (this.rows == null || this.rowIndex < 0 || this.rowIndex >= this.rows.length) {
+      return {};
+    }
+    return this.rows[this.rowIndex];
+  }
+
+  run(params: unknown[] = []) {
+    const result = this.statement.run(...params);
+    this.db.setLastChanges(result.changes);
+  }
+
+  free() {
+    this.rows = null;
+    this.rowIndex = -1;
+    this.boundParams = [];
+  }
+}
+
+export class Database {
+  private lastChanges = 0;
+
+  constructor(private readonly raw: BetterSqlite3.Database) {}
+
+  prepare(sql: string) {
+    return new Statement(this, this.raw.prepare(sql));
+  }
+
+  run(sql: string) {
+    this.raw.exec(sql);
+    this.lastChanges = 0;
+  }
+
+  pragma(value: string) {
+    this.raw.pragma(value);
+  }
+
+  getRowsModified() {
+    return this.lastChanges;
+  }
+
+  setLastChanges(changes: number) {
+    this.lastChanges = changes;
+  }
+}
 
 const DB_FILE_PATH = path.join(__dirname, "..", "data", "craft.db");
 export const BASE_ELEMENTS: { name: string; icon: string }[] = [
@@ -15,25 +94,17 @@ export const BASE_ELEMENT_NORMALIZED_NAMES = BASE_ELEMENTS.map((el) =>
 
 let dbPromise: Promise<Database> | null = null;
 
-const sqlJsPromise = initSqlJs({
-  locateFile: (file: string) =>
-    path.join(__dirname, "..", "..", "..", "node_modules", "sql.js", "dist", file),
-});
-
 async function initDatabase(): Promise<Database> {
-  const SQL = await sqlJsPromise;
-  let db: Database;
+  fs.mkdirSync(path.dirname(DB_FILE_PATH), { recursive: true });
+  const rawDb = new BetterSqlite3(DB_FILE_PATH);
+  const db = new Database(rawDb);
 
-  if (fs.existsSync(DB_FILE_PATH)) {
-    const fileBuffer = fs.readFileSync(DB_FILE_PATH);
-    db = new SQL.Database(fileBuffer);
-  } else {
-    db = new SQL.Database();
-  }
+  db.pragma("journal_mode = WAL");
+  db.pragma("foreign_keys = ON");
+  db.pragma("busy_timeout = 5000");
 
   createSchema(db);
   seedBaseElements(db);
-  persistDatabase(db);
 
   return db;
 }
@@ -45,11 +116,8 @@ export function getDb(): Promise<Database> {
   return dbPromise;
 }
 
-export function persistDatabase(db: Database): void {
-  const data = db.export();
-  const buffer = Buffer.from(data);
-  fs.mkdirSync(path.dirname(DB_FILE_PATH), { recursive: true });
-  fs.writeFileSync(DB_FILE_PATH, buffer);
+export function persistDatabase(_db: Database): void {
+  // Native SQLite writes changes directly to disk. No snapshot export is needed.
 }
 
 function createSchema(db: Database): void {
@@ -158,7 +226,6 @@ function createSchema(db: Database): void {
       value_integer INTEGER NOT NULL DEFAULT 0,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
   `);
 
   ensureColumn(db, "elements", "reference_record_id", "INTEGER NULL");
@@ -183,7 +250,7 @@ function ensureColumn(
   const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
   let exists = false;
   while (stmt.step()) {
-    const row = stmt.getAsObject() as Record<string, unknown>;
+    const row = stmt.getAsObject();
     if (String(row.name) === columnName) {
       exists = true;
       break;
@@ -229,9 +296,7 @@ export function ensureElement(
   db: Database,
   params: { name: string; normalizedName: string; icon: string | null }
 ): number {
-  let stmt = db.prepare(
-    "SELECT id FROM elements WHERE normalized_name = ?"
-  );
+  let stmt = db.prepare("SELECT id FROM elements WHERE normalized_name = ?");
   let row = stmt.getAsObject([params.normalizedName]);
   stmt.free();
 
@@ -248,7 +313,7 @@ export function ensureElement(
   const lastIdStmt = db.prepare("SELECT last_insert_rowid() as id");
   let elementId: number | null = null;
   if (lastIdStmt.step()) {
-    const lastIdRow = lastIdStmt.getAsObject() as any;
+    const lastIdRow = lastIdStmt.getAsObject() as Record<string, unknown>;
     elementId = Number(lastIdRow.id);
   }
   lastIdStmt.free();
@@ -261,9 +326,7 @@ export function ensureElement(
 }
 
 export function discoverElement(db: Database, elementId: number): boolean {
-  const stmt = db.prepare(
-    "INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)"
-  );
+  const stmt = db.prepare("INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)");
   stmt.run([elementId]);
   stmt.free();
   return db.getRowsModified() > 0;

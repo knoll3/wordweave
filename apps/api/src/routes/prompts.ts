@@ -16,7 +16,13 @@ import {
 
 const router = express.Router();
 
-const modelSchema = z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]);
+const modelSchema = z.enum([
+  "gpt-5.4",
+  "gpt-5-mini",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano",
+]);
 
 const promptTestRequestSchema = z.object({
   promptKey: z.string().min(1),

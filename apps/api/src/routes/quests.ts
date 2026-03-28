@@ -31,6 +31,7 @@ function formatQuestSetTitle(topic: string) {
 
 const generateTargetsRequestSchema = z.object({
   topic: z.string().min(1).max(120),
+  excludeTargets: z.array(z.string().min(1).max(64)).max(500).optional(),
 });
 
 const acceptGeneratedTargetsRequestSchema = z.object({
@@ -95,14 +96,32 @@ router.post("/import-legacy", async (req, res) => {
 });
 
 router.post("/generate", async (req, res) => {
+  console.log("[api][quests] generate route hit", {
+    body: req.body,
+  });
   const parsed = generateTargetsRequestSchema.safeParse(req.body);
   if (!parsed.success) {
+    console.error("[api][quests] invalid generate request", {
+      issues: parsed.error.issues,
+      body: req.body,
+    });
     return res.status(400).json({ error: "Invalid quest generation request" });
   }
 
   const count = 12;
-  const requestCount = Math.min(count + 6, 20);
+  const generatedCount = 30;
   const topic = parsed.data.topic.trim();
+  const sessionExcludedTargets = Array.from(
+    new Set(
+      (parsed.data.excludeTargets ?? [])
+        .map((value) => value.trim())
+        .filter(Boolean)
+    )
+  );
+  console.log("[api][quests] generate request", {
+    topic,
+    excludeTargetCount: sessionExcludedTargets.length,
+  });
 
   try {
     const db = await getDb();
@@ -118,6 +137,9 @@ router.post("/generate", async (req, res) => {
       .filter((quest) => quest.status === "completed")
       .map((quest) => quest.name)
       .slice(-50);
+    const sessionExcludedSet = new Set(
+      sessionExcludedTargets.map((target) => normalizeQuestName(target))
+    );
 
     const discoveredSet = new Set<string>();
     const discoveredStmt = db.prepare("SELECT normalized_name FROM elements");
@@ -127,38 +149,37 @@ router.post("/generate", async (req, res) => {
     }
     discoveredStmt.free();
 
+    const seen = new Set<string>(sessionExcludedSet);
+    const generated = await generateQuestTargets({
+      count: generatedCount,
+      topic,
+      recentTargets,
+      completedTargets,
+      sessionExcludedTargets,
+    });
+    const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
+      db,
+      generated.targets.map((target) => target.name)
+    );
     const acceptedTargets: Array<{ name: string; icon: string }> = [];
-    const seen = new Set<string>();
 
-    for (let attempt = 0; attempt < 2 && acceptedTargets.length < count; attempt += 1) {
-      const generated = await generateQuestTargets({
-        count: requestCount,
-        topic,
-        recentTargets: [...recentTargets, ...acceptedTargets.map((target) => target.name)],
-        completedTargets,
-      });
-      const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
-        db,
-        generated.targets.map((target) => target.name)
-      );
-
-      for (const target of generated.targets) {
-        const normalized = normalizeQuestName(target.name);
-        if (!normalized) continue;
-        if (seen.has(normalized)) continue;
-        if (existingQuestNames.has(normalized)) continue;
-        if (discoveredSet.has(normalized)) continue;
-        if (semanticallyDiscoveredTargets.has(normalized)) continue;
-        seen.add(normalized);
-        acceptedTargets.push(target);
-        if (acceptedTargets.length >= count) break;
-      }
+    for (const target of generated.targets) {
+      const normalized = normalizeQuestName(target.name);
+      if (!normalized) continue;
+      if (seen.has(normalized)) continue;
+      if (existingQuestNames.has(normalized)) continue;
+      if (discoveredSet.has(normalized)) continue;
+      if (semanticallyDiscoveredTargets.has(normalized)) continue;
+      seen.add(normalized);
+      acceptedTargets.push(target);
+      if (acceptedTargets.length >= generatedCount) break;
     }
 
     return res.json({
       draft: {
         topic,
         targets: acceptedTargets,
+        recommendedCount: Math.min(count, acceptedTargets.length),
       },
     });
   } catch (err) {

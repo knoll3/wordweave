@@ -6,7 +6,7 @@ export const combineRequestSchema = z.object({
   actionConstraint: z.string().min(1).max(64).nullable().optional(),
   creative: z.boolean().optional().default(false),
   model: z
-    .enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
+    .enum(["gpt-5.4", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),
 });
 
@@ -47,7 +47,7 @@ export const recipeBatchSchema = z.object({
 });
 
 export const questTargetsSchema = z.object({
-  targets: z.array(llmResultSchema).min(1).max(20),
+  targets: z.array(llmResultSchema).min(1).max(30),
 });
 
 export type LlmResult = z.infer<typeof llmResultSchema>;

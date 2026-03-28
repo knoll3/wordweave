@@ -1,4 +1,4 @@
-import type { Database } from "sql.js";
+import type { Database } from "./db";
 
 export interface ElementDTO {
   id: number;

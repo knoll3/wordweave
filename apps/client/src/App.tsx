@@ -57,7 +57,13 @@ import {
   SPECIAL_ITEMS,
 } from "./lib/specialItems";
 
-const AI_MODELS: AiModel[] = ["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"];
+const AI_MODELS: AiModel[] = [
+  "gpt-5.4",
+  "gpt-5-mini",
+  "gpt-4.1",
+  "gpt-4.1-mini",
+  "gpt-4.1-nano",
+];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
@@ -145,7 +151,7 @@ const App: React.FC = () => {
   const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-4.1");
+  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
@@ -155,6 +161,8 @@ const App: React.FC = () => {
   const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
   const [questTopicInput, setQuestTopicInput] = useState("");
   const [questDraft, setQuestDraft] = useState<QuestGenerationDraft | null>(null);
+  const [questDraftSeenTargets, setQuestDraftSeenTargets] = useState<string[]>([]);
+  const [selectedQuestDraftTargets, setSelectedQuestDraftTargets] = useState<string[]>([]);
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
@@ -506,11 +514,6 @@ const App: React.FC = () => {
   function applyQuestStats(nextStats: PlayerQuestStats) {
     setQuestStats((prev) => {
       const nextTotalPoints = Math.max(prev.totalPoints, nextStats.totalPoints);
-      console.log("[client][quests] applyQuestStats", {
-        previousTotalPoints: prev.totalPoints,
-        receivedTotalPoints: nextStats.totalPoints,
-        appliedTotalPoints: nextTotalPoints,
-      });
       if (nextTotalPoints > prev.totalPoints) {
         setQuestPointsHighlightKey((current) => current + 1);
       }
@@ -543,6 +546,8 @@ const App: React.FC = () => {
   function updateQuestTopicInput(value: string) {
     setQuestTopicInput(value);
     setQuestDraft(null);
+    setQuestDraftSeenTargets([]);
+    setSelectedQuestDraftTargets([]);
   }
 
   function closeQuestGenerationModal() {
@@ -552,6 +557,18 @@ const App: React.FC = () => {
     setIsQuestModalOpen(false);
     setQuestTopicInput("");
     setQuestDraft(null);
+    setQuestDraftSeenTargets([]);
+    setSelectedQuestDraftTargets([]);
+  }
+
+  function resetQuestGenerationTopic() {
+    if (isGeneratingQuests) {
+      return;
+    }
+    setQuestTopicInput("");
+    setQuestDraft(null);
+    setQuestDraftSeenTargets([]);
+    setSelectedQuestDraftTargets([]);
   }
 
   async function submitQuestGenerationTopic() {
@@ -563,8 +580,19 @@ const App: React.FC = () => {
     try {
       const nextDraft = await generateQuestDraft({
         topic,
+        excludeTargets: questDraftSeenTargets,
       });
       setQuestDraft(nextDraft);
+      setQuestDraftSeenTargets((prev) => {
+        const seen = new Set(prev);
+        nextDraft.targets.forEach((target) => seen.add(target.name));
+        return [...seen];
+      });
+      setSelectedQuestDraftTargets(
+        nextDraft.targets
+          .slice(0, nextDraft.recommendedCount)
+          .map((target) => target.name)
+      );
     } catch (err) {
       showError("Failed to generate quest set.", err);
     } finally {
@@ -572,21 +600,47 @@ const App: React.FC = () => {
     }
   }
 
+  function toggleQuestDraftTarget(targetName: string) {
+    if (!questDraft || isGeneratingQuests) {
+      return;
+    }
+    setSelectedQuestDraftTargets((current) =>
+      current.includes(targetName)
+        ? current.filter((name) => name !== targetName)
+        : [...current, targetName]
+    );
+  }
+
+  function clearQuestDraftSelection() {
+    if (isGeneratingQuests) {
+      return;
+    }
+    setSelectedQuestDraftTargets([]);
+  }
+
   async function acceptQuestGenerationDraft() {
     if (!questDraft) {
+      return;
+    }
+    const selectedTargets = questDraft.targets.filter((target) =>
+      selectedQuestDraftTargets.includes(target.name)
+    );
+    if (selectedTargets.length === 0) {
       return;
     }
     setIsGeneratingQuests(true);
     try {
       const nextQuests = await acceptGeneratedQuestSet({
         topic: questDraft.topic,
-        targets: questDraft.targets,
+        targets: selectedTargets,
       });
       setQuests(nextQuests.quests);
       applyQuestStats(nextQuests.stats);
       setIsQuestModalOpen(false);
       setQuestTopicInput("");
       setQuestDraft(null);
+      setQuestDraftSeenTargets([]);
+      setSelectedQuestDraftTargets([]);
       setRightPanelMode("journal");
       setIsJournalOpen(true);
     } catch (err) {
@@ -1305,11 +1359,6 @@ const App: React.FC = () => {
           ? producedNodeIds[celebrationItemIndex] ?? null
           : null;
       applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
-      console.log("[client][quests] recipe completion payload", {
-        newlyCompletedQuestNames,
-        awardedPoints: recipe.awardedPoints ?? 0,
-        totalPoints: recipe.totalPoints ?? null,
-      });
       if (recipe.totalPoints != null) {
         applyQuestStats({
           totalPoints: recipe.totalPoints,
@@ -1325,10 +1374,6 @@ const App: React.FC = () => {
       ) {
         try {
           const result = await fetchQuests();
-          console.log("[client][quests] fetched quest stats after completion", {
-            questCount: result.quests.length,
-            totalPoints: result.stats.totalPoints,
-          });
           setQuests(result.quests);
           applyQuestStats(result.stats);
         } catch {
@@ -1649,11 +1694,15 @@ const App: React.FC = () => {
                 isLoading={isGeneratingQuests}
                 topic={questTopicInput}
                 draft={questDraft}
+                selectedTargetNames={selectedQuestDraftTargets}
                 onTopicChange={updateQuestTopicInput}
                 onClose={closeQuestGenerationModal}
                 onSubmit={() => {
                   void submitQuestGenerationTopic();
                 }}
+                onResetTopic={resetQuestGenerationTopic}
+                onToggleTarget={toggleQuestDraftTarget}
+                onClearSelection={clearQuestDraftSelection}
                 onAccept={() => {
                   void acceptQuestGenerationDraft();
                 }}

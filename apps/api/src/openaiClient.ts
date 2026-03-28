@@ -26,7 +26,6 @@ import type { SplitLlmResult } from "./validation";
 
 export type OpenAiModel =
   | "gpt-5.4"
-  | "gpt-5.1-mini"
   | "gpt-5-mini"
   | "gpt-5-nano"
   | "gpt-4.1"
@@ -35,7 +34,6 @@ export type OpenAiModel =
 
 const MODEL_NAMES: OpenAiModel[] = [
   "gpt-5.4",
-  "gpt-5.1-mini",
   "gpt-5-mini",
   "gpt-5-nano",
   "gpt-4.1",
@@ -48,7 +46,17 @@ function resolveDefaultModelName(): OpenAiModel {
   if (configuredModel && MODEL_NAMES.includes(configuredModel as OpenAiModel)) {
     return configuredModel as OpenAiModel;
   }
-  return "gpt-4.1-nano";
+  return "gpt-5-mini";
+}
+
+function getReasoningEffortForModel(model: OpenAiModel): "none" | "minimal" | null {
+  if (model === "gpt-5.4") {
+    return "none";
+  }
+  if (model === "gpt-5-mini") {
+    return "minimal";
+  }
+  return null;
 }
 
 export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
@@ -168,13 +176,18 @@ export function renderQuestTargetsPrompt(params: {
   count: number;
   recentTargets: string[];
   completedTargets: string[];
+  sessionExcludedTargets: string[];
   topic: string;
 }) {
   return QUEST_TARGETS_PROMPT
     .replace(/{{TARGET_COUNT}}/g, String(params.count))
     .replace(/{{QUEST_TOPIC}}/g, params.topic)
     .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets))
-    .replace(/{{COMPLETED_TARGETS_ARRAY}}/g, JSON.stringify(params.completedTargets));
+    .replace(/{{COMPLETED_TARGETS_ARRAY}}/g, JSON.stringify(params.completedTargets))
+    .replace(
+      /{{SESSION_EXCLUDED_TARGETS_ARRAY}}/g,
+      JSON.stringify(params.sessionExcludedTargets)
+    );
 }
 
 export async function generateResult(
@@ -193,6 +206,7 @@ export async function generateResult(
 
   console.log("[openai] sending request", {
     model,
+    reasoningEffort: getReasoningEffortForModel(model),
     inputs,
     actionConstraint: options?.actionConstraint ?? null,
     actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -205,9 +219,12 @@ export async function generateResult(
   const response = await openai.chat.completions.create({
     model,
     temperature: 1,
+    ...(getReasoningEffortForModel(model)
+      ? ({ reasoning_effort: getReasoningEffortForModel(model) } as const)
+      : {}),
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
-  });
+  } as any);
 
   const promptTokens = response.usage?.prompt_tokens ?? 0;
   const completionTokens = response.usage?.completion_tokens ?? 0;
@@ -312,6 +329,7 @@ export async function generateRecipeBatch(params: {
 
   console.log("[openai][recipe-batch] sending request", {
     model,
+    reasoningEffort: getReasoningEffortForModel(model),
     pairCount: params.pairs.length,
     prompt,
   });
@@ -319,9 +337,12 @@ export async function generateRecipeBatch(params: {
   const response = await openai.chat.completions.create({
     model,
     temperature: 1,
+    ...(getReasoningEffortForModel(model)
+      ? ({ reasoning_effort: getReasoningEffortForModel(model) } as const)
+      : {}),
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
-  });
+  } as any);
 
   const promptTokens = response.usage?.prompt_tokens ?? 0;
   const completionTokens = response.usage?.completion_tokens ?? 0;
@@ -362,27 +383,32 @@ export async function generateQuestTargets(params: {
   count: number;
   recentTargets: string[];
   completedTargets: string[];
+  sessionExcludedTargets: string[];
   topic: string;
 }) {
   const openai = getOpenAI();
   const model: OpenAiModel = "gpt-5.4";
+  const reasoningEffort = "low";
   const prompt = renderQuestTargetsPrompt(params);
 
   console.log("[openai][challenge-targets] sending request", {
     model,
+    reasoningEffort,
     count: params.count,
     topic: params.topic,
     recentCount: params.recentTargets.length,
     completedCount: params.completedTargets.length,
+    sessionExcludedCount: params.sessionExcludedTargets.length,
     prompt,
   });
 
   const response = await openai.chat.completions.create({
     model,
     temperature: 1,
+    reasoning_effort: reasoningEffort,
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
-  });
+  } as any);
 
   const promptTokens = response.usage?.prompt_tokens ?? 0;
   const completionTokens = response.usage?.completion_tokens ?? 0;

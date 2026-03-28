@@ -5,7 +5,12 @@ export interface Item {
   icon: string | null;
 }
 
-export type AiModel = "gpt-4.1" | "gpt-4.1-mini" | "gpt-4.1-nano";
+export type AiModel =
+  | "gpt-5.4"
+  | "gpt-5-mini"
+  | "gpt-4.1"
+  | "gpt-4.1-mini"
+  | "gpt-4.1-nano";
 export type UnlockKey =
   | "creative"
   | "random_tools"
@@ -311,6 +316,7 @@ export interface QuestGenerationDraftTarget {
 export interface QuestGenerationDraft {
   topic: string;
   targets: QuestGenerationDraftTarget[];
+  recommendedCount: number;
 }
 
 export interface QuestGenerationDraftResponse {

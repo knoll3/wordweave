@@ -1,4 +1,4 @@
-import type { Database } from "sql.js";
+import type { Database } from "./db";
 
 export function buildEmbeddingSearchText(name: string) {
   return `Item: ${name.trim()}`;

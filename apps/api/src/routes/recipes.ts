@@ -481,6 +481,7 @@ router.post("/combine", async (req, res) => {
       const candidatesStmt = db.prepare(
         "SELECT * FROM recipe_candidates WHERE recipe_id = ? ORDER BY order_index ASC"
       );
+      candidatesStmt.bind([Number(recipeRow.id)]);
       const candidatesRows: any[] = [];
       while (candidatesStmt.step()) {
         candidatesRows.push(candidatesStmt.getAsObject());
@@ -1019,6 +1020,7 @@ router.post("/combine", async (req, res) => {
     const candidatesStmt = db.prepare(
       "SELECT * FROM recipe_candidates WHERE recipe_id = ? ORDER BY order_index ASC"
     );
+    candidatesStmt.bind([Number(recipeRow.id)]);
     const candidatesRows: any[] = [];
     while (candidatesStmt.step()) {
       candidatesRows.push(candidatesStmt.getAsObject());

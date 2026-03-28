@@ -1,4 +1,4 @@
-import type { Database } from "sql.js";
+import type { Database } from "./db";
 
 export type LatestRecipeInput = {
   id: number | null;

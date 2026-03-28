@@ -1,4 +1,4 @@
-import type { Database } from "sql.js";
+import type { Database } from "./db";
 import { generateEmbeddings } from "./openaiClient";
 import {
   buildEmbeddingSearchText,

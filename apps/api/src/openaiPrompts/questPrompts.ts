@@ -7,6 +7,8 @@ Chosen topic:
 {{QUEST_TOPIC}}
 
 Your job is to return {{TARGET_COUNT}} quest terms that clearly belong to that topic while still feeling fun, recognizable, and worth chasing in the game.
+Order the targets from strongest to weakest choice.
+The top part of the list will be highlighted to the player as your best recommendations, so ranking quality matters.
 
 Topic handling rules:
 - Stay clearly anchored to the chosen topic.
@@ -35,10 +37,12 @@ Variety rules:
 
 Hard rules:
 - Return exactly {{TARGET_COUNT}} targets.
+- Put the best, most broadly satisfying options first.
 - Prefer single words.
 - Two-word targets are allowed only if they are fixed, well-known concepts.
 - Every target must be short, recognizable, and plausible in this game.
 - Do not return anything from the recent target exclusion list.
+- Do not return anything from the current generation exclusion list.
 - Do not explain anything outside the JSON.
 - Already-discovered terms are filtered after generation, so do not waste the batch on obvious, generic, overused targets.
 
@@ -47,6 +51,9 @@ Recent target exclusion list:
 
 Completed quest exclusion list:
 {{COMPLETED_TARGETS_ARRAY}}
+
+Current generation exclusion list:
+{{SESSION_EXCLUDED_TARGETS_ARRAY}}
 
 Return ONLY valid JSON in this format:
 

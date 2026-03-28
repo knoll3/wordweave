@@ -6,9 +6,13 @@ interface Props {
   isLoading: boolean;
   topic: string;
   draft: QuestGenerationDraft | null;
+  selectedTargetNames: string[];
   onTopicChange: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
+  onResetTopic: () => void;
+  onToggleTarget: (targetName: string) => void;
+  onClearSelection: () => void;
   onAccept: () => void;
 }
 
@@ -17,14 +21,24 @@ const QuestGenerationModal: React.FC<Props> = ({
   isLoading,
   topic,
   draft,
+  selectedTargetNames,
   onTopicChange,
   onClose,
   onSubmit,
+  onResetTopic,
+  onToggleTarget,
+  onClearSelection,
   onAccept,
 }) => {
   if (!isOpen) {
     return null;
   }
+
+  const selectedNames = new Set(selectedTargetNames);
+  const loadingTitle = draft ? "Updating quest targets" : "Generating quest set";
+  const loadingCopy = draft
+    ? "Finding a fresh set of replacement targets for this topic."
+    : "Finding a strong set of quest targets for this topic.";
 
   return (
     <div className="quest-topic-overlay" role="presentation" onClick={onClose}>
@@ -74,16 +88,72 @@ const QuestGenerationModal: React.FC<Props> = ({
               }
             }}
           />
-          {draft?.targets.length ? (
-            <div className="quest-topic-results">
-              <div className="quest-topic-results-label">Generated targets</div>
-              <div className="quest-topic-chip-list">
-                {draft.targets.map((target) => (
-                  <span key={target.name} className="quest-topic-chip">
-                    <span aria-hidden="true">{target.icon}</span>
-                    <span>{target.name}</span>
+          {isLoading ? (
+            <div
+              className="quest-topic-loading"
+              aria-live="polite"
+              aria-busy="true"
+            >
+              <div className="quest-topic-loading-head">
+                <div className="quest-topic-loading-title">{loadingTitle}</div>
+                <div className="quest-topic-loading-copy">{loadingCopy}</div>
+              </div>
+              <div className="quest-topic-chip-list quest-topic-chip-list-skeleton">
+                {Array.from({ length: 12 }).map((_, index) => (
+                  <span
+                    key={index}
+                    className="quest-topic-chip quest-topic-chip-skeleton"
+                    aria-hidden="true"
+                  >
+                    <span className="quest-topic-chip-skeleton-icon" />
+                    <span
+                      className="quest-topic-chip-skeleton-line"
+                      style={{
+                        width:
+                          index % 4 === 0
+                            ? "84px"
+                            : index % 3 === 0
+                              ? "112px"
+                              : "96px",
+                      }}
+                    />
                   </span>
                 ))}
+              </div>
+            </div>
+          ) : null}
+          {draft?.targets.length ? (
+            <div className="quest-topic-results">
+              <div className="quest-topic-results-label">
+                Generated targets
+                <span className="quest-topic-results-meta">
+                  {" "}
+                  · {selectedTargetNames.length} selected
+                </span>
+              </div>
+              <div className="quest-topic-chip-list">
+                {draft.targets.map((target, index) => {
+                  const isSelected = selectedNames.has(target.name);
+                  const isRecommended = index < draft.recommendedCount;
+                  return (
+                  <button
+                    key={target.name}
+                    type="button"
+                    className={[
+                      "quest-topic-chip",
+                      isSelected ? "is-selected" : "",
+                      isRecommended ? "is-recommended" : "",
+                    ]
+                      .filter(Boolean)
+                      .join(" ")}
+                    onClick={() => onToggleTarget(target.name)}
+                    disabled={isLoading}
+                    aria-pressed={isSelected}
+                  >
+                    <span aria-hidden="true">{target.icon}</span>
+                    <span>{target.name}</span>
+                  </button>
+                )})}
               </div>
             </div>
           ) : null}
@@ -103,16 +173,24 @@ const QuestGenerationModal: React.FC<Props> = ({
               <button
                 type="button"
                 className="button secondary"
-                onClick={onSubmit}
-                disabled={isLoading || topic.trim().length === 0}
+                onClick={onResetTopic}
+                disabled={isLoading}
               >
-                {isLoading ? "Regenerating…" : "Reject and Regenerate"}
+                Try Something Else
+              </button>
+              <button
+                type="button"
+                className="button secondary"
+                onClick={onClearSelection}
+                disabled={isLoading || selectedTargetNames.length === 0}
+              >
+                Clear Selection
               </button>
               <button
                 type="button"
                 className="button primary"
                 onClick={onAccept}
-                disabled={isLoading}
+                disabled={isLoading || selectedTargetNames.length === 0}
               >
                 {isLoading ? "Accepting…" : "Accept"}
               </button>
