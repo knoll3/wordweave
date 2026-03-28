@@ -11,12 +11,12 @@ import {
   ACTION_CATEGORY_PROMPT,
   BASE_PROMPT,
   CATEGORY_PROMPT,
-  CHALLENGE_TARGETS_PROMPT,
+  QUEST_TARGETS_PROMPT,
   CREATIVE_PROMPT,
   RECIPE_BATCH_PROMPT,
 } from "./openaiPrompts";
 import {
-  challengeTargetsSchema,
+  questTargetsSchema,
   llmResultSchema,
   recipeBatchSchema,
   splitLlmResultSchema,
@@ -25,6 +25,7 @@ import {
 import type { SplitLlmResult } from "./validation";
 
 export type OpenAiModel =
+  | "gpt-5.1-mini"
   | "gpt-5-mini"
   | "gpt-5-nano"
   | "gpt-4.1"
@@ -32,6 +33,7 @@ export type OpenAiModel =
   | "gpt-4.1-nano";
 
 const MODEL_NAMES: OpenAiModel[] = [
+  "gpt-5.1-mini",
   "gpt-5-mini",
   "gpt-5-nano",
   "gpt-4.1",
@@ -160,20 +162,15 @@ export function renderRecipeBatchPrompt(params: {
   );
 }
 
-export function renderChallengeTargetsPrompt(params: {
+export function renderQuestTargetsPrompt(params: {
   count: number;
   recentTargets: string[];
   completedTargets: string[];
-  difficulty: "easy" | "hard";
+  topic: string;
 }) {
-  const difficultyGuidance =
-    params.difficulty === "easy"
-      ? "Easy quests should still be interesting, but they should be more reachable, more concrete, more common, and less semantically slippery than hard quests. Avoid trivial everyday objects, but prefer recognizable concepts the player has a fair chance of reaching."
-      : "Hard quests should be genuinely difficult to reach in this game: indirect, slippery, referential, abstract, or deceptively hard to path into, without relying on awkward adjective+noun phrasing or dry academic obscurity.";
-
-  return CHALLENGE_TARGETS_PROMPT
+  return QUEST_TARGETS_PROMPT
     .replace(/{{TARGET_COUNT}}/g, String(params.count))
-    .replace(/{{QUEST_DIFFICULTY_GUIDANCE}}/g, difficultyGuidance)
+    .replace(/{{QUEST_TOPIC}}/g, params.topic)
     .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets))
     .replace(/{{COMPLETED_TARGETS_ARRAY}}/g, JSON.stringify(params.completedTargets));
 }
@@ -359,21 +356,21 @@ export async function generateRecipeBatch(params: {
   return result.data;
 }
 
-export async function generateChallengeTargets(params: {
+export async function generateQuestTargets(params: {
   count: number;
   recentTargets: string[];
   completedTargets: string[];
-  difficulty: "easy" | "hard";
+  topic: string;
   model?: OpenAiModel;
 }) {
   const openai = getOpenAI();
   const model = params.model ?? DEFAULT_MODEL_NAME;
-  const prompt = renderChallengeTargetsPrompt(params);
+  const prompt = renderQuestTargetsPrompt(params);
 
   console.log("[openai][challenge-targets] sending request", {
     model,
     count: params.count,
-    difficulty: params.difficulty,
+    topic: params.topic,
     recentCount: params.recentTargets.length,
     completedCount: params.completedTargets.length,
     prompt,
@@ -412,13 +409,13 @@ export async function generateChallengeTargets(params: {
     throw new Error("Failed to parse OpenAI JSON response");
   }
 
-  const result = challengeTargetsSchema.safeParse(parsed);
+  const result = questTargetsSchema.safeParse(parsed);
   if (!result.success) {
-    console.error("[openai][challenge-targets] response failed schema validation", parsed);
-    throw new Error("OpenAI challenge targets failed validation");
+    console.error("[openai][quest-targets] response failed schema validation", parsed);
+    throw new Error("OpenAI quest targets failed validation");
   }
 
-  console.log("[openai][challenge-targets] parsed result", result.data);
+  console.log("[openai][quest-targets] parsed result", result.data);
   return result.data;
 }
 

@@ -1,51 +1,37 @@
-export const CHALLENGE_TARGETS_PROMPT = `
-You are generating challenge target words for a sandbox discovery game.
+export const QUEST_TARGETS_PROMPT = `
+You are generating quest target words for a sandbox discovery game.
 
-The player wants a batch of hard targets to chase.
+The player wants a themed quest set based on a topic they typed in.
 
-Your job is to return {{TARGET_COUNT}} quest terms that would be genuinely difficult to reach in this game, while still feeling fair, interesting, and worth pursuing.
+Chosen topic:
+{{QUEST_TOPIC}}
 
-Requested difficulty:
-{{QUEST_DIFFICULTY_GUIDANCE}}
+Your job is to return {{TARGET_COUNT}} quest terms that clearly belong to that topic while still feeling fun, recognizable, and worth chasing in the game.
 
-What "challenging" means here:
-- hard because the term is semantically slippery, indirect, referential, abstract, relational, directional, functional, culturally specific, or otherwise difficult to arrive at through normal game combinations
-- hard because it is deceptively plain, elusive, or awkward to path into
-- not hard just because it is academically obscure, scholarly, mythological, or historical
-- not hard because you stapled an unusual adjective onto a noun
-- not hard because the phrase is awkward, arbitrary, or overly long
+Topic handling rules:
+- Stay clearly anchored to the chosen topic.
+- If the topic is broad, choose one coherent subtheme and stay consistent within it.
+- Favor terms a normal player would recognize.
+- Do not drift into abstract meta-language about the topic.
+- Do not generate generic filler that could fit any topic.
 
 Good target styles:
-- deceptively simple words that are hard to reach
-- occasional pop culture references, movie/show-adjacent concepts, and other things a normal person would actually recognize
-- internet culture, meme-adjacent, or playful terms
-- abstract concepts
-- directional, relational, logical, or functional words
-- culturally specific or referential terms
-- weird but legitimate everyday words
-- short canonical phrases only when they are fixed, famous concepts
-
-These are good only sometimes, not as the dominant pattern:
-- historical references
-- mythological references
-- abstract concepts
+- recognizable characters, places, items, creatures, concepts, symbols, or famous phrases that clearly fit the topic
+- a coherent mix that feels like a real themed set
+- terms that are distinct from each other and not near-duplicates
 
 Bad target styles:
-- easy everyday objects
-- generic broad categories
-- dry academic obscurities chosen only to seem clever
-- batches that collapse into history, mythology, or scholarly references
-- trivia-night bait, lore dumps, or niche factoid answers that feel more like homework than play
-- random adjective+noun constructions made up just to seem difficult
-- clunky sentences or descriptive phrases
+- broad umbrella categories
+- obscure trivia chosen only to seem clever
+- generic words that barely relate to the topic
+- long descriptive phrases
+- repeated variants of the same idea
 - terms the player already has
 
 Variety rules:
-- keep the batch varied
-- do not collapse into one topic, register, or tone
-- include a mix of concrete, abstract, referential, and strange-but-legitimate targets
-- include some quests that feel fun, weird, or lowbrow instead of only clever or highbrow
-- favor targets that feel culturally legible and fun for a broad audience, not like an academic exam
+- keep the batch coherent but not repetitive
+- include a satisfying spread within the chosen topic or subtheme
+- favor targets that feel fun and culturally legible, not like homework
 
 Hard rules:
 - Return exactly {{TARGET_COUNT}} targets.
@@ -70,4 +56,3 @@ Return ONLY valid JSON in this format:
   ]
 }
 `.trim();
-

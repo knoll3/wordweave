@@ -15,7 +15,10 @@ import type {
   AiModel,
   FeatureUnlockStatus,
   Item,
+  PlayerQuestStats,
+  QuestGenerationDraft,
   QuestRecord,
+  QuestSetCompletion,
   SelectionCombineLayout,
   UnlockKey,
   WorkspaceItem,
@@ -23,18 +26,21 @@ import type {
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
 import JournalDock from "./components/Journal/JournalDock";
+import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import {
+  acceptGeneratedQuestSet,
   combineElements,
   fetchQuests,
-  generateChallengeTargets,
   fetchUnlockStatuses,
+  generateQuestDraft,
   importLegacyQuestState,
   updateQuestStatus,
 } from "./lib/api";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
+  resolveActionPromptFamilyKey,
 } from "./lib/actionPromptFamilies";
 import {
   clearLegacyQuestStorage,
@@ -64,6 +70,10 @@ type QuestCelebrationState = {
   kicker: string;
   title: string;
   copy: string;
+};
+
+type QuestSetCelebrationState = QuestSetCompletion & {
+  totalPoints: number;
 };
 
 type ActionUnlockModalState = {
@@ -144,10 +154,16 @@ const App: React.FC = () => {
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [quests, setQuests] = useState<QuestRecord[]>([]);
+  const [questStats, setQuestStats] = useState<PlayerQuestStats>({ totalPoints: 0 });
+  const [isQuestModalOpen, setIsQuestModalOpen] = useState(false);
+  const [questTopicInput, setQuestTopicInput] = useState("");
+  const [questDraft, setQuestDraft] = useState<QuestGenerationDraft | null>(null);
   const [isGeneratingQuests, setIsGeneratingQuests] = useState(false);
   const [questCelebration, setQuestCelebration] = useState<QuestCelebrationState | null>(
     null
   );
+  const [questSetCelebration, setQuestSetCelebration] =
+    useState<QuestSetCelebrationState | null>(null);
   const [isQuestCelebrating, setIsQuestCelebrating] = useState(false);
   const [celebratedQuestNodeId, setCelebratedQuestNodeId] = useState<string | null>(null);
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
@@ -423,11 +439,11 @@ const App: React.FC = () => {
 
     void (async () => {
       try {
-        let nextQuests = await fetchQuests();
-        if (!cancelled && nextQuests.length === 0) {
+        let nextQuestData = await fetchQuests();
+        if (!cancelled && nextQuestData.quests.length === 0) {
           const legacyQuests = loadLegacyStoredQuests();
           if (legacyQuests.length > 0) {
-            nextQuests = await importLegacyQuestState({
+            nextQuestData = await importLegacyQuestState({
               quests: legacyQuests.map((quest) => ({
                 name: quest.name,
                 icon: quest.icon,
@@ -439,7 +455,8 @@ const App: React.FC = () => {
           }
         }
         if (!cancelled) {
-          setQuests(nextQuests);
+          setQuests(nextQuestData.quests);
+          setQuestStats(nextQuestData.stats);
         }
       } catch {
       }
@@ -492,19 +509,64 @@ const App: React.FC = () => {
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
   }
 
-  async function generateQuests(difficulty: "easy" | "hard") {
+  function openQuestGenerationModal() {
+    setIsQuestModalOpen(true);
+    setRightPanelMode("journal");
+    setIsJournalOpen(true);
+  }
+
+  function updateQuestTopicInput(value: string) {
+    setQuestTopicInput(value);
+    setQuestDraft(null);
+  }
+
+  function closeQuestGenerationModal() {
+    if (isGeneratingQuests) {
+      return;
+    }
+    setIsQuestModalOpen(false);
+    setQuestTopicInput("");
+    setQuestDraft(null);
+  }
+
+  async function submitQuestGenerationTopic() {
+    const topic = questTopicInput.trim();
+    if (!topic) {
+      return;
+    }
     setIsGeneratingQuests(true);
     try {
-      const nextQuests = await generateChallengeTargets({
-        count: 10,
-        difficulty,
+      const nextDraft = await generateQuestDraft({
+        topic,
         model: selectedModel,
       });
-      setQuests(nextQuests);
+      setQuestDraft(nextDraft);
+    } catch (err) {
+      showError("Failed to generate quest set.", err);
+    } finally {
+      setIsGeneratingQuests(false);
+    }
+  }
+
+  async function acceptQuestGenerationDraft() {
+    if (!questDraft) {
+      return;
+    }
+    setIsGeneratingQuests(true);
+    try {
+      const nextQuests = await acceptGeneratedQuestSet({
+        topic: questDraft.topic,
+        targets: questDraft.targets,
+      });
+      setQuests(nextQuests.quests);
+      setQuestStats(nextQuests.stats);
+      setIsQuestModalOpen(false);
+      setQuestTopicInput("");
+      setQuestDraft(null);
       setRightPanelMode("journal");
       setIsJournalOpen(true);
     } catch (err) {
-      showError("Failed to generate challenge targets.", err);
+      showError("Failed to accept quest set.", err);
     } finally {
       setIsGeneratingQuests(false);
     }
@@ -524,7 +586,9 @@ const App: React.FC = () => {
 
   async function trackQuest(questName: string) {
     try {
-      setQuests(await updateQuestStatus({ name: questName, status: "tracked" }));
+      const result = await updateQuestStatus({ name: questName, status: "tracked" });
+      setQuests(result.quests);
+      setQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
     }
@@ -532,7 +596,9 @@ const App: React.FC = () => {
 
   async function untrackQuest(questName: string) {
     try {
-      setQuests(await updateQuestStatus({ name: questName, status: "available" }));
+      const result = await updateQuestStatus({ name: questName, status: "available" });
+      setQuests(result.quests);
+      setQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
     }
@@ -540,8 +606,9 @@ const App: React.FC = () => {
 
   async function abandonQuest(questName: string) {
     try {
-      const nextQuests = await updateQuestStatus({ name: questName, status: "abandoned" });
-      setQuests(nextQuests);
+      const result = await updateQuestStatus({ name: questName, status: "abandoned" });
+      setQuests(result.quests);
+      setQuestStats(result.stats);
       if (selectedQuestName === questName) {
         setSelectedQuestName(null);
         setRightPanelMode("journal");
@@ -612,6 +679,13 @@ const App: React.FC = () => {
             : "You completed multiple quests.",
       celebrationNodeId
     );
+  }
+
+  function showQuestSetCelebration(completedSet: QuestSetCompletion, totalPoints: number) {
+    setQuestSetCelebration({
+      ...completedSet,
+      totalPoints,
+    });
   }
 
   useEffect(
@@ -949,18 +1023,32 @@ const App: React.FC = () => {
     const categoryAnchor = categoryAnchors[0] ?? null;
     const actionAnchor = actionAnchors[0] ?? null;
     const actionCatalyst = actionCatalysts[0] ?? null;
+    const effectiveActionConstraint =
+      actionAnchor?.actionConstraintName ?? actionCatalyst?.actionConstraint ?? null;
+    const isCompoundCombine = resolveActionPromptFamilyKey(effectiveActionConstraint) === "compound";
     const actualInputItems = selectedItems.filter(
       (item) => !NON_INGREDIENT_ITEM_IDS.has(item.id)
     );
-    const effectiveInputItems = selectedNodes
+    const effectiveInputNodes = selectedNodes
       .filter(
         (node) =>
           node.nodeId !== categoryAnchor?.nodeId && node.nodeId !== actionAnchor?.nodeId
       )
+      .filter((node) => {
+        const item = findItemById(node.itemId);
+        return !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id);
+      });
+    if (isCompoundCombine) {
+      effectiveInputNodes.sort((left, right) => {
+        if (left.position.x !== right.position.x) {
+          return left.position.x - right.position.x;
+        }
+        return left.position.y - right.position.y;
+      });
+    }
+    const effectiveInputItems = effectiveInputNodes
       .map((node) => findItemById(node.itemId))
-      .filter(
-        (item): item is Item => !!item && !NON_INGREDIENT_ITEM_IDS.has(item.id)
-      );
+      .filter((item): item is Item => !!item);
     const catalystLabel = creativeCatalyst
       ? "Creative Spark"
       : actionCatalyst
@@ -1027,10 +1115,7 @@ const App: React.FC = () => {
       const recipe = await combineElements(inputNames, {
         creative: Boolean(creativeCatalyst),
         categoryConstraint: categoryAnchor?.categoryConstraintName ?? undefined,
-        actionConstraint:
-          actionAnchor?.actionConstraintName ??
-          actionCatalyst?.actionConstraint ??
-          undefined,
+        actionConstraint: effectiveActionConstraint ?? undefined,
         model: selectedModel,
       });
 
@@ -1080,6 +1165,12 @@ const App: React.FC = () => {
         });
       }
 
+      const producedNodeIds = producedItemsWithDiscovery.map((_, index) =>
+        selectionLayout && index === 0
+          ? selectionLayout.placeholderNodeId
+          : makeWorkspaceNodeId()
+      );
+
       if (selectionLayout) {
         updateWorkspaceItems((prev) => {
           const updated = prev.map((node) =>
@@ -1103,7 +1194,7 @@ const App: React.FC = () => {
           }
 
           const extras = producedItemsWithDiscovery.slice(1).map((produced, index) => ({
-            nodeId: makeWorkspaceNodeId(),
+            nodeId: producedNodeIds[index + 1],
             itemId: produced.item.id,
             position: {
               x: placeholderNode.position.x + 124 + index * 110,
@@ -1135,7 +1226,7 @@ const App: React.FC = () => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
           const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
           const spawned = producedItemsWithDiscovery.map((produced, index) => ({
-            nodeId: makeWorkspaceNodeId(),
+            nodeId: producedNodeIds[index],
             itemId: produced.item.id,
             position: {
               x: center.x + index * 112 - spawnOffset,
@@ -1146,17 +1237,34 @@ const App: React.FC = () => {
           return [...withoutInputs, ...spawned];
         }, { recordHistory: false });
       }
-      const celebrationNodeId =
+      const celebrationItemIndex =
         newestDiscoveredItem != null
-          ? [...workspaceItems]
-              .reverse()
-              .find((workspaceItem) => workspaceItem.itemId === newestDiscoveredItem.id)?.nodeId ??
-            null
+          ? producedItemsWithDiscovery.findIndex(
+              (produced) => produced.item.id === newestDiscoveredItem.id
+            )
+          : -1;
+      const resolvedCelebrationNodeId =
+        celebrationItemIndex >= 0
+          ? producedNodeIds[celebrationItemIndex] ?? null
           : null;
-      applyNewlyCompletedQuests(newlyCompletedQuestNames, celebrationNodeId);
-      if (newlyCompletedQuestNames.length > 0) {
+      applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
+      if (recipe.totalPoints != null) {
+        setQuestStats({
+          totalPoints: recipe.totalPoints,
+        });
+      }
+      if (recipe.completedQuestSets && recipe.completedQuestSets.length > 0) {
+        const latestCompletedSet = recipe.completedQuestSets[recipe.completedQuestSets.length - 1];
+        showQuestSetCelebration(latestCompletedSet, recipe.totalPoints ?? questStats.totalPoints);
+      }
+      if (
+        newlyCompletedQuestNames.length > 0 ||
+        (recipe.completedQuestSets && recipe.completedQuestSets.length > 0)
+      ) {
         try {
-          setQuests(await fetchQuests());
+          const result = await fetchQuests();
+          setQuests(result.quests);
+          setQuestStats(result.stats);
         } catch {
         }
       }
@@ -1223,6 +1331,45 @@ const App: React.FC = () => {
           <div className="quest-complete-toast-kicker">{questCelebration.kicker}</div>
           <div className="quest-complete-toast-title">{questCelebration.title}</div>
           <div className="quest-complete-toast-copy">{questCelebration.copy}</div>
+        </div>
+      ) : null}
+      {questSetCelebration ? (
+        <div className="confirm-overlay" role="presentation">
+          <div
+            className="confirm-backdrop"
+            onClick={() => setQuestSetCelebration(null)}
+          />
+          <div className="quest-set-complete-panel" role="dialog" aria-modal="true">
+            <div className="quest-set-complete-kicker">Quest Set Complete</div>
+            <div className="quest-set-complete-title">{questSetCelebration.title}</div>
+            <div className="quest-set-complete-copy">
+              You finished all {questSetCelebration.questCount} quests in this set and earned{" "}
+              {questSetCelebration.earnedPoints} bonus points.
+            </div>
+            <div className="quest-set-complete-graph" aria-hidden="true">
+              <div className="quest-set-complete-bar quest-set-complete-bar-progress">
+                <span>Set finished</span>
+                <strong>{questSetCelebration.questCount}/{questSetCelebration.questCount}</strong>
+              </div>
+              <div className="quest-set-complete-bar quest-set-complete-bar-points">
+                <span>Bonus points</span>
+                <strong>+{questSetCelebration.earnedPoints}</strong>
+              </div>
+              <div className="quest-set-complete-bar quest-set-complete-bar-total">
+                <span>Total score</span>
+                <strong>{questSetCelebration.totalPoints}</strong>
+              </div>
+            </div>
+            <div className="quest-set-complete-actions">
+              <button
+                type="button"
+                className="button primary"
+                onClick={() => setQuestSetCelebration(null)}
+              >
+                Nice
+              </button>
+            </div>
+          </div>
         </div>
       ) : null}
       {actionUnlockModal ? (
@@ -1318,6 +1465,7 @@ const App: React.FC = () => {
         <aside className="sidebar">
           <ElementSidebar
             items={items}
+            totalQuestPoints={questStats.totalPoints}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
             onItemsLoaded={setItems}
             randomUnlocked={isFeatureUnlocked("random_tools")}
@@ -1410,17 +1558,26 @@ const App: React.FC = () => {
                 onBackToJournal={openJournal}
                 onSelectItem={openItemDetails}
                 onCollapse={() => setIsJournalOpen(false)}
-                onGenerateEasyQuests={() => {
-                  void generateQuests("easy");
-                }}
-                onGenerateHardQuests={() => {
-                  void generateQuests("hard");
-                }}
+                onStartQuestDraftSession={openQuestGenerationModal}
                 onSelectQuest={openQuestDetails}
                 onTrackQuest={trackQuest}
                 onUntrackQuest={untrackQuest}
                 onRequestAbandonQuest={setPendingAbandonedQuestName}
                 truncateReference={truncateReferencePreview}
+              />
+              <QuestGenerationModal
+                isOpen={isQuestModalOpen}
+                isLoading={isGeneratingQuests}
+                topic={questTopicInput}
+                draft={questDraft}
+                onTopicChange={updateQuestTopicInput}
+                onClose={closeQuestGenerationModal}
+                onSubmit={() => {
+                  void submitQuestGenerationTopic();
+                }}
+                onAccept={() => {
+                  void acceptQuestGenerationDraft();
+                }}
               />
           </section>
         </main>

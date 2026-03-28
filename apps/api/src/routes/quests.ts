@@ -1,9 +1,14 @@
 import express from "express";
 import { z } from "zod";
 import { getDb, persistDatabase } from "../db";
-import { generateChallengeTargets, type OpenAiModel } from "../openaiClient";
 import {
+  generateQuestTargets,
+  type OpenAiModel,
+} from "../openaiClient";
+import {
+  createQuestSet,
   findGeneratedQuestTargetsTooCloseToDiscoveries,
+  getPlayerQuestStats,
   importLegacyQuests,
   insertQuest,
   listQuests,
@@ -14,11 +19,32 @@ import {
 import { getOrCreateReferenceByName } from "../referenceLookup";
 
 const router = express.Router();
+function createQuestSetId() {
+  return `set-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function formatQuestSetTitle(topic: string) {
+  return topic
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
 
 const generateTargetsRequestSchema = z.object({
-  count: z.number().int().min(1).max(10).optional(),
-  difficulty: z.enum(["easy", "hard"]).optional(),
+  topic: z.string().min(1).max(120),
   model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]).optional(),
+});
+
+const acceptGeneratedTargetsRequestSchema = z.object({
+  topic: z.string().min(1).max(120),
+  targets: z.array(
+    z.object({
+      name: z.string().min(1).max(64),
+      icon: z.string().min(1).max(8),
+    })
+  ).min(1).max(20),
 });
 
 const updateQuestStatusRequestSchema = z.object({
@@ -40,7 +66,7 @@ const importLegacyQuestsRequestSchema = z.object({
 router.get("/", async (_req, res) => {
   try {
     const db = await getDb();
-    return res.json({ quests: listQuests(db) });
+    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
   } catch (err) {
     console.error("[api][quests] failed to load quests", err);
     return res.status(500).json({
@@ -63,7 +89,7 @@ router.post("/import-legacy", async (req, res) => {
       log: false,
     });
     persistDatabase(db);
-    return res.json({ quests: listQuests(db) });
+    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
   } catch (err) {
     console.error("[api][quests] failed to import legacy quests", err);
     return res.status(500).json({
@@ -75,12 +101,12 @@ router.post("/import-legacy", async (req, res) => {
 router.post("/generate", async (req, res) => {
   const parsed = generateTargetsRequestSchema.safeParse(req.body);
   if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid challenge target request" });
+    return res.status(400).json({ error: "Invalid quest generation request" });
   }
 
-  const count = parsed.data.count ?? 10;
+  const count = 12;
   const requestCount = Math.min(count + 6, 20);
-  const difficulty = parsed.data.difficulty ?? "hard";
+  const topic = parsed.data.topic.trim();
   const model: OpenAiModel | undefined = parsed.data.model;
 
   try {
@@ -110,9 +136,9 @@ router.post("/generate", async (req, res) => {
     const seen = new Set<string>();
 
     for (let attempt = 0; attempt < 2 && acceptedTargets.length < count; attempt += 1) {
-      const generated = await generateChallengeTargets({
+      const generated = await generateQuestTargets({
         count: requestCount,
-        difficulty,
+        topic,
         recentTargets: [...recentTargets, ...acceptedTargets.map((target) => target.name)],
         completedTargets,
         model,
@@ -135,22 +161,95 @@ router.post("/generate", async (req, res) => {
       }
     }
 
-    for (const target of acceptedTargets) {
-      insertQuest(db, target);
+    return res.json({
+      draft: {
+        topic,
+        targets: acceptedTargets,
+      },
+    });
+  } catch (err) {
+    console.error("[api][quests] failed to generate quest targets", err);
+    return res.status(500).json({
+      error: err instanceof Error ? err.message : "Failed to generate quest targets",
+    });
+  }
+});
+
+router.post("/generate/accept", async (req, res) => {
+  const parsed = acceptGeneratedTargetsRequestSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid generated quest accept request" });
+  }
+
+  try {
+    const db = await getDb();
+    const setId = createQuestSetId();
+    const setTitle = formatQuestSetTitle(parsed.data.topic);
+    const existingQuests = listQuests(db, { includeAbandoned: true });
+    const existingQuestNames = new Set(
+      existingQuests.map((quest) => normalizeQuestName(quest.name))
+    );
+
+    const discoveredSet = new Set<string>();
+    const discoveredStmt = db.prepare("SELECT normalized_name FROM elements");
+    while (discoveredStmt.step()) {
+      const row = discoveredStmt.getAsObject() as Record<string, unknown>;
+      discoveredSet.add(normalizeQuestName(String(row.normalized_name ?? "")));
+    }
+    discoveredStmt.free();
+
+    const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
+      db,
+      parsed.data.targets.map((target) => target.name)
+    );
+
+    const acceptedTargets: Array<{ name: string; icon: string }> = [];
+    const seen = new Set<string>();
+    for (const term of parsed.data.targets) {
+      const normalized = normalizeQuestName(term.name);
+      if (!normalized || seen.has(normalized)) continue;
+      if (existingQuestNames.has(normalized)) continue;
+      if (discoveredSet.has(normalized)) continue;
+      if (semanticallyDiscoveredTargets.has(normalized)) continue;
+      seen.add(normalized);
+      acceptedTargets.push(term);
     }
 
-    if (acceptedTargets.length > 0) {
-      await syncQuestCompletions(db, {
-        targetNames: acceptedTargets.map((target) => target.name),
+    if (acceptedTargets.length === 0) {
+      return res.status(409).json({
+        error: "This quest set overlaps too much with existing progress. Try regenerating it.",
       });
     }
 
+    createQuestSet(db, {
+      id: setId,
+      title: setTitle,
+      topic: parsed.data.topic,
+      totalQuestCount: acceptedTargets.length,
+    });
+
+    for (const target of acceptedTargets) {
+      insertQuest(db, {
+        ...target,
+        setId,
+        setTitle,
+      });
+    }
+
+    await syncQuestCompletions(db, {
+      targetNames: acceptedTargets.map((target) => target.name),
+    });
+
     persistDatabase(db);
-    return res.json({ quests: listQuests(db) });
+    console.log("[api][quests] accepted generated quest set", {
+      topic: parsed.data.topic,
+      acceptedCount: acceptedTargets.length,
+    });
+    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
   } catch (err) {
-    console.error("[api][quests] failed to generate challenge targets", err);
+    console.error("[api][quests] failed to accept generated quest set", err);
     return res.status(500).json({
-      error: err instanceof Error ? err.message : "Failed to generate challenge targets",
+      error: err instanceof Error ? err.message : "Failed to accept generated quest set",
     });
   }
 });
@@ -165,7 +264,7 @@ router.post("/status", async (req, res) => {
     const db = await getDb();
     updateQuestStatus(db, parsed.data);
     persistDatabase(db);
-    return res.json({ quests: listQuests(db) });
+    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
   } catch (err) {
     console.error("[api][quests] failed to update quest status", err);
     return res.status(500).json({

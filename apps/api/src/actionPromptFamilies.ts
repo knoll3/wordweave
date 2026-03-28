@@ -215,6 +215,7 @@ Rules:
 - Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations beyond the failure reason.
 - Favor dictionary-style compounds, encyclopedia-style terms, and common established phrases.
+- Interpret the inputs in the exact order given, compounding from the first input toward the last.
 - If the inputs do not form a real established expression, return a failure.
 
 Return ONLY valid JSON in one of these formats:

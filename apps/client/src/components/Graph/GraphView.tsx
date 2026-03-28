@@ -19,7 +19,8 @@ import {
   CREATIVE_ITEM,
 } from "../../types";
 import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
-import { SPECIAL_ITEMS } from "../../lib/specialItems";
+import { resolveActionPromptFamilyKey } from "../../lib/actionPromptFamilies";
+import { ACTION_CATALYST_BY_ID, SPECIAL_ITEMS } from "../../lib/specialItems";
 import CatalystDock, { type CatalystAction } from "./CatalystDock";
 import {
   CARD_HEIGHT,
@@ -568,6 +569,20 @@ function GraphView({
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
     if (nodeIds.length < 2) return null;
 
+    const selectedWorkspaceItems = nodeIds
+      .map((nodeId) => workspaceItemsRef.current.find((item) => item.nodeId === nodeId))
+      .filter(Boolean) as WorkspaceItem[];
+    const actionAnchor = selectedWorkspaceItems.find(
+      (item) => item.actionConstraintName && item.actionConstraintNormalizedName
+    );
+    const actionCatalyst = selectedWorkspaceItems
+      .map((item) => ACTION_CATALYST_BY_ID.get(item.itemId) ?? null)
+      .find((entry): entry is NonNullable<(typeof ACTION_CATALYST_BY_ID extends Map<any, infer V> ? V : never)> => entry != null) ?? null;
+    const effectiveActionConstraint =
+      actionAnchor?.actionConstraintName ?? actionCatalyst?.actionConstraint ?? null;
+    const isCompoundSelection =
+      resolveActionPromptFamilyKey(effectiveActionConstraint) === "compound";
+
     const selectedViews = nodeIds
       .map((nodeId) => {
         const view = itemViewsRef.current.get(nodeId);
@@ -601,6 +616,10 @@ function GraphView({
       .sort((a, b) => {
         const aPosition = getViewTopLeftPosition(a.view);
         const bPosition = getViewTopLeftPosition(b.view);
+        if (isCompoundSelection) {
+          if (aPosition.x !== bPosition.x) return aPosition.x - bPosition.x;
+          return aPosition.y - bPosition.y;
+        }
         if (aPosition.y !== bPosition.y) return aPosition.y - bPosition.y;
         return aPosition.x - bPosition.x;
       })

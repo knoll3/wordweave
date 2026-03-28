@@ -15,6 +15,9 @@ export interface QuestRecord {
   name: string;
   normalizedName: string;
   icon: string;
+  setId: string | null;
+  setTitle: string | null;
+  pointsAwarded: number;
   status: QuestStatus;
   matchedItemName: string | null;
   completionMethod: "exact" | "embedding" | "judge" | null;
@@ -22,8 +25,22 @@ export interface QuestRecord {
   completedAt: string | null;
 }
 
+export interface CompletedQuestSet {
+  id: string;
+  title: string;
+  topic: string;
+  questCount: number;
+  earnedPoints: number;
+}
+
+export interface PlayerQuestStats {
+  totalPoints: number;
+}
+
 export const QUEST_COMPLETION_SIMILARITY_THRESHOLD = 0.865;
 export const QUEST_COMPLETION_JUDGE_THRESHOLD = 0.7;
+export const QUEST_POINTS_PER_TARGET = 10;
+export const QUEST_SET_COMPLETION_BONUS_POINTS = 50;
 
 const questJudgeDecisionCache = new Map<string, boolean>();
 
@@ -49,6 +66,9 @@ function mapQuestRow(row: Record<string, unknown>): QuestRecord {
     name: String(row.name ?? ""),
     normalizedName: String(row.normalized_name ?? ""),
     icon: String(row.icon ?? "🎯"),
+    setId: row.set_id == null ? null : String(row.set_id),
+    setTitle: row.set_title == null ? null : String(row.set_title),
+    pointsAwarded: Number(row.points_awarded ?? QUEST_POINTS_PER_TARGET),
     status: String(row.status ?? "available") as QuestStatus,
     matchedItemName:
       row.matched_item_name == null ? null : String(row.matched_item_name),
@@ -68,7 +88,7 @@ export function listQuests(
   const includeAbandoned = options?.includeAbandoned ?? false;
   const stmt = db.prepare(
     `
-    SELECT name, normalized_name, icon, status, matched_item_name, completion_method, created_at, completed_at
+    SELECT name, normalized_name, icon, set_id, set_title, points_awarded, status, matched_item_name, completion_method, created_at, completed_at
     FROM quests
     ${includeAbandoned ? "" : "WHERE status != 'abandoned'"}
     ORDER BY created_at ASC, name COLLATE NOCASE ASC
@@ -84,15 +104,30 @@ export function listQuests(
 
 export function insertQuest(
   db: Database,
-  params: { name: string; icon: string; status?: QuestStatus }
+  params: {
+    name: string;
+    icon: string;
+    status?: QuestStatus;
+    setId?: string | null;
+    setTitle?: string | null;
+    pointsAwarded?: number;
+  }
 ) {
   const normalizedName = normalizeQuestName(params.name);
   const stmt = db.prepare(`
-    INSERT INTO quests (name, normalized_name, icon, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    INSERT INTO quests (name, normalized_name, icon, set_id, set_title, points_awarded, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
     ON CONFLICT(normalized_name) DO NOTHING
   `);
-  stmt.run([params.name.trim(), normalizedName, params.icon.trim(), params.status ?? "available"]);
+  stmt.run([
+    params.name.trim(),
+    normalizedName,
+    params.icon.trim(),
+    params.setId ?? null,
+    params.setTitle ?? null,
+    params.pointsAwarded ?? QUEST_POINTS_PER_TARGET,
+    params.status ?? "available",
+  ]);
   stmt.free();
 }
 
@@ -255,7 +290,7 @@ function loadIncompleteQuests(
     whereClauses.push(`normalized_name IN (${normalizedTargets.map(() => "?").join(", ")})`);
   }
   const stmt = db.prepare(`
-    SELECT name, normalized_name, icon, status, matched_item_name, completion_method, created_at, completed_at
+    SELECT name, normalized_name, icon, set_id, set_title, points_awarded, status, matched_item_name, completion_method, created_at, completed_at
     FROM quests
     WHERE ${whereClauses.join(" AND ")}
     ORDER BY created_at ASC, name COLLATE NOCASE ASC
@@ -334,6 +369,9 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
       name,
       normalizedName: normalizeQuestName(name),
       icon: "🎯",
+      setId: null,
+      setTitle: null,
+      pointsAwarded: QUEST_POINTS_PER_TARGET,
       status: "available" as const,
       matchedItemName: null,
       completionMethod: null,
@@ -428,6 +466,155 @@ function markQuestCompleted(
   stmt.free();
 }
 
+function ensurePlayerStatRow(db: Database, key: string) {
+  const stmt = db.prepare(`
+    INSERT INTO player_stats (key, value_integer, updated_at)
+    VALUES (?, 0, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO NOTHING
+  `);
+  stmt.run([key]);
+  stmt.free();
+}
+
+function incrementPlayerPoints(db: Database, points: number) {
+  if (points <= 0) {
+    return;
+  }
+  ensurePlayerStatRow(db, "quest_points_total");
+  const stmt = db.prepare(`
+    UPDATE player_stats
+    SET value_integer = value_integer + ?, updated_at = CURRENT_TIMESTAMP
+    WHERE key = 'quest_points_total'
+  `);
+  stmt.run([points]);
+  stmt.free();
+}
+
+export function getPlayerQuestStats(db: Database): PlayerQuestStats {
+  const stmt = db.prepare("SELECT value_integer FROM player_stats WHERE key = 'quest_points_total'");
+  const row = stmt.getAsObject() as Record<string, unknown>;
+  stmt.free();
+  if (row.value_integer != null) {
+    return {
+      totalPoints: Number(row.value_integer ?? 0),
+    };
+  }
+
+  const seedStmt = db.prepare(`
+    SELECT
+      COALESCE((SELECT SUM(points_awarded) FROM quests WHERE status = 'completed'), 0) +
+      COALESCE((SELECT SUM(bonus_points_awarded) FROM quest_sets WHERE completed_at IS NOT NULL), 0)
+      AS total_points
+  `);
+  const seedRow = seedStmt.getAsObject() as Record<string, unknown>;
+  seedStmt.free();
+  const seededTotalPoints = Number(seedRow.total_points ?? 0);
+
+  const insertStmt = db.prepare(`
+    INSERT INTO player_stats (key, value_integer, updated_at)
+    VALUES ('quest_points_total', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(key) DO UPDATE SET value_integer = excluded.value_integer, updated_at = CURRENT_TIMESTAMP
+  `);
+  insertStmt.run([seededTotalPoints]);
+  insertStmt.free();
+
+  return {
+    totalPoints: seededTotalPoints,
+  };
+}
+
+export function createQuestSet(
+  db: Database,
+  params: { id: string; title: string; topic: string; totalQuestCount: number }
+) {
+  const stmt = db.prepare(`
+    INSERT INTO quest_sets (id, title, topic, total_quest_count, bonus_points_awarded, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `);
+  stmt.run([
+    params.id,
+    params.title,
+    params.topic,
+    params.totalQuestCount,
+    QUEST_SET_COMPLETION_BONUS_POINTS,
+  ]);
+  stmt.free();
+}
+
+function completeQuestSetsForQuestIds(
+  db: Database,
+  questIds: string[]
+): CompletedQuestSet[] {
+  if (questIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = questIds.map(() => "?").join(", ");
+  const candidateSetStmt = db.prepare(`
+    SELECT DISTINCT set_id
+    FROM quests
+    WHERE normalized_name IN (${placeholders}) AND set_id IS NOT NULL
+  `);
+  candidateSetStmt.bind(questIds);
+  const candidateSetIds: string[] = [];
+  while (candidateSetStmt.step()) {
+    const row = candidateSetStmt.getAsObject() as Record<string, unknown>;
+    if (row.set_id != null) {
+      candidateSetIds.push(String(row.set_id));
+    }
+  }
+  candidateSetStmt.free();
+
+  if (candidateSetIds.length === 0) {
+    return [];
+  }
+
+  const setPlaceholders = candidateSetIds.map(() => "?").join(", ");
+  const summaryStmt = db.prepare(`
+    SELECT
+      qs.id,
+      qs.title,
+      qs.topic,
+      qs.total_quest_count,
+      qs.completed_at,
+      qs.bonus_points_awarded,
+      SUM(CASE WHEN q.status = 'completed' THEN 1 ELSE 0 END) AS completed_count
+    FROM quest_sets qs
+    JOIN quests q ON q.set_id = qs.id
+    WHERE qs.id IN (${setPlaceholders})
+    GROUP BY qs.id, qs.title, qs.topic, qs.total_quest_count, qs.completed_at, qs.bonus_points_awarded
+  `);
+  summaryStmt.bind(candidateSetIds);
+  const completedSets: CompletedQuestSet[] = [];
+  while (summaryStmt.step()) {
+    const row = summaryStmt.getAsObject() as Record<string, unknown>;
+    const totalQuestCount = Number(row.total_quest_count ?? 0);
+    const completedCount = Number(row.completed_count ?? 0);
+    if (row.completed_at != null || totalQuestCount <= 0 || completedCount < totalQuestCount) {
+      continue;
+    }
+
+    const updateStmt = db.prepare(`
+      UPDATE quest_sets
+      SET completed_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+      WHERE id = ? AND completed_at IS NULL
+    `);
+    updateStmt.run([String(row.id)]);
+    updateStmt.free();
+
+    completedSets.push({
+      id: String(row.id),
+      title: String(row.title ?? ""),
+      topic: String(row.topic ?? ""),
+      questCount: totalQuestCount,
+      earnedPoints: Number(row.bonus_points_awarded ?? QUEST_SET_COMPLETION_BONUS_POINTS),
+    });
+  }
+  summaryStmt.free();
+
+  return completedSets;
+}
+
 export async function syncQuestCompletions(
   db: Database,
   options?: {
@@ -439,7 +626,12 @@ export async function syncQuestCompletions(
   const logEnabled = options?.log ?? true;
   const quests = loadIncompleteQuests(db, { targetNames: options?.targetNames });
   if (quests.length === 0) {
-    return { newlyCompletedQuestNames: [] as string[] };
+    return {
+      newlyCompletedQuestNames: [] as string[],
+      completedQuestSets: [] as CompletedQuestSet[],
+      awardedPoints: 0,
+      totalPoints: getPlayerQuestStats(db).totalPoints,
+    };
   }
 
   const discoveredRows = loadDiscoveredRows(db, { candidateNames: options?.candidateNames });
@@ -453,7 +645,12 @@ export async function syncQuestCompletions(
         judgeThreshold: QUEST_COMPLETION_JUDGE_THRESHOLD,
       });
     }
-    return { newlyCompletedQuestNames: [] as string[] };
+    return {
+      newlyCompletedQuestNames: [] as string[],
+      completedQuestSets: [] as CompletedQuestSet[],
+      awardedPoints: 0,
+      totalPoints: getPlayerQuestStats(db).totalPoints,
+    };
   }
 
   await ensureSearchIndexForElementIds(
@@ -472,6 +669,7 @@ export async function syncQuestCompletions(
     { quest: QuestRecord; candidate: string; similarity: number }
   >();
   const newlyCompletedQuestNames: string[] = [];
+  const newlyCompletedQuestIds: string[] = [];
 
   for (const quest of quests) {
     if (discoveredNames.has(quest.normalizedName)) {
@@ -488,6 +686,7 @@ export async function syncQuestCompletions(
         completionMethod: "exact",
       });
       newlyCompletedQuestNames.push(quest.name);
+      newlyCompletedQuestIds.push(quest.normalizedName);
       continue;
     }
 
@@ -532,6 +731,7 @@ export async function syncQuestCompletions(
         completionMethod: "embedding",
       });
       newlyCompletedQuestNames.push(quest.name);
+      newlyCompletedQuestIds.push(quest.normalizedName);
       continue;
     }
 
@@ -596,6 +796,7 @@ export async function syncQuestCompletions(
         completionMethod: "judge",
       });
       newlyCompletedQuestNames.push(borderline.quest.name);
+      newlyCompletedQuestIds.push(borderline.quest.normalizedName);
     }
 
     if (logEnabled) {
@@ -608,16 +809,33 @@ export async function syncQuestCompletions(
     }
   }
 
+  const questPointAwards = quests
+    .filter((quest) => newlyCompletedQuestIds.includes(quest.normalizedName))
+    .reduce((sum, quest) => sum + (quest.pointsAwarded || QUEST_POINTS_PER_TARGET), 0);
+  const completedQuestSets = completeQuestSetsForQuestIds(db, newlyCompletedQuestIds);
+  const setBonusAwards = completedQuestSets.reduce((sum, set) => sum + set.earnedPoints, 0);
+  const awardedPoints = questPointAwards + setBonusAwards;
+  incrementPlayerPoints(db, awardedPoints);
+  const playerStats = getPlayerQuestStats(db);
+
   if (logEnabled) {
     console.log("[api][quests] completion summary", {
       targetCount: quests.length,
       discoveredCount: discoveredRows.length,
       candidateNameCount: options?.candidateNames?.length ?? 0,
       completedCount: newlyCompletedQuestNames.length,
+      completedSetCount: completedQuestSets.length,
+      awardedPoints,
+      totalPoints: playerStats.totalPoints,
       threshold: QUEST_COMPLETION_SIMILARITY_THRESHOLD,
       judgeThreshold: QUEST_COMPLETION_JUDGE_THRESHOLD,
     });
   }
 
-  return { newlyCompletedQuestNames };
+  return {
+    newlyCompletedQuestNames,
+    completedQuestSets,
+    awardedPoints,
+    totalPoints: playerStats.totalPoints,
+  };
 }

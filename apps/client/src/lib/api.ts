@@ -7,9 +7,13 @@ import type {
   PaginatedCacheRecipes,
   PromptBatchPair,
   PromptCatalogResponse,
+  PlayerQuestStats,
   PromptTestResponse,
+  QuestGenerationDraft,
+  QuestGenerationDraftResponse,
   QuestListResponse,
   QuestRecord,
+  QuestSetCompletion,
   Recipe,
   RecentRecipe,
   SemanticClustersResponse,
@@ -198,6 +202,9 @@ export async function selectCandidate(
   chosenCandidateId: number;
   resultElement: Item | null;
   newlyCompletedQuestNames?: string[];
+  completedQuestSets?: QuestSetCompletion[];
+  awardedPoints?: number;
+  totalPoints?: number;
   autoUnlockedActionWords?: Array<{
     familyKey: string;
     familyTitle: string;
@@ -243,36 +250,49 @@ export async function fetchQuestTargetReference(
   return reference;
 }
 
-export async function generateChallengeTargets(params: {
-  count?: number;
-  difficulty?: "easy" | "hard";
+export async function generateQuestDraft(params: {
+  topic: string;
   model?: AiModel;
-} = {}): Promise<QuestRecord[]> {
+}): Promise<QuestGenerationDraft> {
   const res = await fetch(`${API_BASE}/quests/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      count: params.count,
-      difficulty: params.difficulty,
+      topic: params.topic,
       model: params.model,
     }),
   });
-  const data = await handleResponse<QuestListResponse>(res);
-  return data.quests ?? [];
+  const data = await handleResponse<QuestGenerationDraftResponse>(res);
+  return data.draft;
 }
 
-export async function fetchQuests(): Promise<QuestRecord[]> {
+export async function acceptGeneratedQuestSet(params: {
+  topic: string;
+  targets: QuestGenerationDraft["targets"];
+}): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
+  const res = await fetch(`${API_BASE}/quests/generate/accept`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(params),
+  });
+  const data = await handleResponse<QuestListResponse>(res);
+  return { quests: data.quests ?? [], stats: data.stats };
+}
+
+export async function fetchQuests(): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
   const res = await fetch(`${API_BASE}/quests`);
   const data = await handleResponse<QuestListResponse>(res);
-  return data.quests ?? [];
+  return { quests: data.quests ?? [], stats: data.stats };
 }
 
 export async function updateQuestStatus(params: {
   name: string;
   status: "available" | "tracked" | "abandoned";
-}): Promise<QuestRecord[]> {
+}): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
   const res = await fetch(`${API_BASE}/quests/status`, {
     method: "POST",
     headers: {
@@ -281,14 +301,14 @@ export async function updateQuestStatus(params: {
     body: JSON.stringify(params),
   });
   const data = await handleResponse<QuestListResponse>(res);
-  return data.quests ?? [];
+  return { quests: data.quests ?? [], stats: data.stats };
 }
 
 export async function importLegacyQuestState(params: {
   quests: Array<{ name: string; icon: string }>;
   trackedNames?: string[];
   abandonedNames?: string[];
-}): Promise<QuestRecord[]> {
+}): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
   const res = await fetch(`${API_BASE}/quests/import-legacy`, {
     method: "POST",
     headers: {
@@ -297,7 +317,7 @@ export async function importLegacyQuestState(params: {
     body: JSON.stringify(params),
   });
   const data = await handleResponse<QuestListResponse>(res);
-  return data.quests ?? [];
+  return { quests: data.quests ?? [], stats: data.stats };
 }
 
 export async function fetchItemReference(elementId: number): Promise<ItemReference | null> {

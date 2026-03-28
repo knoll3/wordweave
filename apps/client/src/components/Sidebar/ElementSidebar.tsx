@@ -10,6 +10,7 @@ import {
 
 interface Props {
   items: Item[];
+  totalQuestPoints?: number;
   onAddItemToWorkspace: (item: Item) => void;
   onItemsLoaded?: (items: Item[]) => void;
   randomUnlocked?: boolean;
@@ -125,6 +126,7 @@ function collectClusterIds(clusters: SemanticCluster[]): Set<string> {
 
 const ElementSidebar: React.FC<Props> = ({
   items,
+  totalQuestPoints = 0,
   onAddItemToWorkspace,
   onItemsLoaded,
   randomUnlocked = false,
@@ -451,63 +453,71 @@ const ElementSidebar: React.FC<Props> = ({
             </button>
           </div>
           <div className="library-secondary-slot">
-            <button
-              type="button"
-              className="sort-button library-undo-button"
-              onClick={() => onUndoWorkspace?.()}
-              disabled={!canUndoWorkspace}
-            >
-              Undo
-            </button>
-            {browseMode === "all" ? (
-              <div
-                className="sort-controls library-sort-controls"
-                role="group"
-                aria-label="Sort library"
+            <div className="library-secondary-controls">
+              {browseMode === "all" ? (
+                <div
+                  className="sort-controls library-sort-controls"
+                  role="group"
+                  aria-label="Sort library"
+                >
+                  <button
+                    type="button"
+                    className={`sort-button ${sortBy === "time" ? "active" : ""}`}
+                    onClick={() => setSortBy("time")}
+                  >
+                    Time
+                  </button>
+                  <button
+                    type="button"
+                    className={`sort-button ${sortBy === "name" ? "active" : ""}`}
+                    onClick={() => setSortBy("name")}
+                  >
+                    Name
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="library-tree-actions"
+                  role="group"
+                  aria-label="Tree controls"
+                >
+                  <button
+                    type="button"
+                    className="button secondary library-action-button"
+                    onClick={expandAllClusters}
+                    disabled={clusters.length === 0}
+                    aria-label="Expand all"
+                    title="Expand all"
+                  >
+                    <SquarePlus aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className="button secondary library-action-button"
+                    onClick={collapseAllClusters}
+                    disabled={expandedClusterIds.length === 0}
+                    aria-label="Collapse all"
+                    title="Collapse all"
+                  >
+                    <SquareMinus aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              <button
+                type="button"
+                className="sort-button library-undo-button"
+                onClick={() => onUndoWorkspace?.()}
+                disabled={!canUndoWorkspace}
               >
-                <button
-                  type="button"
-                  className={`sort-button ${sortBy === "time" ? "active" : ""}`}
-                  onClick={() => setSortBy("time")}
-                >
-                  Time
-                </button>
-                <button
-                  type="button"
-                  className={`sort-button ${sortBy === "name" ? "active" : ""}`}
-                  onClick={() => setSortBy("name")}
-                >
-                  Name
-                </button>
-              </div>
-            ) : (
-              <div
-                className="library-tree-actions"
-                role="group"
-                aria-label="Tree controls"
-              >
-                <button
-                  type="button"
-                  className="button secondary library-action-button"
-                  onClick={expandAllClusters}
-                  disabled={clusters.length === 0}
-                  aria-label="Expand all"
-                  title="Expand all"
-                >
-                  <SquarePlus aria-hidden="true" />
-                </button>
-                <button
-                  type="button"
-                  className="button secondary library-action-button"
-                  onClick={collapseAllClusters}
-                  disabled={expandedClusterIds.length === 0}
-                  aria-label="Collapse all"
-                  title="Collapse all"
-                >
-                  <SquareMinus aria-hidden="true" />
-                </button>
-              </div>
-            )}
+                Undo
+              </button>
+            </div>
+            <div className="library-count-label" aria-live="polite">
+              {items.length} items
+            </div>
+            <div className="library-points-label" aria-live="polite">
+              {totalQuestPoints} points
+            </div>
           </div>
           {randomUnlocked ? (
             <button

@@ -131,12 +131,32 @@ function createSchema(db: Database): void {
       name TEXT NOT NULL,
       normalized_name TEXT NOT NULL UNIQUE,
       icon TEXT NOT NULL,
+      set_id TEXT NULL,
+      set_title TEXT NULL,
+      points_awarded INTEGER NOT NULL DEFAULT 10,
       status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'tracked', 'completed', 'abandoned')),
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at DATETIME NULL,
       matched_item_name TEXT NULL,
       completion_method TEXT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS quest_sets (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      total_quest_count INTEGER NOT NULL,
+      completed_at DATETIME NULL,
+      bonus_points_awarded INTEGER NOT NULL DEFAULT 50,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS player_stats (
+      key TEXT PRIMARY KEY,
+      value_integer INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
   `);
@@ -149,6 +169,9 @@ function createSchema(db: Database): void {
   ensureColumn(db, "quests", "completion_method", "TEXT NULL");
   ensureColumn(db, "quests", "completed_at", "DATETIME NULL");
   ensureColumn(db, "quests", "updated_at", "DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP");
+  ensureColumn(db, "quests", "set_id", "TEXT NULL");
+  ensureColumn(db, "quests", "set_title", "TEXT NULL");
+  ensureColumn(db, "quests", "points_awarded", "INTEGER NOT NULL DEFAULT 10");
 }
 
 function ensureColumn(

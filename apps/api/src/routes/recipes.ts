@@ -34,12 +34,6 @@ import { syncQuestCompletions } from "../questState";
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
 const CACHE_BATCH_SIZE = 25;
-const CATALYST_RUN_KEY_PREFIXES = new Set([
-  "action",
-  "creative",
-  "category",
-]);
-
 function buildRecipeInputKey(params: {
   inputKey: string;
   categoryConstraint: string | null;
@@ -81,7 +75,11 @@ function buildSecondaryStoredRecipeInputKey(baseStoredInputKey: string, outputIn
 
 function isCatalystRecipeInputKey(inputKey: string): boolean {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
-  return modeKey.startsWith("category:") || CATALYST_RUN_KEY_PREFIXES.has(modeKey);
+  return (
+    modeKey === "creative" ||
+    modeKey.startsWith("action:") ||
+    modeKey.startsWith("category:")
+  );
 }
 
 function maybeAutoUnlockActionWords(
@@ -424,10 +422,14 @@ router.post("/combine", async (req, res) => {
   const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
   const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
+  const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
 
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
   );
+  const orderedInputs = normalizeInputs(parsedBody.data.inputs, {
+    preserveOrder: actionPromptFamily?.key === "compound",
+  }).normalizedInputs;
 
   if (normalizedInputs.length === 0) {
     return res.status(400).json({ error: "No valid inputs provided" });
@@ -436,7 +438,6 @@ router.post("/combine", async (req, res) => {
   try {
     const db = await getDb();
     const effectiveCreative = creative;
-    const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
 
     const recipeInputKey = buildRecipeInputKey({
       inputKey,
@@ -513,6 +514,15 @@ router.post("/combine", async (req, res) => {
         element: ElementDTO;
       }> = [];
       let newlyCompletedQuestNames: string[] = [];
+      let completedQuestSets: Array<{
+        id: string;
+        title: string;
+        topic: string;
+        questCount: number;
+        earnedPoints: number;
+      }> = [];
+      let awardedPoints = 0;
+      let totalPoints: number | undefined;
 
       if (resultElement) {
         const wasNewResultDiscovery = discoverElement(db, Number(resultElement.id));
@@ -530,6 +540,9 @@ router.post("/combine", async (req, res) => {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+          completedQuestSets = completionResult.completedQuestSets;
+          awardedPoints = completionResult.awardedPoints;
+          totalPoints = completionResult.totalPoints;
         }
         persistDatabase(db);
       }
@@ -640,6 +653,9 @@ router.post("/combine", async (req, res) => {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+          completedQuestSets = completionResult.completedQuestSets;
+          awardedPoints = completionResult.awardedPoints;
+          totalPoints = completionResult.totalPoints;
         }
         persistDatabase(db);
       }
@@ -651,6 +667,9 @@ router.post("/combine", async (req, res) => {
           resultElement,
           autoUnlockedActionWords,
           newlyCompletedQuestNames,
+          completedQuestSets,
+          awardedPoints,
+          totalPoints,
         })
       );
     }
@@ -669,13 +688,13 @@ router.post("/combine", async (req, res) => {
         categoryConstraint,
         actionConstraint,
         actionPromptFamily: actionPromptFamily?.key ?? null,
-        inputs: normalizedInputs.map((i) => i.name),
+        inputs: orderedInputs.map((i) => i.name),
       }
     );
     let llmResult;
     try {
       llmResult = await generateResult(
-        normalizedInputs.map((i) => i.name),
+        orderedInputs.map((i) => i.name),
         {
           creative: effectiveCreative,
           categoryConstraint: categoryConstraint ?? undefined,
@@ -705,12 +724,12 @@ router.post("/combine", async (req, res) => {
           ...normalizedInputs,
         ]
       : actionConstraint
-      ? [
+        ? [
           {
             name: actionConstraint,
             normalized: actionConstraint.trim().toLowerCase(),
           },
-          ...normalizedInputs,
+          ...orderedInputs,
         ]
       : categoryConstraint
       ? [
@@ -718,9 +737,9 @@ router.post("/combine", async (req, res) => {
             name: categoryConstraint,
             normalized: categoryConstraint.trim().toLowerCase(),
           },
-          ...normalizedInputs,
+          ...orderedInputs,
         ]
-      : normalizedInputs;
+      : orderedInputs;
     const inputDisplayJson = JSON.stringify(displayInputs);
     const generatedResults = ("results" in llmResult ? llmResult.results : [llmResult]).map(
       (entry) => ({
@@ -731,6 +750,83 @@ router.post("/combine", async (req, res) => {
     const primaryGeneratedResult = generatedResults[0];
     if (!primaryGeneratedResult) {
       return res.status(502).json({ error: "Model returned no split results" });
+    }
+
+    if (bypassCache) {
+      const newlyDiscoveredQuestCandidateNames: string[] = [];
+      const elementIds: number[] = [];
+
+      for (const generatedResult of generatedResults) {
+        const normalizedName = generatedResult.name.trim().toLowerCase();
+        const elementId = ensureElement(db, {
+          name: generatedResult.name,
+          normalizedName,
+          icon: generatedResult.icon,
+        });
+        elementIds.push(elementId);
+        if (discoverElement(db, elementId)) {
+          newlyDiscoveredQuestCandidateNames.push(generatedResult.name);
+        }
+      }
+
+      const resultElements = elementIds
+        .map((id) => getElementById(db, id))
+        .filter((element): element is ElementDTO => element != null);
+      const resultElement = resultElements[0];
+
+      const autoUnlockedActionWords = maybeAutoUnlockActionWords(db, resultElements);
+      await syncSearchIndex(db, [
+        ...elementIds,
+        ...autoUnlockedActionWords.map((entry) => entry.element.id),
+      ]);
+
+      newlyDiscoveredQuestCandidateNames.push(
+        ...autoUnlockedActionWords.map((entry) => entry.element.name)
+      );
+
+      let newlyCompletedQuestNames: string[] = [];
+      let completedQuestSets: Array<{
+        id: string;
+        title: string;
+        topic: string;
+        questCount: number;
+        earnedPoints: number;
+      }> = [];
+      let awardedPoints = 0;
+      let totalPoints: number | undefined;
+      if (newlyDiscoveredQuestCandidateNames.length > 0) {
+        const completionResult = await syncQuestCompletions(db, {
+          candidateNames: newlyDiscoveredQuestCandidateNames,
+        });
+        newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        completedQuestSets = completionResult.completedQuestSets;
+        awardedPoints = completionResult.awardedPoints;
+        totalPoints = completionResult.totalPoints;
+      }
+
+      persistDatabase(db);
+
+      return res.json({
+        recipeId: -1,
+        inputKey: recipeInputKey,
+        inputs: displayInputs,
+        candidates: generatedResults.map((entry, index) => ({
+          id: -(index + 1),
+          name: entry.name,
+          icon: entry.icon,
+          orderIndex: index,
+        })),
+        chosenCandidateId: null,
+        resultElement,
+        resultElements: resultElements.length > 0 ? resultElements : undefined,
+        autoUnlockedActionWords:
+          autoUnlockedActionWords.length > 0 ? autoUnlockedActionWords : undefined,
+        newlyCompletedQuestNames:
+          newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
+        completedQuestSets: completedQuestSets.length > 0 ? completedQuestSets : undefined,
+        awardedPoints: awardedPoints > 0 ? awardedPoints : undefined,
+        totalPoints,
+      });
     }
 
     // Insert recipe, generated result candidate, and canonical selection
@@ -895,11 +991,23 @@ router.post("/combine", async (req, res) => {
       ...autoUnlockedActionWords.map((entry) => entry.element.name)
     );
     let newlyCompletedQuestNames: string[] = [];
+    let completedQuestSets: Array<{
+      id: string;
+      title: string;
+      topic: string;
+      questCount: number;
+      earnedPoints: number;
+    }> = [];
+    let awardedPoints = 0;
+    let totalPoints: number | undefined;
     if (newlyDiscoveredQuestCandidateNames.length > 0) {
       const completionResult = await syncQuestCompletions(db, {
         candidateNames: newlyDiscoveredQuestCandidateNames,
       });
       newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+      completedQuestSets = completionResult.completedQuestSets;
+      awardedPoints = completionResult.awardedPoints;
+      totalPoints = completionResult.totalPoints;
       persistDatabase(db);
     }
 
@@ -940,6 +1048,9 @@ router.post("/combine", async (req, res) => {
         resultElements,
         autoUnlockedActionWords,
         newlyCompletedQuestNames,
+        completedQuestSets,
+        awardedPoints,
+        totalPoints,
       })
     );
   } catch (err) {
@@ -1028,11 +1139,23 @@ router.post("/:id/select", async (req, res) => {
         ...autoUnlockedActionWords.map((entry) => entry.element.name),
       ];
       let newlyCompletedQuestNames: string[] = [];
+      let completedQuestSets: Array<{
+        id: string;
+        title: string;
+        topic: string;
+        questCount: number;
+        earnedPoints: number;
+      }> = [];
+      let awardedPoints = 0;
+      let totalPoints: number | undefined;
       if (candidateNames.length > 0) {
         const completionResult = await syncQuestCompletions(db, {
           candidateNames,
         });
         newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        completedQuestSets = completionResult.completedQuestSets;
+        awardedPoints = completionResult.awardedPoints;
+        totalPoints = completionResult.totalPoints;
         persistDatabase(db);
       }
 
@@ -1050,6 +1173,9 @@ router.post("/:id/select", async (req, res) => {
         autoUnlockedActionWords,
         newlyCompletedQuestNames:
           newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
+        completedQuestSets: completedQuestSets.length > 0 ? completedQuestSets : undefined,
+        awardedPoints: awardedPoints > 0 ? awardedPoints : undefined,
+        totalPoints,
       });
     } catch (err) {
       db.run("ROLLBACK");

@@ -136,6 +136,9 @@ export interface Recipe {
   resultElements?: Item[];
   autoUnlockedActionWords?: AutoUnlockedActionWord[];
   newlyCompletedQuestNames?: string[];
+  completedQuestSets?: QuestSetCompletion[];
+  awardedPoints?: number;
+  totalPoints?: number;
 }
 
 export interface RecentRecipe {
@@ -272,6 +275,9 @@ export type QuestStatus = "available" | "tracked" | "completed" | "abandoned";
 export interface QuestRecord {
   name: string;
   icon: string;
+  setId: string | null;
+  setTitle: string | null;
+  pointsAwarded: number;
   status: QuestStatus;
   matchedItemName: string | null;
   completionMethod: "exact" | "embedding" | "judge" | null;
@@ -279,8 +285,35 @@ export interface QuestRecord {
   completedAt: string | null;
 }
 
+export interface QuestSetCompletion {
+  id: string;
+  title: string;
+  topic: string;
+  questCount: number;
+  earnedPoints: number;
+}
+
+export interface PlayerQuestStats {
+  totalPoints: number;
+}
+
 export interface QuestListResponse {
   quests: QuestRecord[];
+  stats: PlayerQuestStats;
+}
+
+export interface QuestGenerationDraftTarget {
+  name: string;
+  icon: string;
+}
+
+export interface QuestGenerationDraft {
+  topic: string;
+  targets: QuestGenerationDraftTarget[];
+}
+
+export interface QuestGenerationDraftResponse {
+  draft: QuestGenerationDraft;
 }
 
 export interface FeatureUnlockStatus {

@@ -29,6 +29,15 @@ export interface RecipeDTO {
     element: ElementDTO;
   }>;
   newlyCompletedQuestNames?: string[];
+  completedQuestSets?: Array<{
+    id: string;
+    title: string;
+    topic: string;
+    questCount: number;
+    earnedPoints: number;
+  }>;
+  awardedPoints?: number;
+  totalPoints?: number;
 }
 
 export interface RecentRecipeDTO {
@@ -54,7 +63,8 @@ export function toTitleCaseWords(value: string): string {
 }
 
 export function normalizeInputs(
-  rawInputs: string[]
+  rawInputs: string[],
+  options?: { preserveOrder?: boolean }
 ): { normalizedInputs: NormalizedInput[]; inputKey: string } {
   const seen = new Map<string, string>();
 
@@ -71,9 +81,11 @@ export function normalizeInputs(
     ([normalized, name]) => ({ name, normalized })
   );
 
-  normalizedInputs.sort((a, b) =>
-    a.normalized.localeCompare(b.normalized, "en")
-  );
+  if (!options?.preserveOrder) {
+    normalizedInputs.sort((a, b) =>
+      a.normalized.localeCompare(b.normalized, "en")
+    );
+  }
 
   const inputKey = normalizedInputs.map((i) => i.normalized).join("|");
 
@@ -105,6 +117,9 @@ export function buildCombineResponse(params: {
   resultElements?: ElementDTO[];
   autoUnlockedActionWords?: RecipeDTO["autoUnlockedActionWords"];
   newlyCompletedQuestNames?: string[];
+  completedQuestSets?: RecipeDTO["completedQuestSets"];
+  awardedPoints?: number;
+  totalPoints?: number;
 }): RecipeDTO {
   const {
     recipeRow,
@@ -113,6 +128,9 @@ export function buildCombineResponse(params: {
     resultElements,
     autoUnlockedActionWords,
     newlyCompletedQuestNames,
+    completedQuestSets,
+    awardedPoints,
+    totalPoints,
   } = params;
 
   const inputs = JSON.parse(recipeRow.input_display_json) as {
@@ -137,6 +155,10 @@ export function buildCombineResponse(params: {
       newlyCompletedQuestNames && newlyCompletedQuestNames.length > 0
         ? newlyCompletedQuestNames
         : undefined,
+    completedQuestSets:
+      completedQuestSets && completedQuestSets.length > 0 ? completedQuestSets : undefined,
+    awardedPoints: awardedPoints && awardedPoints > 0 ? awardedPoints : undefined,
+    totalPoints: totalPoints != null ? totalPoints : undefined,
   };
 }
 

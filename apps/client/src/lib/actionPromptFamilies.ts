@@ -284,3 +284,18 @@ export function normalizeActionTrigger(value: string) {
     .replace(/\s+/g, " ")
     .trim();
 }
+
+export function resolveActionPromptFamilyKey(
+  actionConstraint: string | null | undefined
+) {
+  const normalized = normalizeActionTrigger(actionConstraint ?? "");
+  if (!normalized) {
+    return null;
+  }
+
+  return (
+    ACTION_PROMPT_FAMILY_REFERENCES.find((family) =>
+      family.triggerWords.some((trigger) => normalizeActionTrigger(trigger) === normalized)
+    )?.key ?? null
+  );
+}

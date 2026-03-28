@@ -30,8 +30,7 @@ interface Props {
   onBackToJournal: () => void;
   onSelectItem: (item: Item) => void;
   onCollapse: () => void;
-  onGenerateEasyQuests: () => void;
-  onGenerateHardQuests: () => void;
+  onStartQuestDraftSession: () => void;
   onSelectQuest: (quest: QuestRecord) => void;
   onTrackQuest: (questName: string) => void;
   onUntrackQuest: (questName: string) => void;
@@ -64,8 +63,7 @@ const JournalDock: React.FC<Props> = ({
   onBackToJournal,
   onSelectItem,
   onCollapse,
-  onGenerateEasyQuests,
-  onGenerateHardQuests,
+  onStartQuestDraftSession,
   onSelectQuest,
   onTrackQuest,
   onUntrackQuest,
@@ -204,28 +202,20 @@ const JournalDock: React.FC<Props> = ({
               <article className="quest-card quest-card-featured">
                 <div className="quest-card-top">
                   <div>
-                    <div className="quest-card-title">Generate Quests</div>
+                    <div className="quest-card-title">Find a Quest Set</div>
                     <div className="quest-card-description">
-                      Add ten more targets to the available list.
+                      Open a topic prompt and generate a themed quest set.
                     </div>
                   </div>
                 </div>
                 <div className="quest-generate-actions">
                   <button
                     type="button"
-                    className="quest-generate-button quest-generate-button-secondary"
-                    onClick={onGenerateEasyQuests}
-                    disabled={isGeneratingQuests}
-                  >
-                    {isGeneratingQuests ? "Generating…" : "Generate Easier"}
-                  </button>
-                  <button
-                    type="button"
                     className="quest-generate-button"
-                    onClick={onGenerateHardQuests}
+                    onClick={onStartQuestDraftSession}
                     disabled={isGeneratingQuests}
                   >
-                    {isGeneratingQuests ? "Generating…" : "Generate Hard"}
+                    {isGeneratingQuests ? "Generating…" : "Generate Quest Set"}
                   </button>
                 </div>
               </article>

@@ -13,5 +13,7 @@ export {
   SUBTRACTIVE_PROMPT,
   WORD_COMBINE_PROMPT,
 } from "./openaiPrompts/specialPrompts";
-export { CHALLENGE_TARGETS_PROMPT } from "./openaiPrompts/questPrompts";
+export {
+  QUEST_TARGETS_PROMPT,
+} from "./openaiPrompts/questPrompts";
 export { RECIPE_BATCH_PROMPT } from "./openaiPrompts/batchPrompts";
