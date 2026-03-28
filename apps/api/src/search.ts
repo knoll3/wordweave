@@ -165,10 +165,6 @@ export async function ensureSearchIndexForElementIds(db: Database, elementIds: n
 
   if (missingRows.length === 0) return;
 
-  console.log("[api][search] backfilling embeddings", {
-    count: missingRows.length,
-    items: missingRows.map((row) => row.name),
-  });
   await upsertElementEmbeddings(db, missingRows);
 }
 
@@ -240,24 +236,6 @@ export async function searchDiscoveredElements(db: Database, query: string) {
       return String(left.row.discovered_at).localeCompare(String(right.row.discovered_at));
     });
   const limited = scored.slice(0, MAX_SEARCH_RESULTS);
-
-  console.log("[api][search] semantic search", {
-    query: trimmedQuery,
-    discoveredCount: discoveredRows.length,
-    matchedCount: scored.length,
-    returnedCount: limited.length,
-    thresholds: {
-      minTotal: MIN_TOTAL_RELEVANCE,
-      minSemantic: MIN_SEMANTIC_RELEVANCE,
-      hardCap: MAX_SEARCH_RESULTS,
-    },
-    topMatches: limited.map((entry) => ({
-      name: entry.row.name,
-      total: Number(entry.score.total.toFixed(4)),
-      lexical: Number(entry.score.lexical.toFixed(4)),
-      semantic: Number(entry.score.semantic.toFixed(4)),
-    })),
-  });
 
   return limited.map(({ row }) => mapElementRow(row));
 }

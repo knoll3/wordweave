@@ -219,6 +219,8 @@ function GraphView({
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
   const lastCelebratedNodeIdRef = useRef<string | null>(null);
+  const ARRIVAL_HIGHLIGHT_MAX_MS = 30_000;
+  const ARRIVAL_BOUNCE_MS = 500;
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -1078,6 +1080,8 @@ function GraphView({
         targetContentAlpha: 1,
         destroyWhenSettled: false,
         arrivalTintProgress: 0,
+        arrivalHighlightUntil: null,
+        arrivalHighlightStartedAt: null,
         celebrationProgress: 0,
         celebrationTintProgress: 0,
         celebrationTintHoldFrames: 0,
@@ -1119,6 +1123,11 @@ function GraphView({
             } => entry != null
           ),
       };
+      const touchedView = itemViewsRef.current.get(workspaceItem.nodeId);
+      if (touchedView) {
+        touchedView.arrivalHighlightUntil = null;
+        touchedView.arrivalHighlightStartedAt = null;
+      }
       container.cursor = "grabbing";
       container.alpha = 1;
       drawItemCard(
@@ -1154,6 +1163,8 @@ function GraphView({
       targetContentAlpha: 1,
       destroyWhenSettled: false,
       arrivalTintProgress: 0,
+      arrivalHighlightUntil: null,
+      arrivalHighlightStartedAt: null,
       celebrationProgress: 0,
       celebrationTintProgress: 0,
       celebrationTintHoldFrames: 0,
@@ -1214,6 +1225,9 @@ function GraphView({
         const currentPosition = getViewTopLeftPosition(view);
         const currentScale = view.container.scale.x;
         const currentAlpha = view.contentAlpha;
+        const currentArrivalTintProgress = view.arrivalTintProgress;
+        const currentArrivalHighlightUntil = view.arrivalHighlightUntil;
+        const currentArrivalHighlightStartedAt = view.arrivalHighlightStartedAt;
         view.container.destroy({ children: true });
         existingViews.delete(workspaceItem.nodeId);
         view = createItemView(workspaceItem, item);
@@ -1223,6 +1237,9 @@ function GraphView({
         view.contentAlpha = currentAlpha;
         view.targetContentAlpha = currentAlpha;
         view.container.alpha = currentAlpha;
+        view.arrivalTintProgress = currentArrivalTintProgress;
+        view.arrivalHighlightUntil = currentArrivalHighlightUntil;
+        view.arrivalHighlightStartedAt = currentArrivalHighlightStartedAt;
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
       }
@@ -1230,8 +1247,13 @@ function GraphView({
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
-        if (addedNodeIds.includes(workspaceItem.nodeId)) {
+        if (
+          addedNodeIds.includes(workspaceItem.nodeId) &&
+          workspaceItem.arrivalHighlightMode === "library"
+        ) {
           view.arrivalTintProgress = 1;
+          view.arrivalHighlightStartedAt = Date.now();
+          view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
         }
         if (removedCombiningNodeIds.length > 0 && addedNodeIds.includes(workspaceItem.nodeId)) {
           view.container.scale.set(SPAWN_SCALE);
@@ -1742,6 +1764,7 @@ function GraphView({
       syncScene(workspaceItems);
       app.ticker.add(() => {
         let shouldRefreshSelectionOverlay = false;
+        const now = Date.now();
         itemViewsRef.current.forEach((view) => {
           const nextX = moveToward(view.container.x, view.targetX, POSITION_STEP);
           const nextY = moveToward(view.container.y, view.targetY, POSITION_STEP);
@@ -1773,7 +1796,19 @@ function GraphView({
           );
           view.container.alpha = view.contentAlpha;
 
-          if (view.arrivalTintProgress > 0) {
+          const arrivalElapsedMs =
+            view.arrivalHighlightStartedAt != null ? now - view.arrivalHighlightStartedAt : null;
+          const isArrivalHoldActive =
+            view.arrivalHighlightUntil != null && now < view.arrivalHighlightUntil;
+
+          if (view.arrivalHighlightUntil != null && now < view.arrivalHighlightUntil) {
+            view.arrivalTintProgress = 1;
+          } else {
+            view.arrivalHighlightUntil = null;
+            view.arrivalHighlightStartedAt = null;
+          }
+
+          if (view.arrivalHighlightUntil == null && view.arrivalTintProgress > 0) {
             view.arrivalTintProgress = Math.max(
               0,
               view.arrivalTintProgress - ARRIVAL_TINT_FADE_STEP
@@ -1851,6 +1886,29 @@ function GraphView({
               tintPulsePhase
             );
             view.container.scale.set(appliedScale);
+          } else if (isArrivalHoldActive) {
+            const arrivalTintAmount =
+              arrivalElapsedMs != null && arrivalElapsedMs >= ARRIVAL_BOUNCE_MS
+                ? 0.64 + (Math.sin((arrivalElapsedMs - ARRIVAL_BOUNCE_MS) * 0.0032) * 0.5 + 0.5) * 0.42
+                : 1;
+            drawItemCard(
+              view.background,
+              view.width,
+              view.itemId,
+              selectedNodeIdsRef.current.includes(view.nodeId) ? "highlight" : "default",
+              view.hasCategoryModifier || view.hasActionModifier,
+              arrivalTintAmount
+            );
+            if (arrivalElapsedMs != null && arrivalElapsedMs < ARRIVAL_BOUNCE_MS) {
+              const progress = arrivalElapsedMs / ARRIVAL_BOUNCE_MS;
+              const arrivalBounce =
+                Math.sin(progress * Math.PI * 3) *
+                0.03 *
+                Math.max(1 - progress, 0.25);
+              view.container.scale.set(appliedScale + arrivalBounce);
+            } else {
+              view.container.scale.set(appliedScale);
+            }
           } else if (view.arrivalTintProgress > 0) {
             drawItemCard(
               view.background,
@@ -1861,9 +1919,19 @@ function GraphView({
               view.arrivalTintProgress
             );
             const arrivalPulse =
-              Math.sin((1 - view.arrivalTintProgress) * Math.PI * 3) *
-              0.03 *
-              Math.max(view.arrivalTintProgress, 0.25);
+              view.arrivalHighlightStartedAt != null
+                ? (() => {
+                    const elapsedMs = now - view.arrivalHighlightStartedAt;
+                    if (elapsedMs < ARRIVAL_BOUNCE_MS) {
+                      const progress = elapsedMs / ARRIVAL_BOUNCE_MS;
+                      return Math.sin(progress * Math.PI * 1.15) * 0.085 * (1 - progress * 0.2);
+                    }
+                    const pulseElapsedMs = elapsedMs - ARRIVAL_BOUNCE_MS;
+                    return (Math.sin((pulseElapsedMs / 1000) * Math.PI * 2.1) * 0.5 + 0.5) * 0.018;
+                  })()
+                : Math.sin((1 - view.arrivalTintProgress) * Math.PI * 3) *
+                    0.03 *
+                    Math.max(view.arrivalTintProgress, 0.25);
             view.container.scale.set(appliedScale + arrivalPulse);
           }
 

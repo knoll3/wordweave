@@ -252,7 +252,6 @@ export async function fetchQuestTargetReference(
 
 export async function generateQuestDraft(params: {
   topic: string;
-  model?: AiModel;
 }): Promise<QuestGenerationDraft> {
   const res = await fetch(`${API_BASE}/quests/generate`, {
     method: "POST",
@@ -261,7 +260,6 @@ export async function generateQuestDraft(params: {
     },
     body: JSON.stringify({
       topic: params.topic,
-      model: params.model,
     }),
   });
   const data = await handleResponse<QuestGenerationDraftResponse>(res);

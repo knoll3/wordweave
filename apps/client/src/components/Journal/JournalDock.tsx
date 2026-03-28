@@ -35,6 +35,12 @@ interface Props {
   onTrackQuest: (questName: string) => void;
   onUntrackQuest: (questName: string) => void;
   onRequestAbandonQuest: (questName: string) => void;
+  pendingQuestAction:
+    | {
+        name: string;
+        kind: "track" | "untrack" | "abandon";
+      }
+    | null;
   truncateReference: (value: string, limit: number) => string;
 }
 
@@ -68,6 +74,7 @@ const JournalDock: React.FC<Props> = ({
   onTrackQuest,
   onUntrackQuest,
   onRequestAbandonQuest,
+  pendingQuestAction,
   truncateReference,
 }) => {
   const trackedQuests = quests.filter((quest) =>
@@ -93,6 +100,15 @@ const JournalDock: React.FC<Props> = ({
           : "No reference summary found yet.";
     const isCompleted = section === "completed";
     const isTracked = section === "tracked";
+    const isPendingForQuest = pendingQuestAction?.name === quest.name;
+    const primaryActionLabel = isTracked
+      ? isPendingForQuest && pendingQuestAction?.kind === "untrack"
+        ? "Untracking…"
+        : "Untrack"
+      : isPendingForQuest && pendingQuestAction?.kind === "track"
+        ? "Accepting…"
+        : "Accept";
+    const isAbandonPending = isPendingForQuest && pendingQuestAction?.kind === "abandon";
 
     return (
       <article
@@ -128,18 +144,20 @@ const JournalDock: React.FC<Props> = ({
               <button
                 type="button"
                 className={`button ${isTracked ? "secondary" : "primary"}`}
+                disabled={isPendingForQuest}
                 onClick={() =>
                   isTracked ? onUntrackQuest(quest.name) : onTrackQuest(quest.name)
                 }
               >
-                {isTracked ? "Untrack" : "Accept"}
+                {primaryActionLabel}
               </button>
               <button
                 type="button"
                 className="button secondary"
+                disabled={isPendingForQuest}
                 onClick={() => onRequestAbandonQuest(quest.name)}
               >
-                Abandon
+                {isAbandonPending ? "Abandoning…" : "Abandon"}
               </button>
             </>
           ) : null}

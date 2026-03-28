@@ -25,6 +25,7 @@ import {
 import type { SplitLlmResult } from "./validation";
 
 export type OpenAiModel =
+  | "gpt-5.4"
   | "gpt-5.1-mini"
   | "gpt-5-mini"
   | "gpt-5-nano"
@@ -33,6 +34,7 @@ export type OpenAiModel =
   | "gpt-4.1-nano";
 
 const MODEL_NAMES: OpenAiModel[] = [
+  "gpt-5.4",
   "gpt-5.1-mini",
   "gpt-5-mini",
   "gpt-5-nano",
@@ -361,10 +363,9 @@ export async function generateQuestTargets(params: {
   recentTargets: string[];
   completedTargets: string[];
   topic: string;
-  model?: OpenAiModel;
 }) {
   const openai = getOpenAI();
-  const model = params.model ?? DEFAULT_MODEL_NAME;
+  const model: OpenAiModel = "gpt-5.4";
   const prompt = renderQuestTargetsPrompt(params);
 
   console.log("[openai][challenge-targets] sending request", {

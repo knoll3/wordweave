@@ -169,6 +169,10 @@ const App: React.FC = () => {
   const [drawerItemId, setDrawerItemId] = useState<number | null>(null);
   const [selectedQuestName, setSelectedQuestName] = useState<string | null>(null);
   const [pendingAbandonedQuestName, setPendingAbandonedQuestName] = useState<string | null>(null);
+  const [pendingQuestAction, setPendingQuestAction] = useState<{
+    name: string;
+    kind: "track" | "untrack" | "abandon";
+  } | null>(null);
   const [drawerHistory, setDrawerHistory] = useState<number[]>([]);
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
@@ -209,6 +213,8 @@ const App: React.FC = () => {
         leftItem.position.x === rightItem.position.x &&
         leftItem.position.y === rightItem.position.y &&
         (leftItem.isNewDiscovery ?? false) === (rightItem.isNewDiscovery ?? false) &&
+        (leftItem.arrivalHighlightMode ?? null) ===
+          (rightItem.arrivalHighlightMode ?? null) &&
         (leftItem.categoryConstraintName ?? null) ===
           (rightItem.categoryConstraintName ?? null) &&
         (leftItem.categoryConstraintNormalizedName ?? null) ===
@@ -500,6 +506,11 @@ const App: React.FC = () => {
   function applyQuestStats(nextStats: PlayerQuestStats) {
     setQuestStats((prev) => {
       const nextTotalPoints = Math.max(prev.totalPoints, nextStats.totalPoints);
+      console.log("[client][quests] applyQuestStats", {
+        previousTotalPoints: prev.totalPoints,
+        receivedTotalPoints: nextStats.totalPoints,
+        appliedTotalPoints: nextTotalPoints,
+      });
       if (nextTotalPoints > prev.totalPoints) {
         setQuestPointsHighlightKey((current) => current + 1);
       }
@@ -552,7 +563,6 @@ const App: React.FC = () => {
     try {
       const nextDraft = await generateQuestDraft({
         topic,
-        model: selectedModel,
       });
       setQuestDraft(nextDraft);
     } catch (err) {
@@ -599,26 +609,49 @@ const App: React.FC = () => {
   }
 
   async function trackQuest(questName: string) {
+    if (pendingQuestAction) {
+      return;
+    }
+
+    setPendingQuestAction({ name: questName, kind: "track" });
     try {
       const result = await updateQuestStatus({ name: questName, status: "tracked" });
       setQuests(result.quests);
       applyQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
+    } finally {
+      setPendingQuestAction((current) =>
+        current?.name === questName && current.kind === "track" ? null : current
+      );
     }
   }
 
   async function untrackQuest(questName: string) {
+    if (pendingQuestAction) {
+      return;
+    }
+
+    setPendingQuestAction({ name: questName, kind: "untrack" });
     try {
       const result = await updateQuestStatus({ name: questName, status: "available" });
       setQuests(result.quests);
       applyQuestStats(result.stats);
     } catch (err) {
       showError("Failed to update quest.", err);
+    } finally {
+      setPendingQuestAction((current) =>
+        current?.name === questName && current.kind === "untrack" ? null : current
+      );
     }
   }
 
   async function abandonQuest(questName: string) {
+    if (pendingQuestAction) {
+      return;
+    }
+
+    setPendingQuestAction({ name: questName, kind: "abandon" });
     try {
       const result = await updateQuestStatus({ name: questName, status: "abandoned" });
       setQuests(result.quests);
@@ -630,6 +663,10 @@ const App: React.FC = () => {
       setPendingAbandonedQuestName(null);
     } catch (err) {
       showError("Failed to update quest.", err);
+    } finally {
+      setPendingQuestAction((current) =>
+        current?.name === questName && current.kind === "abandon" ? null : current
+      );
     }
   }
 
@@ -813,7 +850,7 @@ const App: React.FC = () => {
   function addItemToWorkspace(
     itemId: number,
     position?: { x: number; y: number },
-    options?: { isNewDiscovery?: boolean }
+    options?: { isNewDiscovery?: boolean; arrivalHighlightMode?: "library" }
   ) {
     const item = findItemById(itemId);
     if (!item) return;
@@ -838,6 +875,7 @@ const App: React.FC = () => {
         itemId,
         position: { x: nextPosition.x, y: nextPosition.y },
         isNewDiscovery: options?.isNewDiscovery ?? false,
+        arrivalHighlightMode: options?.arrivalHighlightMode,
       },
     ]);
   }
@@ -846,7 +884,7 @@ const App: React.FC = () => {
     setItems((prev) =>
       prev.some((existing) => existing.id === item.id) ? prev : [...prev, item]
     );
-    addItemToWorkspace(item.id);
+    addItemToWorkspace(item.id, undefined, { arrivalHighlightMode: "library" });
   }
 
   function addLibraryItemToWorkspaceAsActionAnchor(item: Item) {
@@ -870,6 +908,7 @@ const App: React.FC = () => {
           x: anchorPosition.x + (Math.random() - 0.5) * 160,
           y: anchorPosition.y + (Math.random() - 0.5) * 120,
         },
+        arrivalHighlightMode: "library",
         actionConstraintName: item.name,
         actionConstraintNormalizedName: item.normalizedName,
       },
@@ -1266,6 +1305,11 @@ const App: React.FC = () => {
           ? producedNodeIds[celebrationItemIndex] ?? null
           : null;
       applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
+      console.log("[client][quests] recipe completion payload", {
+        newlyCompletedQuestNames,
+        awardedPoints: recipe.awardedPoints ?? 0,
+        totalPoints: recipe.totalPoints ?? null,
+      });
       if (recipe.totalPoints != null) {
         applyQuestStats({
           totalPoints: recipe.totalPoints,
@@ -1281,6 +1325,10 @@ const App: React.FC = () => {
       ) {
         try {
           const result = await fetchQuests();
+          console.log("[client][quests] fetched quest stats after completion", {
+            questCount: result.quests.length,
+            totalPoints: result.stats.totalPoints,
+          });
           setQuests(result.quests);
           applyQuestStats(result.stats);
         } catch {
@@ -1454,6 +1502,10 @@ const App: React.FC = () => {
               <button
                 type="button"
                 className="button secondary"
+                disabled={
+                  pendingQuestAction?.name === pendingAbandonedQuestName &&
+                  pendingQuestAction.kind === "abandon"
+                }
                 onClick={() => setPendingAbandonedQuestName(null)}
               >
                 Cancel
@@ -1461,9 +1513,16 @@ const App: React.FC = () => {
               <button
                 type="button"
                 className="button danger"
+                disabled={
+                  pendingQuestAction?.name === pendingAbandonedQuestName &&
+                  pendingQuestAction.kind === "abandon"
+                }
                 onClick={() => abandonQuest(pendingAbandonedQuestName)}
               >
-                Abandon Quest
+                {pendingQuestAction?.name === pendingAbandonedQuestName &&
+                pendingQuestAction.kind === "abandon"
+                  ? "Abandoning…"
+                  : "Abandon Quest"}
               </button>
             </div>
           </div>
@@ -1582,6 +1641,7 @@ const App: React.FC = () => {
                 onTrackQuest={trackQuest}
                 onUntrackQuest={untrackQuest}
                 onRequestAbandonQuest={setPendingAbandonedQuestName}
+                pendingQuestAction={pendingQuestAction}
                 truncateReference={truncateReferencePreview}
               />
               <QuestGenerationModal

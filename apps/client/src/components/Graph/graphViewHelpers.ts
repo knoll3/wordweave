@@ -33,6 +33,8 @@ export type ItemView = {
   targetContentAlpha: number;
   destroyWhenSettled: boolean;
   arrivalTintProgress: number;
+  arrivalHighlightUntil: number | null;
+  arrivalHighlightStartedAt: number | null;
   celebrationProgress: number;
   celebrationTintProgress: number;
   celebrationTintHoldFrames: number;

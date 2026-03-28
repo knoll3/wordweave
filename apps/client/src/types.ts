@@ -154,6 +154,7 @@ export interface WorkspaceItem {
   itemId: number;
   position: { x: number; y: number };
   isNewDiscovery?: boolean;
+  arrivalHighlightMode?: "library";
   categoryConstraintName?: string | null;
   categoryConstraintNormalizedName?: string | null;
   actionConstraintName?: string | null;

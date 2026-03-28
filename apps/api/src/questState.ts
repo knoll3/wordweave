@@ -391,6 +391,11 @@ function markQuestCompleted(
   `);
   stmt.run([params.matchedItemName, params.completionMethod, params.normalizedName]);
   stmt.free();
+  console.log("[api][quests] quest marked completed", {
+    normalizedName: params.normalizedName,
+    matchedItemName: params.matchedItemName,
+    completionMethod: params.completionMethod,
+  });
 }
 
 function ensurePlayerStatRow(db: Database, key: string) {
@@ -409,7 +414,9 @@ function calculateQuestPointsSeedTotal(db: Database) {
       COALESCE((SELECT SUM(points_awarded) FROM quests WHERE status = 'completed'), 0)
       AS total_points
   `);
-  const row = stmt.getAsObject() as Record<string, unknown>;
+  const row = stmt.step()
+    ? (stmt.getAsObject() as Record<string, unknown>)
+    : { total_points: 0 };
   stmt.free();
   return Number(row.total_points ?? 0);
 }
@@ -423,6 +430,9 @@ function seedPlayerQuestPoints(db: Database) {
   `);
   stmt.run([totalPoints]);
   stmt.free();
+  console.log("[api][quests] seeded player quest points", {
+    totalPoints,
+  });
   return totalPoints;
 }
 
@@ -438,13 +448,21 @@ function repairPlayerQuestPointsIfNeeded(db: Database, currentTotalPoints: numbe
   `);
   stmt.run([seededTotalPoints]);
   stmt.free();
+  console.log("[api][quests] repaired player quest points", {
+    previousTotalPoints: currentTotalPoints,
+    repairedTotalPoints: seededTotalPoints,
+  });
   return seededTotalPoints;
 }
 
 function incrementPlayerPoints(db: Database, points: number) {
   const currentTotalPoints = getPlayerQuestStats(db).totalPoints;
-  repairPlayerQuestPointsIfNeeded(db, currentTotalPoints);
+  const repairedTotalPoints = repairPlayerQuestPointsIfNeeded(db, currentTotalPoints);
   if (points <= 0) {
+    console.log("[api][quests] increment skipped", {
+      currentTotalPoints: repairedTotalPoints,
+      addedPoints: points,
+    });
     return;
   }
   ensurePlayerStatRow(db, "quest_points_total");
@@ -455,15 +473,27 @@ function incrementPlayerPoints(db: Database, points: number) {
   `);
   stmt.run([points]);
   stmt.free();
+  const nextTotalPoints = getPlayerQuestStats(db).totalPoints;
+  console.log("[api][quests] incremented player quest points", {
+    previousTotalPoints: repairedTotalPoints,
+    addedPoints: points,
+    nextTotalPoints,
+  });
 }
 
 export function getPlayerQuestStats(db: Database): PlayerQuestStats {
   const stmt = db.prepare("SELECT value_integer FROM player_stats WHERE key = 'quest_points_total'");
-  const row = stmt.getAsObject() as Record<string, unknown>;
+  const row = stmt.step()
+    ? (stmt.getAsObject() as Record<string, unknown>)
+    : {};
   stmt.free();
   if (row.value_integer != null) {
+    const totalPoints = repairPlayerQuestPointsIfNeeded(db, Number(row.value_integer ?? 0));
+    console.log("[api][quests] loaded player quest points", {
+      totalPoints,
+    });
     return {
-      totalPoints: repairPlayerQuestPointsIfNeeded(db, Number(row.value_integer ?? 0)),
+      totalPoints,
     };
   }
 
@@ -579,6 +609,7 @@ export async function syncQuestCompletions(
 
   if (logEnabled) {
     console.log("[api][quests] completion summary", {
+      completedQuestNames: newlyCompletedQuestNames,
       targetCount: quests.length,
       discoveredCount: discoveredRows.length,
       candidateNameCount: options?.candidateNames?.length ?? 0,

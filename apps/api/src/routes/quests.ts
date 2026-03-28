@@ -1,10 +1,7 @@
 import express from "express";
 import { z } from "zod";
 import { getDb, persistDatabase } from "../db";
-import {
-  generateQuestTargets,
-  type OpenAiModel,
-} from "../openaiClient";
+import { generateQuestTargets } from "../openaiClient";
 import {
   createQuestSet,
   findGeneratedQuestTargetsTooCloseToDiscoveries,
@@ -34,7 +31,6 @@ function formatQuestSetTitle(topic: string) {
 
 const generateTargetsRequestSchema = z.object({
   topic: z.string().min(1).max(120),
-  model: z.enum(["gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"]).optional(),
 });
 
 const acceptGeneratedTargetsRequestSchema = z.object({
@@ -107,7 +103,6 @@ router.post("/generate", async (req, res) => {
   const count = 12;
   const requestCount = Math.min(count + 6, 20);
   const topic = parsed.data.topic.trim();
-  const model: OpenAiModel | undefined = parsed.data.model;
 
   try {
     const db = await getDb();
@@ -141,7 +136,6 @@ router.post("/generate", async (req, res) => {
         topic,
         recentTargets: [...recentTargets, ...acceptedTargets.map((target) => target.name)],
         completedTargets,
-        model,
       });
       const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
         db,
