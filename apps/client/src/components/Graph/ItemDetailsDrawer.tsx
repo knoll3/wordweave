@@ -5,10 +5,10 @@ import {
   CATEGORY_MODIFIER_ITEM_ID,
   COMPOUND_CATALYST_ITEM_ID,
   CREATIVE_ITEM_ID,
-  ESSENCE_CATALYST_ITEM_ID,
   EVOLVE_CATALYST_ITEM_ID,
   OPPOSITE_CATALYST_ITEM_ID,
   POP_CULTURE_CATALYST_ITEM_ID,
+  ROOT_CATALYST_ITEM_ID,
   SPLIT_CATALYST_ITEM_ID,
   SYNONYM_CATALYST_ITEM_ID,
 } from "../../types";
@@ -32,7 +32,7 @@ type CatalystGuide = {
 const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   [ACTION_MODIFIER_ITEM_ID]: {
     description:
-      "Action is a modifier token that can be attached to any item. That item becomes the action being performed, and the other combined items act as clues for what happens when that action is applied. Most anchor words use the general action behavior, while certain words like Split, Opposite, Synonym, Translate, Distill, Simplify, and Common switch to specialized tuned behavior.",
+      "Action is a modifier token that can be attached to any item. That item becomes the action being performed, and the other combined items act as clues for what happens when that action is applied. Most anchor words use the general action behavior, while certain words like Split, Opposite, Synonym, Root, Translate, Distill, Simplify, and Common switch to specialized tuned behavior.",
     example:
       "Example: Action -> Common, then Common + Cat + Monkey -> Mammal. Action -> Split, then Split + Steam Engine -> Steam + Engine.",
   },
@@ -70,9 +70,9 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
     description: "Runs the compound prompt family as a direct catalyst item.",
     example: "Example: Compound Catalyst + Rain + Bow -> Rainbow.",
   },
-  [ESSENCE_CATALYST_ITEM_ID]: {
-    description: "Runs the essence prompt family as a direct catalyst item.",
-    example: "Example: Essence Catalyst + Ocean -> Water.",
+  [ROOT_CATALYST_ITEM_ID]: {
+    description: "Runs the root-word prompt family as a direct catalyst item.",
+    example: "Example: Root Catalyst + Kindness -> Kind.",
   },
   [COMMON_CATALYST_ITEM_ID]: {
     description: "Runs the common prompt family as a direct catalyst item.",

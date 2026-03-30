@@ -15,5 +15,6 @@ export {
 } from "./openaiPrompts/specialPrompts";
 export {
   QUEST_TARGETS_PROMPT,
+  QUEST_TARGET_VARIANTS_PROMPT,
 } from "./openaiPrompts/questPrompts";
 export { RECIPE_BATCH_PROMPT } from "./openaiPrompts/batchPrompts";

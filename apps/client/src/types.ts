@@ -49,7 +49,7 @@ export const SYNONYM_CATALYST_ITEM_ID = -13;
 export const EVOLVE_CATALYST_ITEM_ID = -14;
 export const POP_CULTURE_CATALYST_ITEM_ID = -15;
 export const COMPOUND_CATALYST_ITEM_ID = -16;
-export const ESSENCE_CATALYST_ITEM_ID = -17;
+export const ROOT_CATALYST_ITEM_ID = -17;
 export const COMMON_CATALYST_ITEM_ID = -18;
 
 export const SPLIT_CATALYST_ITEM: Item = {
@@ -94,11 +94,11 @@ export const COMPOUND_CATALYST_ITEM: Item = {
   icon: "🧩",
 };
 
-export const ESSENCE_CATALYST_ITEM: Item = {
-  id: ESSENCE_CATALYST_ITEM_ID,
-  name: "Essence",
-  normalizedName: "essence",
-  icon: "💧",
+export const ROOT_CATALYST_ITEM: Item = {
+  id: ROOT_CATALYST_ITEM_ID,
+  name: "Root",
+  normalizedName: "root",
+  icon: "🌱",
 };
 
 export const COMMON_CATALYST_ITEM: Item = {
@@ -141,6 +141,10 @@ export interface Recipe {
   resultElements?: Item[];
   autoUnlockedActionWords?: AutoUnlockedActionWord[];
   newlyCompletedQuestNames?: string[];
+  completedQuestMatches?: Array<{
+    questName: string;
+    matchedItemName: string;
+  }>;
   completedQuestSets?: QuestSetCompletion[];
   awardedPoints?: number;
   totalPoints?: number;

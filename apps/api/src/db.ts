@@ -221,6 +221,16 @@ function createSchema(db: Database): void {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS quest_target_variants (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quest_normalized_name TEXT NOT NULL,
+      variant_name TEXT NOT NULL,
+      variant_normalized_name TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(quest_normalized_name, variant_normalized_name),
+      FOREIGN KEY (quest_normalized_name) REFERENCES quests(normalized_name) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS player_stats (
       key TEXT PRIMARY KEY,
       value_integer INTEGER NOT NULL DEFAULT 0,

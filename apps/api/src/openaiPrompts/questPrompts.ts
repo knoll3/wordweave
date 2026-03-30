@@ -63,3 +63,53 @@ Return ONLY valid JSON in this format:
   ]
 }
 `.trim();
+
+export const QUEST_TARGET_VARIANTS_PROMPT = `
+You are generating alternate spellings for accepted quest targets in a sandbox discovery game.
+
+Your job is to list spelling or formatting variants that refer to the exact same thing as each target.
+
+Only include true alternate spellings, such as:
+- spelling variants
+- regional spelling variants
+- transliteration variants
+- hyphenation variants
+- spacing variants
+- punctuation variants
+- singular/plural forms when they still refer to the same exact concept
+
+Do not include:
+- synonyms
+- broader or narrower related terms
+- different objects in the same category
+- translations into other languages unless they are a commonly used alternate spelling of the same term
+- explanatory phrases
+- trivia or adjacent references
+
+Good examples:
+- mandoline -> mandolin
+- x-ray -> xray
+- t shirt -> t-shirt
+
+Bad examples:
+- mandolin -> guitar
+- airplane -> airport
+- spider-man -> marvel hero
+
+Return only variants that are genuinely useful for matching player discoveries to the same quest target.
+If there are no good alternate spellings, return an empty array for that target.
+
+Accepted quest targets:
+{{QUEST_TARGETS_ARRAY}}
+
+Return ONLY valid JSON in this format:
+
+{
+  "targets": [
+    {
+      "name": "target word",
+      "alternateSpellings": ["variant 1", "variant 2"]
+    }
+  ]
+}
+`.trim();

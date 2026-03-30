@@ -12,17 +12,19 @@ import {
   BASE_PROMPT,
   CATEGORY_PROMPT,
   QUEST_TARGETS_PROMPT,
+  QUEST_TARGET_VARIANTS_PROMPT,
   CREATIVE_PROMPT,
   RECIPE_BATCH_PROMPT,
 } from "./openaiPrompts";
 import {
   questTargetsSchema,
+  questTargetVariantsSchema,
   llmResultSchema,
   recipeBatchSchema,
   splitLlmResultSchema,
   craftLlmResultSchema,
 } from "./validation";
-import type { SplitLlmResult } from "./validation";
+import type { QuestTargetVariants, SplitLlmResult } from "./validation";
 
 export type OpenAiModel =
   | "gpt-5.4"
@@ -443,6 +445,68 @@ export async function generateQuestTargets(params: {
   }
 
   console.log("[openai][quest-targets] parsed result", result.data);
+  return result.data;
+}
+
+export async function generateQuestTargetVariants(params: {
+  targets: string[];
+}): Promise<QuestTargetVariants> {
+  const openai = getOpenAI();
+  const model: OpenAiModel = "gpt-5-mini";
+  const reasoningEffort = "medium";
+  const prompt = QUEST_TARGET_VARIANTS_PROMPT.replace(
+    "{{QUEST_TARGETS_ARRAY}}",
+    JSON.stringify(params.targets)
+  );
+
+  console.log("[openai][quest-target-variants] sending request", {
+    model,
+    reasoningEffort,
+    targetCount: params.targets.length,
+    prompt,
+  });
+
+  const response = await openai.chat.completions.create({
+    model,
+    temperature: 1,
+    reasoning_effort: reasoningEffort,
+    response_format: { type: "json_object" },
+    messages: [{ role: "user", content: prompt }],
+  } as any);
+
+  const promptTokens = response.usage?.prompt_tokens ?? 0;
+  const completionTokens = response.usage?.completion_tokens ?? 0;
+  const cachedPromptTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+  const responseModel = response.model ?? model;
+  logUsageAndCost({
+    logPrefix: "[openai][quest-target-variants]",
+    responseModel,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
+  const content = response.choices[0]?.message?.content;
+  if (!content) {
+    throw new Error("No content returned from OpenAI");
+  }
+
+  console.log("[openai][quest-target-variants] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch {
+    throw new Error("Failed to parse OpenAI JSON response");
+  }
+
+  const result = questTargetVariantsSchema.safeParse(parsed);
+  if (!result.success) {
+    console.error("[openai][quest-target-variants] response failed schema validation", parsed);
+    throw new Error("OpenAI quest target variants failed validation");
+  }
+
+  console.log("[openai][quest-target-variants] parsed result", result.data);
   return result.data;
 }
 

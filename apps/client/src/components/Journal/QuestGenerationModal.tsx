@@ -10,9 +10,9 @@ interface Props {
   onTopicChange: (value: string) => void;
   onClose: () => void;
   onSubmit: () => void;
-  onResetTopic: () => void;
   onToggleTarget: (targetName: string) => void;
-  onClearSelection: () => void;
+  onSelectAll: () => void;
+  onDeselectAll: () => void;
   onAccept: () => void;
 }
 
@@ -25,9 +25,9 @@ const QuestGenerationModal: React.FC<Props> = ({
   onTopicChange,
   onClose,
   onSubmit,
-  onResetTopic,
   onToggleTarget,
-  onClearSelection,
+  onSelectAll,
+  onDeselectAll,
   onAccept,
 }) => {
   if (!isOpen) {
@@ -74,32 +74,26 @@ const QuestGenerationModal: React.FC<Props> = ({
         <div className="quest-topic-body">
           <label
             className="quest-topic-label"
-            htmlFor={!isLoading && !draft ? "quest-topic-input" : undefined}
+            htmlFor="quest-topic-input"
           >
             Topic
           </label>
-          {!isLoading && !draft ? (
-            <input
-              id="quest-topic-input"
-              className="quest-topic-input"
-              type="text"
-              value={topic}
-              onChange={(event) => onTopicChange(event.target.value)}
-              placeholder="Harry Potter spells, Pokemon, Ancient Egypt, ocean animals..."
-              autoFocus
-              disabled={isLoading}
-              onKeyDown={(event) => {
-                if (event.key === "Enter" && !event.shiftKey) {
-                  event.preventDefault();
-                  onSubmit();
-                }
-              }}
-            />
-          ) : (
-            <div className="quest-topic-summary">
-              <div className="quest-topic-summary-value">{topic}</div>
-            </div>
-          )}
+          <input
+            id="quest-topic-input"
+            className="quest-topic-input"
+            type="text"
+            value={topic}
+            onChange={(event) => onTopicChange(event.target.value)}
+            placeholder="Harry Potter spells, Pokemon, Ancient Egypt, ocean animals..."
+            autoFocus
+            disabled={isLoading}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                onSubmit();
+              }
+            }}
+          />
           {isLoading ? (
             <div
               className="quest-topic-loading"
@@ -136,12 +130,32 @@ const QuestGenerationModal: React.FC<Props> = ({
           ) : null}
           {draft?.targets.length ? (
             <div className="quest-topic-results">
-              <div className="quest-topic-results-label">
-                Suggested targets
-                <span className="quest-topic-results-meta">
-                  {" "}
-                  · {selectedTargetNames.length} selected
-                </span>
+              <div className="quest-topic-results-head">
+                <div className="quest-topic-results-label">
+                  Suggested targets
+                  <span className="quest-topic-results-meta">
+                    {" "}
+                    · {selectedTargetNames.length} selected
+                  </span>
+                </div>
+                <div className="quest-topic-results-actions">
+                  <button
+                    type="button"
+                    className="quest-topic-inline-action"
+                    onClick={onSelectAll}
+                    disabled={isLoading || selectedTargetNames.length === draft.targets.length}
+                  >
+                    Select all
+                  </button>
+                  <button
+                    type="button"
+                    className="quest-topic-inline-action"
+                    onClick={onDeselectAll}
+                    disabled={isLoading || selectedTargetNames.length === 0}
+                  >
+                    Deselect all
+                  </button>
+                </div>
               </div>
               <div className="quest-topic-chip-list">
                 {draft.targets.map((target, index) => {
@@ -182,22 +196,6 @@ const QuestGenerationModal: React.FC<Props> = ({
           </button>
           {draft ? (
             <>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={onResetTopic}
-                disabled={isLoading}
-              >
-                Try Something Else
-              </button>
-              <button
-                type="button"
-                className="button secondary"
-                onClick={onClearSelection}
-                disabled={isLoading || selectedTargetNames.length === 0}
-              >
-                Clear Selection
-              </button>
               <button
                 type="button"
                 className="button primary"

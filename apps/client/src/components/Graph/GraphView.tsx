@@ -221,6 +221,7 @@ function GraphView({
   const lastCelebratedNodeIdRef = useRef<string | null>(null);
   const ARRIVAL_HIGHLIGHT_MAX_MS = 30_000;
   const ARRIVAL_BOUNCE_MS = 500;
+  const ITEM_HITBOX_PADDING = 10;
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -1030,6 +1031,12 @@ function GraphView({
     }
 
     container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
+    container.hitArea = new Rectangle(
+      -ITEM_HITBOX_PADDING,
+      -ITEM_HITBOX_PADDING,
+      cardWidth + ITEM_HITBOX_PADDING * 2,
+      CARD_HEIGHT + ITEM_HITBOX_PADDING * 2
+    );
     container.on("pointerdown", (event) => {
       if (event.pointerType === "touch") {
         activeTouchPointsRef.current.set(event.pointerId, {

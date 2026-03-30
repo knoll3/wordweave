@@ -515,6 +515,7 @@ router.post("/combine", async (req, res) => {
         element: ElementDTO;
       }> = [];
       let newlyCompletedQuestNames: string[] = [];
+      let completedQuestMatches: Array<{ questName: string; matchedItemName: string }> = [];
       let completedQuestSets: Array<{
         id: string;
         title: string;
@@ -541,6 +542,7 @@ router.post("/combine", async (req, res) => {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+          completedQuestMatches = completionResult.completedQuestMatches;
           completedQuestSets = completionResult.completedQuestSets;
           awardedPoints = completionResult.awardedPoints;
           totalPoints = completionResult.totalPoints;
@@ -654,6 +656,7 @@ router.post("/combine", async (req, res) => {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+          completedQuestMatches = completionResult.completedQuestMatches;
           completedQuestSets = completionResult.completedQuestSets;
           awardedPoints = completionResult.awardedPoints;
           totalPoints = completionResult.totalPoints;
@@ -668,6 +671,7 @@ router.post("/combine", async (req, res) => {
           resultElement,
           autoUnlockedActionWords,
           newlyCompletedQuestNames,
+          completedQuestMatches,
           completedQuestSets,
           awardedPoints,
           totalPoints,
@@ -786,6 +790,7 @@ router.post("/combine", async (req, res) => {
       );
 
       let newlyCompletedQuestNames: string[] = [];
+      let completedQuestMatches: Array<{ questName: string; matchedItemName: string }> = [];
       let completedQuestSets: Array<{
         id: string;
         title: string;
@@ -800,6 +805,7 @@ router.post("/combine", async (req, res) => {
           candidateNames: newlyDiscoveredQuestCandidateNames,
         });
         newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        completedQuestMatches = completionResult.completedQuestMatches;
         completedQuestSets = completionResult.completedQuestSets;
         awardedPoints = completionResult.awardedPoints;
         totalPoints = completionResult.totalPoints;
@@ -824,6 +830,8 @@ router.post("/combine", async (req, res) => {
           autoUnlockedActionWords.length > 0 ? autoUnlockedActionWords : undefined,
         newlyCompletedQuestNames:
           newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
+        completedQuestMatches:
+          completedQuestMatches.length > 0 ? completedQuestMatches : undefined,
         completedQuestSets: completedQuestSets.length > 0 ? completedQuestSets : undefined,
         awardedPoints: awardedPoints > 0 ? awardedPoints : undefined,
         totalPoints,
@@ -992,6 +1000,7 @@ router.post("/combine", async (req, res) => {
       ...autoUnlockedActionWords.map((entry) => entry.element.name)
     );
     let newlyCompletedQuestNames: string[] = [];
+    let completedQuestMatches: Array<{ questName: string; matchedItemName: string }> = [];
     let completedQuestSets: Array<{
       id: string;
       title: string;
@@ -1006,6 +1015,7 @@ router.post("/combine", async (req, res) => {
         candidateNames: newlyDiscoveredQuestCandidateNames,
       });
       newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+      completedQuestMatches = completionResult.completedQuestMatches;
       completedQuestSets = completionResult.completedQuestSets;
       awardedPoints = completionResult.awardedPoints;
       totalPoints = completionResult.totalPoints;
@@ -1050,6 +1060,7 @@ router.post("/combine", async (req, res) => {
         resultElements,
         autoUnlockedActionWords,
         newlyCompletedQuestNames,
+        completedQuestMatches,
         completedQuestSets,
         awardedPoints,
         totalPoints,
@@ -1141,6 +1152,7 @@ router.post("/:id/select", async (req, res) => {
         ...autoUnlockedActionWords.map((entry) => entry.element.name),
       ];
       let newlyCompletedQuestNames: string[] = [];
+      let completedQuestMatches: Array<{ questName: string; matchedItemName: string }> = [];
       let completedQuestSets: Array<{
         id: string;
         title: string;
@@ -1155,6 +1167,7 @@ router.post("/:id/select", async (req, res) => {
           candidateNames,
         });
         newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
+        completedQuestMatches = completionResult.completedQuestMatches;
         completedQuestSets = completionResult.completedQuestSets;
         awardedPoints = completionResult.awardedPoints;
         totalPoints = completionResult.totalPoints;
@@ -1175,6 +1188,8 @@ router.post("/:id/select", async (req, res) => {
         autoUnlockedActionWords,
         newlyCompletedQuestNames:
           newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
+        completedQuestMatches:
+          completedQuestMatches.length > 0 ? completedQuestMatches : undefined,
         completedQuestSets: completedQuestSets.length > 0 ? completedQuestSets : undefined,
         awardedPoints: awardedPoints > 0 ? awardedPoints : undefined,
         totalPoints,

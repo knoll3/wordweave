@@ -6,6 +6,7 @@ export type ActionPromptFamilyReference = {
     | "evolve"
     | "pop_culture"
     | "compound"
+    | "root"
     | "translate"
     | "abbreviate"
     | "expand"
@@ -185,6 +186,27 @@ export const ACTION_PROMPT_FAMILY_REFERENCES: ActionPromptFamilyReference[] = [
       "hyphen",
       "fusion",
       "collocation",
+    ],
+  },
+  {
+    key: "root",
+    title: "Root",
+    description: "Reduce a derived word to its nearest real standalone base word.",
+    triggerWords: [
+      "root",
+      "base",
+      "base word",
+      "root word",
+      "lemma",
+      "stem",
+      "origin word",
+      "underived",
+      "deinflect",
+      "deinflection",
+      "normalize",
+      "normalized",
+      "canonicalize",
+      "canonical",
     ],
   },
   {

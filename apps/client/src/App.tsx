@@ -561,16 +561,6 @@ const App: React.FC = () => {
     setSelectedQuestDraftTargets([]);
   }
 
-  function resetQuestGenerationTopic() {
-    if (isGeneratingQuests) {
-      return;
-    }
-    setQuestTopicInput("");
-    setQuestDraft(null);
-    setQuestDraftSeenTargets([]);
-    setSelectedQuestDraftTargets([]);
-  }
-
   async function submitQuestGenerationTopic() {
     const topic = questTopicInput.trim();
     if (!topic) {
@@ -616,6 +606,13 @@ const App: React.FC = () => {
       return;
     }
     setSelectedQuestDraftTargets([]);
+  }
+
+  function selectAllQuestDraftTargets() {
+    if (!questDraft || isGeneratingQuests) {
+      return;
+    }
+    setSelectedQuestDraftTargets(questDraft.targets.map((target) => target.name));
   }
 
   async function acceptQuestGenerationDraft() {
@@ -1238,6 +1235,7 @@ const App: React.FC = () => {
             : [];
       const autoUnlockedActionWords = recipe.autoUnlockedActionWords ?? [];
       const newlyCompletedQuestNames = recipe.newlyCompletedQuestNames ?? [];
+      const completedQuestMatches = recipe.completedQuestMatches ?? [];
 
       if (producedItems.length === 0) {
         showError("Combine returned no result item.", null);
@@ -1348,12 +1346,26 @@ const App: React.FC = () => {
           return [...withoutInputs, ...spawned];
         }, { recordHistory: false });
       }
+      const celebrationMatchedItemName =
+        completedQuestMatches.find((match) =>
+          producedItemsWithDiscovery.some(
+            (produced) =>
+              normalizeItemName(produced.item.normalizedName || produced.item.name) ===
+              normalizeItemName(match.matchedItemName)
+          )
+        )?.matchedItemName ?? null;
       const celebrationItemIndex =
-        newestDiscoveredItem != null
+        celebrationMatchedItemName != null
           ? producedItemsWithDiscovery.findIndex(
-              (produced) => produced.item.id === newestDiscoveredItem.id
+              (produced) =>
+                normalizeItemName(produced.item.normalizedName || produced.item.name) ===
+                normalizeItemName(celebrationMatchedItemName)
             )
-          : -1;
+          : newestDiscoveredItem != null
+            ? producedItemsWithDiscovery.findIndex(
+                (produced) => produced.item.id === newestDiscoveredItem.id
+              )
+            : -1;
       const resolvedCelebrationNodeId =
         celebrationItemIndex >= 0
           ? producedNodeIds[celebrationItemIndex] ?? null
@@ -1700,9 +1712,9 @@ const App: React.FC = () => {
                 onSubmit={() => {
                   void submitQuestGenerationTopic();
                 }}
-                onResetTopic={resetQuestGenerationTopic}
                 onToggleTarget={toggleQuestDraftTarget}
-                onClearSelection={clearQuestDraftSelection}
+                onSelectAll={selectAllQuestDraftTargets}
+                onDeselectAll={clearQuestDraftSelection}
                 onAccept={() => {
                   void acceptQuestGenerationDraft();
                 }}

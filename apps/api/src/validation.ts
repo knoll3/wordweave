@@ -50,8 +50,18 @@ export const questTargetsSchema = z.object({
   targets: z.array(llmResultSchema).min(1).max(30),
 });
 
+export const questTargetVariantsSchema = z.object({
+  targets: z.array(
+    z.object({
+      name: z.string().min(1).max(64),
+      alternateSpellings: z.array(z.string().min(1).max(96)).max(40),
+    })
+  ),
+});
+
 export type LlmResult = z.infer<typeof llmResultSchema>;
 export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;
 export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;
 export type QuestTargets = z.infer<typeof questTargetsSchema>;
+export type QuestTargetVariants = z.infer<typeof questTargetVariantsSchema>;

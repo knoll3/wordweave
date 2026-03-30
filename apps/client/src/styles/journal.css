@@ -685,26 +685,6 @@
   background: rgba(15, 23, 42, 0.96);
 }
 
-.quest-topic-summary {
-  display: flex;
-  align-items: center;
-  min-height: 52px;
-  padding: 12px 14px;
-  border-radius: 16px;
-  border: 1px solid rgba(148, 163, 184, 0.16);
-  background:
-    radial-gradient(circle at top right, rgba(125, 211, 252, 0.1), transparent 42%),
-    rgba(15, 23, 42, 0.72);
-}
-
-.quest-topic-summary-value {
-  color: #f8fafc;
-  font-size: 0.96rem;
-  font-weight: 600;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
 .quest-topic-results {
   display: flex;
   flex-direction: column;
@@ -713,6 +693,14 @@
   border-radius: 18px;
   border: 1px solid rgba(148, 163, 184, 0.14);
   background: rgba(15, 23, 42, 0.54);
+}
+
+.quest-topic-results-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .quest-topic-loading {
@@ -758,6 +746,30 @@
   letter-spacing: 0;
   text-transform: none;
   color: #94a3b8;
+}
+
+.quest-topic-results-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.quest-topic-inline-action {
+  appearance: none;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  background: rgba(2, 6, 23, 0.46);
+  color: #cbd5e1;
+  border-radius: 999px;
+  padding: 6px 10px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.quest-topic-inline-action:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 .quest-topic-chip-list {

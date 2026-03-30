@@ -7,6 +7,7 @@ export type ActionPromptFamilyKey =
   | "evolve"
   | "pop_culture"
   | "compound"
+  | "root"
   | "translate"
   | "abbreviate"
   | "expand"
@@ -31,6 +32,12 @@ If a Category modifier is also active, the result must still clearly belong insi
 Preserve that category constraint while following the action behavior below.
 `.trim();
 
+const CLUE_INTERPRETATION_GUIDANCE = `
+The player is trying to get you to guess a target word, term, or multi-word concept with a limited vocabulary library.
+Think carefully about what the player may be trying to get you to guess.
+Assume each input is provided intentionally to serve as a clue for what the most expected output should be.
+`.trim();
+
 const SPLIT_ACTION_PROMPT = `
 You are the split engine for a sandbox discovery game.
 
@@ -39,6 +46,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 The player provides several inputs. Your job is to split the dominant input into the literal real words that make up that text.
 
 Only do textual splitting. This is not about conceptual decomposition, physical parts, ingredients, or semantic components.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 Good results:
 - two-word names split into their separate words
@@ -86,6 +95,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
 The player provides several inputs. Your job is to return the clearest and most widely recognized opposite of the dominant input concept.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -115,6 +126,8 @@ The player provides several inputs. Your job is to return the clearest synonym, 
 Prefer direct equivalence first. If there is no strong synonym, you may return a very close and recognizable word-family variant or near-equivalent form instead.
 
 Do not fall back to examples, broader categories, poetic associations, or loosely related concepts. A close word-form shift is acceptable, but it should still feel like almost the same idea rather than a different concept.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
@@ -152,6 +165,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
 The player provides several inputs. Your job is to return the clearest next-stage, more advanced, stronger, more mature, or more developed form of the dominant input concept.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -180,6 +195,8 @@ The player provides several inputs as clues. Your job is to return the single mo
 
 Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -207,6 +224,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 The player provides several inputs. Your job is to return a real established compound word or common phrase formed by those inputs, but only when such a result genuinely exists.
 
 If there is no strong real compound or phrase, fail instead of inventing one.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
@@ -237,6 +256,41 @@ Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
 `.trim();
 
+const ROOT_ACTION_PROMPT = `
+You are the root-word engine for a sandbox discovery game.
+
+The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
+
+The player provides several inputs. Your job is to return the clearest real base word, root word, or underived standalone form that the dominant input points to.
+
+This is for derived words and inflected forms. You may remove common endings like -ness, -ity, -ment, -tion, -s, -es, -ed, or -ing when doing so reveals a real, familiar standalone word.
+
+Do not treat this like synonym generation, translation, or general conceptual simplification. Stay as close as possible to the original word and return the most recognizable real base form.
+
+${CLUE_INTERPRETATION_GUIDANCE}
+
+${CATEGORY_RULES_PLACEHOLDER}
+
+Rules:
+- Return exactly one result.
+- Keep the result short and recognizable.
+- Do not return explanations, descriptions, or sentences.
+- Favor the nearest real base word over a broader related concept.
+- Only reduce the word if the result is still a real, common standalone word.
+- If no good reduction exists, return the original word unchanged.
+- Do not return stems or fragments that are not valid standalone words.
+
+Return ONLY valid JSON in this format:
+
+{
+  "name": "result name",
+  "icon": "emoji"
+}
+
+Inputs:
+{{INPUT_ELEMENTS_ARRAY}}
+`.trim();
+
 const TRANSLATE_ACTION_PROMPT = `
 You are the translation engine for a sandbox discovery game.
 
@@ -245,6 +299,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 The player provides several inputs. Your job is to return the clearest and most recognizable translation, alternate-language rendering, or equivalent expression those inputs point to.
 
 Prefer a result that preserves the same meaning in another familiar linguistic form rather than drifting into a loose association.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
@@ -281,6 +337,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
 The player provides several inputs. Your job is to return the clearest abbreviation, acronym, shortened form, or shorthand version those inputs point to.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -315,6 +373,8 @@ You are the expansion engine for a sandbox discovery game.
 The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
 The player provides several inputs. Your job is to return the clearest expanded, spelled-out, or full-form version of the dominant shorthand concept those inputs point to.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
@@ -353,6 +413,8 @@ The player provides several inputs. Your job is to return the clearest, most con
 
 Prefer the primary essence or most central concentrated output over a decorative side product.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -381,6 +443,8 @@ The player provides several inputs. Your job is to return the clearest simpler, 
 
 Prefer the cleanest base form over a specialized, embellished, or technical variant.
 
+${CLUE_INTERPRETATION_GUIDANCE}
+
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
@@ -408,6 +472,8 @@ The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 The player provides several inputs. Your job is to return the most specific real thing that every input has.
 
 Prefer the narrowest shared attribute, part, property, feature, component, or concept that is genuinely true of every input. If the overlap is weak, broaden only as much as needed until the result is still true for all of them.
+
+${CLUE_INTERPRETATION_GUIDANCE}
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
@@ -614,6 +680,29 @@ export const ACTION_PROMPT_FAMILIES: ActionPromptFamily[] = [
       "hyphen",
       "fusion",
       "collocation",
+    ],
+  },
+  {
+    key: "root",
+    title: "Root",
+    canonicalWord: "root",
+    prompt: ROOT_ACTION_PROMPT,
+    responseMode: "default",
+    triggerWords: [
+      "root",
+      "base",
+      "base word",
+      "root word",
+      "lemma",
+      "stem",
+      "origin word",
+      "underived",
+      "deinflect",
+      "deinflection",
+      "normalize",
+      "normalized",
+      "canonicalize",
+      "canonical",
     ],
   },
   {

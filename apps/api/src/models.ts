@@ -29,6 +29,10 @@ export interface RecipeDTO {
     element: ElementDTO;
   }>;
   newlyCompletedQuestNames?: string[];
+  completedQuestMatches?: Array<{
+    questName: string;
+    matchedItemName: string;
+  }>;
   completedQuestSets?: Array<{
     id: string;
     title: string;
@@ -117,6 +121,7 @@ export function buildCombineResponse(params: {
   resultElements?: ElementDTO[];
   autoUnlockedActionWords?: RecipeDTO["autoUnlockedActionWords"];
   newlyCompletedQuestNames?: string[];
+  completedQuestMatches?: RecipeDTO["completedQuestMatches"];
   completedQuestSets?: RecipeDTO["completedQuestSets"];
   awardedPoints?: number;
   totalPoints?: number;
@@ -128,6 +133,7 @@ export function buildCombineResponse(params: {
     resultElements,
     autoUnlockedActionWords,
     newlyCompletedQuestNames,
+    completedQuestMatches,
     completedQuestSets,
     awardedPoints,
     totalPoints,
@@ -154,6 +160,10 @@ export function buildCombineResponse(params: {
     newlyCompletedQuestNames:
       newlyCompletedQuestNames && newlyCompletedQuestNames.length > 0
         ? newlyCompletedQuestNames
+        : undefined,
+    completedQuestMatches:
+      completedQuestMatches && completedQuestMatches.length > 0
+        ? completedQuestMatches
         : undefined,
     completedQuestSets:
       completedQuestSets && completedQuestSets.length > 0 ? completedQuestSets : undefined,

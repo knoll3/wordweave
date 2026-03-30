@@ -1,7 +1,10 @@
 import express from "express";
 import { z } from "zod";
 import { getDb, persistDatabase } from "../db";
-import { generateQuestTargets } from "../openaiClient";
+import {
+  generateQuestTargetVariants,
+  generateQuestTargets,
+} from "../openaiClient";
 import {
   createQuestSet,
   findGeneratedQuestTargetsTooCloseToDiscoveries,
@@ -10,6 +13,7 @@ import {
   insertQuest,
   listQuests,
   normalizeQuestName,
+  replaceQuestTargetVariants,
   syncQuestCompletions,
   updateQuestStatus,
 } from "../questState";
@@ -27,6 +31,40 @@ function formatQuestSetTitle(topic: string) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+async function backfillQuestTargetVariants(targetNames: string[]) {
+  const uniqueTargetNames = Array.from(
+    new Set(targetNames.map((name) => name.trim()).filter(Boolean))
+  );
+  if (uniqueTargetNames.length === 0) {
+    return;
+  }
+
+  try {
+    const result = await generateQuestTargetVariants({
+      targets: uniqueTargetNames,
+    });
+    const db = await getDb();
+    const requestedTargets = new Set(
+      uniqueTargetNames.map((targetName) => normalizeQuestName(targetName))
+    );
+    for (const target of result.targets) {
+      if (!requestedTargets.has(normalizeQuestName(target.name))) {
+        continue;
+      }
+      replaceQuestTargetVariants(db, {
+        questName: target.name,
+        variants: target.alternateSpellings,
+      });
+    }
+    persistDatabase(db);
+    console.log("[api][quests] stored quest target variants", {
+      targetCount: uniqueTargetNames.length,
+    });
+  } catch (err) {
+    console.error("[api][quests] failed to backfill quest target variants", err);
+  }
 }
 
 const generateTargetsRequestSchema = z.object({
@@ -260,7 +298,10 @@ router.post("/generate/accept", async (req, res) => {
       topic: parsed.data.topic,
       acceptedCount: acceptedTargets.length,
     });
-    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
+    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    res.json(response);
+    void backfillQuestTargetVariants(acceptedTargets.map((target) => target.name));
+    return;
   } catch (err) {
     console.error("[api][quests] failed to accept generated quest set", err);
     return res.status(500).json({

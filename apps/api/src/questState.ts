@@ -24,9 +24,18 @@ export interface CompletedQuestSet {
   earnedPoints: number;
 }
 
+export interface CompletedQuestMatch {
+  questName: string;
+  matchedItemName: string;
+}
+
 export interface PlayerQuestStats {
   totalPoints: number;
 }
+
+type QuestMatchRecord = QuestRecord & {
+  alternateSpellings: string[];
+};
 
 export const QUEST_POINTS_PER_TARGET = 10;
 
@@ -236,26 +245,30 @@ function buildQuestLexicalForms(value: string) {
 }
 
 function findProgrammaticQuestMatch(
-  quest: QuestRecord,
+  quest: QuestMatchRecord,
   discoveredRows: Array<{ id: number; name: string; normalizedName: string }>
 ) {
-  const questForms = buildQuestLexicalForms(quest.name);
+  const questForms = [quest.name, ...quest.alternateSpellings].map((name) =>
+    buildQuestLexicalForms(name)
+  );
   for (const row of discoveredRows) {
     const candidateForms = buildQuestLexicalForms(row.name);
-    if (candidateForms.canonicalKey === questForms.canonicalKey) {
-      return {
-        matchedItemName: row.name,
-        completionMethod: "normalized" as const,
-      };
-    }
-    if (
-      candidateForms.normalizedKey &&
-      candidateForms.normalizedKey === questForms.normalizedKey
-    ) {
-      return {
-        matchedItemName: row.name,
-        completionMethod: "normalized" as const,
-      };
+    for (const questForm of questForms) {
+      if (candidateForms.canonicalKey === questForm.canonicalKey) {
+        return {
+          matchedItemName: row.name,
+          completionMethod: "normalized" as const,
+        };
+      }
+      if (
+        candidateForms.normalizedKey &&
+        candidateForms.normalizedKey === questForm.normalizedKey
+      ) {
+        return {
+          matchedItemName: row.name,
+          completionMethod: "normalized" as const,
+        };
+      }
     }
   }
   return null;
@@ -305,7 +318,36 @@ function loadIncompleteQuests(
     quests.push(mapQuestRow(stmt.getAsObject() as Record<string, unknown>));
   }
   stmt.free();
-  return quests;
+  if (quests.length === 0) {
+    return [] as QuestMatchRecord[];
+  }
+
+  const variantStmt = db.prepare(`
+    SELECT quest_normalized_name, variant_name
+    FROM quest_target_variants
+    WHERE quest_normalized_name IN (${quests.map(() => "?").join(", ")})
+    ORDER BY id ASC
+  `);
+  variantStmt.bind(quests.map((quest) => quest.normalizedName));
+  const variantMap = new Map<string, string[]>();
+  while (variantStmt.step()) {
+    const row = variantStmt.getAsObject() as Record<string, unknown>;
+    const normalizedName = String(row.quest_normalized_name ?? "");
+    const variantName = String(row.variant_name ?? "").trim();
+    if (!normalizedName || !variantName) continue;
+    const current = variantMap.get(normalizedName);
+    if (current) {
+      current.push(variantName);
+    } else {
+      variantMap.set(normalizedName, [variantName]);
+    }
+  }
+  variantStmt.free();
+
+  return quests.map((quest) => ({
+    ...quest,
+    alternateSpellings: variantMap.get(quest.normalizedName) ?? [],
+  }));
 }
 
 function loadDiscoveredRows(
@@ -370,6 +412,39 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
   }
 
   return rejectedTargets;
+}
+
+export function replaceQuestTargetVariants(
+  db: Database,
+  params: { questName: string; variants: string[] }
+) {
+  const questNormalizedName = normalizeQuestName(params.questName);
+
+  const deleteStmt = db.prepare(
+    "DELETE FROM quest_target_variants WHERE quest_normalized_name = ?"
+  );
+  deleteStmt.run([questNormalizedName]);
+  deleteStmt.free();
+
+  const insertStmt = db.prepare(`
+    INSERT INTO quest_target_variants (
+      quest_normalized_name,
+      variant_name,
+      variant_normalized_name
+    ) VALUES (?, ?, ?)
+    ON CONFLICT(quest_normalized_name, variant_normalized_name) DO NOTHING
+  `);
+  const seen = new Set<string>();
+  for (const variant of params.variants) {
+    const trimmed = variant.trim();
+    const normalizedVariant = normalizeQuestName(trimmed);
+    if (!normalizedVariant) continue;
+    if (normalizedVariant === questNormalizedName) continue;
+    if (seen.has(normalizedVariant)) continue;
+    seen.add(normalizedVariant);
+    insertStmt.run([questNormalizedName, trimmed, normalizedVariant]);
+  }
+  insertStmt.free();
 }
 
 function markQuestCompleted(
@@ -533,6 +608,7 @@ export async function syncQuestCompletions(
   if (quests.length === 0) {
     return {
       newlyCompletedQuestNames: [] as string[],
+      completedQuestMatches: [] as CompletedQuestMatch[],
       completedQuestSets: [] as CompletedQuestSet[],
       awardedPoints: 0,
       totalPoints: getPlayerQuestStats(db).totalPoints,
@@ -550,6 +626,7 @@ export async function syncQuestCompletions(
     }
     return {
       newlyCompletedQuestNames: [] as string[],
+      completedQuestMatches: [] as CompletedQuestMatch[],
       completedQuestSets: [] as CompletedQuestSet[],
       awardedPoints: 0,
       totalPoints: getPlayerQuestStats(db).totalPoints,
@@ -559,6 +636,7 @@ export async function syncQuestCompletions(
   const discoveredNames = new Set(discoveredRows.map((row) => row.normalizedName));
   const newlyCompletedQuestNames: string[] = [];
   const newlyCompletedQuestIds: string[] = [];
+  const completedQuestMatches: CompletedQuestMatch[] = [];
 
   for (const quest of quests) {
     if (discoveredNames.has(quest.normalizedName)) {
@@ -576,6 +654,10 @@ export async function syncQuestCompletions(
       });
       newlyCompletedQuestNames.push(quest.name);
       newlyCompletedQuestIds.push(quest.normalizedName);
+      completedQuestMatches.push({
+        questName: quest.name,
+        matchedItemName: quest.name,
+      });
       continue;
     }
 
@@ -596,6 +678,10 @@ export async function syncQuestCompletions(
       });
       newlyCompletedQuestNames.push(quest.name);
       newlyCompletedQuestIds.push(quest.normalizedName);
+      completedQuestMatches.push({
+        questName: quest.name,
+        matchedItemName: programmaticMatch.matchedItemName,
+      });
     }
   }
 
@@ -622,6 +708,7 @@ export async function syncQuestCompletions(
 
   return {
     newlyCompletedQuestNames,
+    completedQuestMatches,
     completedQuestSets,
     awardedPoints,
     totalPoints,
