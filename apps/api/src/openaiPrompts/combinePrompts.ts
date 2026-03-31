@@ -4,6 +4,97 @@ Think carefully about what the player may be trying to get you to guess.
 Assume each input is provided intentionally to serve as a clue for what the most expected output should be.
 `.trim();
 
+export const PONDERIFICATE_OVERLAY_INSTRUCTIONS = `
+Additional reasoning guidance:
+- Treat the inputs as clues pointing toward a recognizable named reference, fictional concept, media-related idea, or other broadly cultural concept when that reading is plausible.
+- Think very carefully about what specific word, term, or concept the player may be trying to reach from the clues provided.
+- Consider each clue individually and in combination before deciding on any answer.
+- Assume the player has a limited vocabulary and may be struggling to choose the strongest clue words.
+- Ask yourself internally: "Does the word I have come up with make sense with each clue provided in combination?"
+- Internally generate multiple plausible answers, compare them carefully, rate them, and choose the strongest overall fit.
+
+Return ONLY valid JSON in this format:
+
+{
+  "options": [
+    { "name": "option one", "icon": "emoji", "score": 93 },
+    { "name": "option two", "icon": "emoji", "score": 88 },
+    { "name": "option three", "icon": "emoji", "score": 81 }
+  ],
+  "bestOption": { "name": "option one", "icon": "emoji", "score": 93 }
+}
+
+Rules for the JSON response:
+- Return between 2 and 5 distinct options.
+- Scores must be integers from 0 to 100 and reflect overall clue fit.
+- bestOption must exactly match one entry from options.
+- Keep every option short and recognizable.
+- Do not return explanations, descriptions, or sentences.
+`.trim();
+
+export const RANKED_OPTIONS_OVERLAY_INSTRUCTIONS = `
+Additional reasoning guidance:
+- Treat the inputs as clues pointing toward a recognizable named reference, fictional concept, media-related idea, or other broadly cultural concept when that reading is plausible.
+- Think very carefully about what specific word, term, or concept the player may be trying to reach from the clues provided.
+- Consider each clue individually and in combination before deciding on any answer.
+- Assume the player has a limited vocabulary and may be struggling to choose the strongest clue words.
+- Ask yourself internally: "Does the word I have come up with make sense with each clue provided in combination?"
+- Internally generate multiple plausible answers, compare them carefully, rate them, and choose the strongest overall fit.
+
+Return ONLY valid JSON in this format:
+
+{
+  "options": [
+    { "name": "option one", "icon": "emoji", "score": 93 },
+    { "name": "option two", "icon": "emoji", "score": 88 },
+    { "name": "option three", "icon": "emoji", "score": 81 }
+  ],
+  "bestOption": { "name": "option one", "icon": "emoji", "score": 93 }
+}
+
+Rules for the JSON response:
+- Return between 2 and 5 distinct options.
+- Scores must be integers from 0 to 100 and reflect overall clue fit.
+- bestOption must exactly match one entry from options.
+- Keep every option short and recognizable.
+- Do not return explanations, descriptions, or sentences.
+`.trim();
+
+export const RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS = `
+Additional reasoning guidance:
+- Treat the inputs as clues pointing toward a recognizable named reference, fictional concept, media-related idea, or other broadly cultural concept when that reading is plausible.
+- Think very carefully about what specific word, term, or concept the player may be trying to reach from the clues provided.
+- Consider each clue individually and in combination before deciding on any answer.
+- Assume the player has a limited vocabulary and may be struggling to choose the strongest clue words.
+- Ask yourself internally: "Does the word I have come up with make sense with each clue provided in combination?"
+- Internally generate multiple plausible answers, compare them carefully, rate them, and choose the strongest overall fit.
+
+Return ONLY valid JSON in one of these formats:
+
+{
+  "failed": true,
+  "reason": "short reason"
+}
+
+or
+
+{
+  "options": [
+    { "name": "option one", "icon": "emoji", "score": 93 },
+    { "name": "option two", "icon": "emoji", "score": 88 },
+    { "name": "option three", "icon": "emoji", "score": 81 }
+  ],
+  "bestOption": { "name": "option one", "icon": "emoji", "score": 93 }
+}
+
+Rules for the JSON response:
+- Return between 2 and 5 distinct options when not failing.
+- Scores must be integers from 0 to 100 and reflect overall clue fit.
+- bestOption must exactly match one entry from options.
+- Keep every option short and recognizable.
+- Do not return explanations beyond the failure reason.
+`.trim();
+
 export const BASE_PROMPT = `
 You are the word combination engine for a sandbox discovery game.
 

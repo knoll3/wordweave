@@ -1,3 +1,8 @@
+import {
+  RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS,
+  RANKED_OPTIONS_OVERLAY_INSTRUCTIONS,
+} from "./openaiPrompts/combinePrompts";
+
 export type ActionPromptResponseMode = "default" | "strict" | "split";
 
 export type ActionPromptFamilyKey =
@@ -861,8 +866,18 @@ export function renderActionPromptFamily(params: {
       )
     : "";
 
-  return params.family.prompt
+  const renderedPrompt = params.family.prompt
     .replace(/{{ACTION_CONSTRAINT}}/g, params.actionConstraint)
     .replace(CATEGORY_RULES_PLACEHOLDER, categoryRules)
     .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(params.inputs));
+
+  if (params.family.responseMode === "split") {
+    return renderedPrompt;
+  }
+
+  return `${renderedPrompt}\n\n${
+    params.family.responseMode === "strict"
+      ? RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS
+      : RANKED_OPTIONS_OVERLAY_INSTRUCTIONS
+  }`;
 }

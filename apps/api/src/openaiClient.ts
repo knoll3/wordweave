@@ -14,17 +14,23 @@ import {
   QUEST_TARGETS_PROMPT,
   QUEST_TARGET_VARIANTS_PROMPT,
   CREATIVE_PROMPT,
+  PONDERIFICATE_OVERLAY_INSTRUCTIONS,
   RECIPE_BATCH_PROMPT,
+  RANKED_OPTIONS_OVERLAY_INSTRUCTIONS,
 } from "./openaiPrompts";
 import {
   questTargetsSchema,
   questTargetVariantsSchema,
-  llmResultSchema,
+  ponderificateLlmResultSchema,
   recipeBatchSchema,
   splitLlmResultSchema,
   craftLlmResultSchema,
 } from "./validation";
-import type { QuestTargetVariants, SplitLlmResult } from "./validation";
+import type {
+  PonderificateLlmResult,
+  QuestTargetVariants,
+  SplitLlmResult,
+} from "./validation";
 
 export type OpenAiModel =
   | "gpt-5.4"
@@ -51,7 +57,9 @@ function resolveDefaultModelName(): OpenAiModel {
   return "gpt-5-mini";
 }
 
-function getReasoningEffortForModel(model: OpenAiModel): "none" | "minimal" | null {
+type OpenAiReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
+
+function getReasoningEffortForModel(model: OpenAiModel): OpenAiReasoningEffort | null {
   if (model === "gpt-5.4") {
     return "none";
   }
@@ -123,6 +131,7 @@ export function renderGenerateResultPrompt(
     actionPromptFamily?: ActionPromptFamilyKey | null;
     categoryConstraint?: string;
     creative?: boolean;
+    ponderificate?: boolean;
   }
 ) {
   const actionPromptFamily =
@@ -159,11 +168,84 @@ export function renderGenerateResultPrompt(
       ? `${basePrompt}\n\n${CREATIVE_OVERLAY_INSTRUCTIONS}`
       : basePrompt;
 
+  const overlay =
+    actionPromptFamily != null ? null : RANKED_OPTIONS_OVERLAY_INSTRUCTIONS;
+
   return {
-    prompt,
+    prompt: [prompt, overlay, options?.ponderificate ? PONDERIFICATE_OVERLAY_INSTRUCTIONS : null]
+      .filter(Boolean)
+      .join("\n\n"),
     actionPromptFamily,
   };
 }
+
+function normalizePonderificateResult(value: PonderificateLlmResult) {
+  const dedupedOptions = value.options
+    .map((entry) => ({
+      name: entry.name.trim(),
+      icon: entry.icon,
+      score: entry.score,
+    }))
+    .filter(
+      (
+        entry: { name: string; icon: string; score: number },
+        index: number,
+        array: Array<{ name: string; icon: string; score: number }>
+      ) =>
+        entry.name.length > 0 &&
+        array.findIndex(
+          (candidate) => candidate.name.toLowerCase() === entry.name.toLowerCase()
+        ) === index
+    )
+    .sort((left, right) => right.score - left.score);
+
+  if (dedupedOptions.length < 2) {
+    throw new Error("OpenAI Ponderificate response must include at least two distinct options");
+  }
+
+  const bestOptionNormalizedName = value.bestOption.name.trim().toLowerCase();
+  const matchedBestOption =
+    dedupedOptions.find((entry) => entry.name.toLowerCase() === bestOptionNormalizedName) ??
+    dedupedOptions[0];
+
+  return {
+    options: dedupedOptions,
+    bestOption: matchedBestOption,
+  };
+}
+
+const RANKED_OPTIONS_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    options: {
+      type: "array",
+      minItems: 2,
+      maxItems: 8,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          name: { type: "string", minLength: 1, maxLength: 64 },
+          icon: { type: "string", minLength: 1, maxLength: 8 },
+          score: { type: "integer", minimum: 0, maximum: 100 },
+        },
+        required: ["name", "icon", "score"],
+      },
+    },
+    bestOption: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        name: { type: "string", minLength: 1, maxLength: 64 },
+        icon: { type: "string", minLength: 1, maxLength: 8 },
+        score: { type: "integer", minimum: 0, maximum: 100 },
+      },
+      required: ["name", "icon", "score"],
+    },
+  },
+  required: ["options", "bestOption"],
+} as const;
 
 export function renderRecipeBatchPrompt(params: {
   pairs: Array<{ left: string; right: string }>;
@@ -199,21 +281,32 @@ export async function generateResult(
     actionPromptFamily?: ActionPromptFamilyKey | null;
     categoryConstraint?: string;
     creative?: boolean;
+    ponderificate?: boolean;
     model?: OpenAiModel;
   }
-): Promise<{ name: string; icon: string } | { results: Array<{ name: string; icon: string }> }> {
+): Promise<
+  | { name: string; icon: string }
+  | { results: Array<{ name: string; icon: string }> }
+  | {
+      options: Array<{ name: string; icon: string; score: number }>;
+      bestOption: { name: string; icon: string; score: number };
+    }
+> {
   const openai = getOpenAI();
-  const model = options?.model ?? DEFAULT_MODEL_NAME;
+  const model = options?.ponderificate ? "gpt-5.4" : (options?.model ?? DEFAULT_MODEL_NAME);
+  const reasoningEffort =
+    options?.ponderificate ? "medium" : getReasoningEffortForModel(model);
   const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
 
   console.log("[openai] sending request", {
     model,
-    reasoningEffort: getReasoningEffortForModel(model),
+    reasoningEffort,
     inputs,
     actionConstraint: options?.actionConstraint ?? null,
     actionPromptFamily: actionPromptFamily?.key ?? null,
     categoryConstraint: options?.categoryConstraint ?? null,
     creative: options?.creative ?? false,
+    ponderificate: options?.ponderificate ?? false,
     temperature: 1,
     prompt,
   });
@@ -221,9 +314,7 @@ export async function generateResult(
   const response = await openai.chat.completions.create({
     model,
     temperature: 1,
-    ...(getReasoningEffortForModel(model)
-      ? ({ reasoning_effort: getReasoningEffortForModel(model) } as const)
-      : {}),
+    ...(reasoningEffort ? ({ reasoning_effort: reasoningEffort } as const) : {}),
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
   } as any);
@@ -256,6 +347,18 @@ export async function generateResult(
     throw new Error("Failed to parse OpenAI JSON response");
   }
 
+  if (options?.ponderificate) {
+    const ponderificateResult = ponderificateLlmResultSchema.safeParse(parsed);
+    if (!ponderificateResult.success) {
+      console.error("[openai] ponderificate response failed schema validation", parsed);
+      throw new Error("OpenAI Ponderificate response failed validation");
+    }
+
+    const normalizedResult = normalizePonderificateResult(ponderificateResult.data);
+    console.log("[openai] parsed ponderificate result", normalizedResult);
+    return normalizedResult;
+  }
+
   if (
     actionPromptFamily?.key === "synonym" ||
     actionPromptFamily?.key === "compound" ||
@@ -268,11 +371,12 @@ export async function generateResult(
       console.error("[openai] strict-mode response failed schema validation", parsed);
       throw new Error("OpenAI strict response failed validation");
     }
-    console.log("[openai] parsed result", craftResult.data);
-    if (craftResult.data.failed) {
-      throw new Error(craftResult.data.reason);
+    const strictResult = craftResult.data;
+    console.log("[openai] parsed result", strictResult);
+    if ("failed" in strictResult) {
+      throw new Error(strictResult.reason);
     }
-    return craftResult.data;
+    return normalizePonderificateResult(strictResult);
   }
 
   if (actionPromptFamily?.key === "split") {
@@ -285,14 +389,106 @@ export async function generateResult(
     return normalizeSplitResult(splitResult.data);
   }
 
-  const result = llmResultSchema.safeParse(parsed);
+  const result = ponderificateLlmResultSchema.safeParse(parsed);
   if (!result.success) {
     console.error("[openai] response failed schema validation", parsed);
     throw new Error("OpenAI response failed validation");
   }
 
-  console.log("[openai] parsed result", result.data);
-  return result.data;
+  const normalizedResult = normalizePonderificateResult(result.data);
+  console.log("[openai] parsed result", normalizedResult);
+  return normalizedResult;
+}
+
+export async function generateResultWithWebSearch(
+  inputs: string[],
+  options?: {
+    model?: OpenAiModel;
+  }
+): Promise<{
+  options: Array<{ name: string; icon: string; score: number }>;
+  bestOption: { name: string; icon: string; score: number };
+}> {
+  const openai = getOpenAI();
+  const model = options?.model ?? DEFAULT_MODEL_NAME;
+  const { prompt } = renderGenerateResultPrompt(inputs);
+
+  console.log("[openai][web-search] sending request", {
+    model,
+    inputs,
+    tool: "web_search",
+    prompt,
+  });
+
+  const response = await openai.responses.create({
+    model,
+    input: prompt,
+    tools: [{ type: "web_search" as const }],
+    text: {
+      format: {
+        type: "json_schema",
+        name: "web_search_result",
+        strict: true,
+        schema: RANKED_OPTIONS_JSON_SCHEMA,
+      },
+    },
+  } as any);
+
+  const usage = response as {
+    usage?: {
+      input_tokens?: number;
+      output_tokens?: number;
+      input_tokens_details?: {
+        cached_tokens?: number;
+      };
+    };
+  };
+  const promptTokens = usage.usage?.input_tokens ?? 0;
+  const completionTokens = usage.usage?.output_tokens ?? 0;
+  const cachedPromptTokens = usage.usage?.input_tokens_details?.cached_tokens ?? 0;
+  logUsageAndCost({
+    logPrefix: "[openai][web-search]",
+    responseModel: model,
+    promptTokens,
+    completionTokens,
+    cachedPromptTokens,
+  });
+
+  const content = response.output_text;
+  console.log("[openai][web-search] response metadata", {
+    id: response.id ?? null,
+    status: (response as { status?: string }).status ?? null,
+    outputCount: Array.isArray(response.output) ? response.output.length : 0,
+    usage: (response as { usage?: unknown }).usage ?? null,
+  });
+  console.log(
+    "[openai][web-search] response output",
+    Array.isArray(response.output) ? response.output : []
+  );
+  if (!content) {
+    console.error("[openai][web-search] empty response content", response);
+    throw new Error("No content returned from OpenAI web search");
+  }
+
+  console.log("[openai][web-search] raw response content", content);
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(content);
+  } catch (err) {
+    console.error("[openai][web-search] failed to parse response as JSON", err);
+    throw new Error("Failed to parse OpenAI web search JSON response");
+  }
+
+  const result = ponderificateLlmResultSchema.safeParse(parsed);
+  if (!result.success) {
+    console.error("[openai][web-search] response failed schema validation", parsed);
+    throw new Error("OpenAI web search response failed validation");
+  }
+
+  const normalizedResult = normalizePonderificateResult(result.data);
+  console.log("[openai][web-search] parsed result", normalizedResult);
+  return normalizedResult;
 }
 
 function normalizeSplitResult(

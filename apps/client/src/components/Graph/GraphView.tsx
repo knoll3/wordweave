@@ -75,6 +75,7 @@ interface Props {
   onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
+  ponderingNodeIds?: string[] | null;
   onClearActionModifier: (nodeId: string) => void;
   onClearCategoryModifier: (nodeId: string) => void;
   onClearWorkspace: () => void;
@@ -144,6 +145,7 @@ function GraphView({
   onWorkspaceItemsChange,
   onViewportCenterChange,
   combiningNodeIds,
+  ponderingNodeIds,
   onClearCategoryModifier,
   onClearActionModifier,
   onClearWorkspace,
@@ -180,6 +182,7 @@ function GraphView({
   const resizeFrameRef = useRef<number>(0);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
+  const ponderingNodeIdsRef = useRef<string[]>(ponderingNodeIds ?? []);
   const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
   const workspaceItemsRef = useRef<WorkspaceItem[]>(workspaceItems);
@@ -215,6 +218,12 @@ function GraphView({
     width: number;
     height: number;
   } | null>(null);
+  const [ponderOverlayRect, setPonderOverlayRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
@@ -238,6 +247,7 @@ function GraphView({
   itemByIdRef.current = itemById;
   workspaceItemsRef.current = workspaceItems;
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
+  ponderingNodeIdsRef.current = ponderingNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
   onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onAttachActionModifierRef.current = onAttachActionModifier;
@@ -275,6 +285,7 @@ function GraphView({
     }
     updateViewportCenter();
     refreshSelectionOverlay();
+    refreshPonderOverlay();
   };
 
   const frameWorkspaceItems = (
@@ -569,6 +580,26 @@ function GraphView({
     }
 
     setSelectionOverlayRect(worldRectToScreenRect(worldBounds));
+  };
+
+  const refreshPonderOverlay = () => {
+    const currentPonderingNodeIds = ponderingNodeIdsRef.current;
+    const currentSelectionLayout = selectionLayoutRef.current;
+    if (currentPonderingNodeIds.length === 0) {
+      setPonderOverlayRect(null);
+      return;
+    }
+
+    const worldBounds = getSelectionWorldBounds(
+      currentPonderingNodeIds,
+      currentSelectionLayout
+    );
+    if (!worldBounds) {
+      setPonderOverlayRect(null);
+      return;
+    }
+
+    setPonderOverlayRect(worldRectToScreenRect(worldBounds));
   };
 
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
@@ -1289,6 +1320,7 @@ function GraphView({
     previousWorkspaceNodeIdsRef.current = nextWorkspaceItems.map((item) => item.nodeId);
     previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
     refreshSelectionOverlay();
+    refreshPonderOverlay();
   };
 
   useEffect(() => {
@@ -2015,7 +2047,7 @@ function GraphView({
 
   useEffect(() => {
     syncScene(workspaceItems);
-  }, [combiningNodeIds, itemById, selectedNodeIds, workspaceItems]);
+  }, [combiningNodeIds, itemById, ponderingNodeIds, selectedNodeIds, workspaceItems]);
 
   useEffect(() => {
     if (!celebratedNodeId) {
@@ -2038,6 +2070,10 @@ function GraphView({
   }, [selectionLayout]);
 
   useEffect(() => {
+    refreshPonderOverlay();
+  }, [ponderingNodeIds, selectionLayout, workspaceItems]);
+
+  useEffect(() => {
     if (!selectionLayout) return;
     const stillCombining = [selectionLayout.placeholderNodeId, ...selectionLayout.nodeIds].some(
       (nodeId) => (combiningNodeIds ?? []).includes(nodeId)
@@ -2049,6 +2085,10 @@ function GraphView({
 
   const isSelectionCombining =
     selectionLayout?.nodeIds.some((nodeId) => (combiningNodeIds ?? []).includes(nodeId)) ?? false;
+  const isSelectionPondering =
+    selectionLayout?.nodeIds.some((nodeId) => (ponderingNodeIds ?? []).includes(nodeId)) ?? false;
+  const activePonderOverlayRect =
+    isSelectionPondering && selectionOverlayRect ? selectionOverlayRect : ponderOverlayRect;
   return (
     <div ref={hostRef} className="graph-pixi-host">
       {workspaceItems.length === 0 ? (
@@ -2093,7 +2133,29 @@ function GraphView({
           }}
         />
       ) : null}
-      {selectionOverlayRect && selectedNodeIds.length >= 2 ? (
+      {activePonderOverlayRect ? (
+        <div
+          className="graph-ponder-overlay"
+          style={{
+            left: activePonderOverlayRect.left,
+            top: activePonderOverlayRect.top,
+            width: activePonderOverlayRect.width,
+            height: activePonderOverlayRect.height,
+          }}
+        >
+          <div className="graph-ponder-overlay-sheen" aria-hidden="true" />
+          <div className="graph-ponder-overlay-content" role="status" aria-live="polite">
+            <div className="graph-ponder-overlay-loader" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="graph-ponder-overlay-title">Ponderificating</div>
+            <div className="graph-ponder-overlay-copy">Thinking harder for a better result.</div>
+          </div>
+        </div>
+      ) : null}
+      {selectionOverlayRect && selectedNodeIds.length >= 2 && !activePonderOverlayRect ? (
         <div
           className="graph-selection-overlay"
           style={{

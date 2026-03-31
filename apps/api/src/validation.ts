@@ -5,6 +5,8 @@ export const combineRequestSchema = z.object({
   categoryConstraint: z.string().min(1).max(64).nullable().optional(),
   actionConstraint: z.string().min(1).max(64).nullable().optional(),
   creative: z.boolean().optional().default(false),
+  ponderificate: z.boolean().optional().default(false),
+  useWebSearch: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-5.4", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),
@@ -19,6 +21,15 @@ export const llmResultSchema = z.object({
   icon: z.string().min(1).max(8),
 });
 
+export const ponderificateOptionSchema = llmResultSchema.extend({
+  score: z.number().int().min(0).max(100),
+});
+
+export const ponderificateLlmResultSchema = z.object({
+  options: z.array(ponderificateOptionSchema).min(2).max(8),
+  bestOption: ponderificateOptionSchema,
+});
+
 export const splitLlmResultSchema = z.object({
   results: z.array(llmResultSchema).min(1).max(8),
 });
@@ -28,11 +39,7 @@ export const craftLlmResultSchema = z.union([
     failed: z.literal(true),
     reason: z.string().min(1).max(160),
   }),
-  z.object({
-    failed: z.literal(false).optional(),
-    name: z.string().min(1).max(64),
-    icon: z.string().min(1).max(8),
-  }),
+  ponderificateLlmResultSchema,
 ]);
 
 export const recipeBatchStepSchema = z.object({
@@ -60,6 +67,7 @@ export const questTargetVariantsSchema = z.object({
 });
 
 export type LlmResult = z.infer<typeof llmResultSchema>;
+export type PonderificateLlmResult = z.infer<typeof ponderificateLlmResultSchema>;
 export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;
 export type CraftLlmResult = z.infer<typeof craftLlmResultSchema>;
 export type RecipeBatch = z.infer<typeof recipeBatchSchema>;

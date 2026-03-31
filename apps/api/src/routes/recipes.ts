@@ -14,6 +14,7 @@ import {
   DEFAULT_MODEL_NAME,
   generateRecipeBatch,
   generateResult,
+  generateResultWithWebSearch,
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
@@ -29,7 +30,7 @@ import {
   normalizeInputs,
   toTitleCaseWords,
 } from "../models";
-import { syncQuestCompletions } from "../questState";
+import { findAvailableQuestTargetMatch, syncQuestCompletions } from "../questState";
 
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
@@ -39,18 +40,22 @@ function buildRecipeInputKey(params: {
   categoryConstraint: string | null;
   actionConstraint: string | null;
   creative: boolean;
+  ponderificate: boolean;
+  useWebSearch: boolean;
 }): string {
   const {
     inputKey,
     categoryConstraint,
     actionConstraint,
     creative,
+    ponderificate,
+    useWebSearch,
   } = params;
 
   const normalizedCategoryConstraint = categoryConstraint?.trim().toLowerCase() ?? null;
   const normalizedActionConstraint = actionConstraint?.trim().toLowerCase() ?? null;
 
-  return normalizedActionConstraint && normalizedCategoryConstraint
+  const baseKey = normalizedActionConstraint && normalizedCategoryConstraint
     ? `action:${normalizedActionConstraint}|category:${normalizedCategoryConstraint}|${inputKey}`
     : normalizedActionConstraint
     ? `action:${normalizedActionConstraint}|${inputKey}`
@@ -59,6 +64,12 @@ function buildRecipeInputKey(params: {
     : creative
     ? `creative|${inputKey}`
     : inputKey;
+
+  return useWebSearch
+    ? `web|${baseKey}`
+    : ponderificate
+      ? `ponderificate|${baseKey}`
+      : baseKey;
 }
 
 function buildStoredRecipeInputKey(baseInputKey: string, bypassCache: boolean): string {
@@ -76,10 +87,82 @@ function buildSecondaryStoredRecipeInputKey(baseStoredInputKey: string, outputIn
 function isCatalystRecipeInputKey(inputKey: string): boolean {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
   return (
+    modeKey === "ponderificate" ||
+    modeKey === "web" ||
     modeKey === "creative" ||
     modeKey.startsWith("action:") ||
     modeKey.startsWith("category:")
   );
+}
+
+type GeneratedResultOption = {
+  name: string;
+  icon: string;
+  score?: number;
+};
+
+function normalizeGeneratedResultOptions(
+  llmResult:
+    | { name: string; icon: string }
+    | { results: Array<{ name: string; icon: string }> }
+    | {
+        options: Array<{ name: string; icon: string; score: number }>;
+        bestOption: { name: string; icon: string; score: number };
+      },
+  db: Awaited<ReturnType<typeof getDb>>,
+  ponderificate: boolean
+) {
+  if ("options" in llmResult) {
+    const options = llmResult.options.map((entry) => ({
+      name: toTitleCaseWords(entry.name),
+      icon: entry.icon,
+      score: entry.score,
+    }));
+    const questMatch = findAvailableQuestTargetMatch(
+      db,
+      options.map((entry) => entry.name)
+    );
+    const selectedOption =
+      (questMatch
+        ? options.find(
+            (entry) => entry.name.trim().toLowerCase() === questMatch.matchedItemName.trim().toLowerCase()
+          )
+        : null) ??
+      options.find(
+        (entry) =>
+          entry.name.trim().toLowerCase() === llmResult.bestOption.name.trim().toLowerCase()
+      ) ??
+      options[0];
+
+    if (!selectedOption) {
+      throw new Error("Model returned no valid Ponderificate options");
+    }
+
+    return {
+      responseKind: "options" as const,
+      candidateOptions: options,
+      selectedResult: selectedOption,
+    };
+  }
+
+  const candidateOptions = ("results" in llmResult ? llmResult.results : [llmResult]).map(
+    (entry) => ({
+      name: toTitleCaseWords(entry.name),
+      icon: entry.icon,
+    })
+  );
+  const selectedResult = candidateOptions[0];
+  if (!selectedResult) {
+    throw new Error(
+      ponderificate ? "Model returned no Ponderificate options" : "Model returned no split results"
+    );
+  }
+
+  return {
+    responseKind: "split" as const,
+    candidateOptions,
+    selectedResult,
+  };
 }
 
 function maybeAutoUnlockActionWords(
@@ -419,9 +502,14 @@ router.post("/combine", async (req, res) => {
   }
 
   const creative = parsedBody.data.creative ?? false;
+  const ponderificate = parsedBody.data.ponderificate ?? false;
+  const useWebSearch = parsedBody.data.useWebSearch ?? false;
   const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
   const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
+  if (useWebSearch && (creative || ponderificate || categoryConstraint || actionConstraint)) {
+    return res.status(400).json({ error: "Web only works with the default combine prompt." });
+  }
   const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
 
   const { normalizedInputs, inputKey } = normalizeInputs(
@@ -444,14 +532,18 @@ router.post("/combine", async (req, res) => {
       categoryConstraint,
       actionConstraint,
       creative: effectiveCreative,
+      ponderificate,
+      useWebSearch,
     });
-    const bypassCache = isCatalystRecipeInputKey(recipeInputKey);
+    const bypassCache = useWebSearch || ponderificate || isCatalystRecipeInputKey(recipeInputKey);
 
     console.log("[api][combine] resolved mode", {
       inputKey,
       recipeInputKey,
       bypassCache,
       creative: effectiveCreative,
+      ponderificate,
+      useWebSearch,
       categoryConstraint,
       actionConstraint,
       actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -471,6 +563,8 @@ router.post("/combine", async (req, res) => {
       console.log("[api][combine] cache hit", {
         inputKey: recipeInputKey,
         creative,
+        ponderificate,
+        useWebSearch,
         categoryConstraint,
         actionConstraint,
         actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -573,6 +667,7 @@ router.post("/combine", async (req, res) => {
             normalizedInputs.map((i) => i.name),
             {
               creative: effectiveCreative,
+              ponderificate,
               categoryConstraint: categoryConstraint ?? undefined,
               actionConstraint: actionConstraint ?? undefined,
               actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -580,10 +675,11 @@ router.post("/combine", async (req, res) => {
             }
           );
           console.log("[api][combine] backfill generated result", generated);
-          const generatedPrimary = "results" in generated ? generated.results[0] : generated;
-          if (!generatedPrimary) {
-            throw new Error("Failed to backfill generated result");
-          }
+          const { selectedResult: generatedPrimary } = normalizeGeneratedResultOptions(
+            generated,
+            db,
+            ponderificate
+          );
 
           const insertCandidateStmt = db.prepare(
             "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
@@ -690,24 +786,37 @@ router.post("/combine", async (req, res) => {
         storedRecipeInputKey,
         bypassCache,
         creative,
+        ponderificate,
+        useWebSearch,
         categoryConstraint,
         actionConstraint,
         actionPromptFamily: actionPromptFamily?.key ?? null,
         inputs: orderedInputs.map((i) => i.name),
       }
     );
+    if (useWebSearch) {
+      console.log("[api][combine][web] default prompt with web search enabled", {
+        inputs: orderedInputs.map((i) => i.name),
+        model,
+      });
+    }
     let llmResult;
     try {
-      llmResult = await generateResult(
-        orderedInputs.map((i) => i.name),
-        {
-          creative: effectiveCreative,
-          categoryConstraint: categoryConstraint ?? undefined,
-          actionConstraint: actionConstraint ?? undefined,
-          actionPromptFamily: actionPromptFamily?.key ?? null,
-          model,
-        }
-      );
+      llmResult = useWebSearch
+        ? await generateResultWithWebSearch(orderedInputs.map((i) => i.name), {
+            model,
+          })
+        : await generateResult(
+            orderedInputs.map((i) => i.name),
+            {
+              creative: effectiveCreative,
+              ponderificate,
+              categoryConstraint: categoryConstraint ?? undefined,
+              actionConstraint: actionConstraint ?? undefined,
+              actionPromptFamily: actionPromptFamily?.key ?? null,
+              model,
+            }
+          );
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {
       console.error("Error generating result", err);
@@ -746,31 +855,39 @@ router.post("/combine", async (req, res) => {
         ]
       : orderedInputs;
     const inputDisplayJson = JSON.stringify(displayInputs);
-    const generatedResults = ("results" in llmResult ? llmResult.results : [llmResult]).map(
-      (entry) => ({
-        name: toTitleCaseWords(entry.name),
-        icon: entry.icon,
-      })
-    );
-    const primaryGeneratedResult = generatedResults[0];
-    if (!primaryGeneratedResult) {
-      return res.status(502).json({ error: "Model returned no split results" });
-    }
+    const {
+      responseKind,
+      candidateOptions: generatedResults,
+      selectedResult: primaryGeneratedResult,
+    } = normalizeGeneratedResultOptions(llmResult, db, ponderificate);
 
     if (bypassCache) {
       const newlyDiscoveredQuestCandidateNames: string[] = [];
       const elementIds: number[] = [];
 
-      for (const generatedResult of generatedResults) {
-        const normalizedName = generatedResult.name.trim().toLowerCase();
+      if (responseKind === "options") {
+        const normalizedName = primaryGeneratedResult.name.trim().toLowerCase();
         const elementId = ensureElement(db, {
-          name: generatedResult.name,
+          name: primaryGeneratedResult.name,
           normalizedName,
-          icon: generatedResult.icon,
+          icon: primaryGeneratedResult.icon,
         });
         elementIds.push(elementId);
         if (discoverElement(db, elementId)) {
-          newlyDiscoveredQuestCandidateNames.push(generatedResult.name);
+          newlyDiscoveredQuestCandidateNames.push(primaryGeneratedResult.name);
+        }
+      } else {
+        for (const generatedResult of generatedResults) {
+          const normalizedName = generatedResult.name.trim().toLowerCase();
+          const elementId = ensureElement(db, {
+            name: generatedResult.name,
+            normalizedName,
+            icon: generatedResult.icon,
+          });
+          elementIds.push(elementId);
+          if (discoverElement(db, elementId)) {
+            newlyDiscoveredQuestCandidateNames.push(generatedResult.name);
+          }
         }
       }
 
@@ -825,7 +942,8 @@ router.post("/combine", async (req, res) => {
         })),
         chosenCandidateId: null,
         resultElement,
-        resultElements: resultElements.length > 0 ? resultElements : undefined,
+        resultElements:
+          responseKind === "split" && resultElements.length > 0 ? resultElements : undefined,
         autoUnlockedActionWords:
           autoUnlockedActionWords.length > 0 ? autoUnlockedActionWords : undefined,
         newlyCompletedQuestNames:
@@ -901,7 +1019,9 @@ router.post("/combine", async (req, res) => {
         newlyDiscoveredQuestCandidateNames.push(primaryGeneratedResult.name);
       }
       const additionalElementIds: number[] = [];
-      for (const [extraIndex, extraResult] of generatedResults.slice(1).entries()) {
+      const additionalResults =
+        responseKind === "split" ? generatedResults.slice(1) : [];
+      for (const [extraIndex, extraResult] of additionalResults.entries()) {
         const extraElementId = ensureElement(db, {
           name: extraResult.name,
           normalizedName: extraResult.name.trim().toLowerCase(),
@@ -1042,7 +1162,7 @@ router.post("/combine", async (req, res) => {
         ? getElementById(db, Number(recipeRow.result_element_id))
         : undefined;
     const resultElements =
-      generatedResults.length > 1
+      responseKind === "split" && generatedResults.length > 1
         ? generatedResults
             .map((generatedResult) =>
               getElementByNormalizedName(db, generatedResult.name.trim().toLowerCase())

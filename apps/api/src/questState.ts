@@ -29,6 +29,11 @@ export interface CompletedQuestMatch {
   matchedItemName: string;
 }
 
+export interface AvailableQuestTargetMatch {
+  questName: string;
+  matchedItemName: string;
+}
+
 export interface PlayerQuestStats {
   totalPoints: number;
 }
@@ -291,6 +296,47 @@ function findProgrammaticQuestNameOverlap(
       return candidateName;
     }
   }
+  return null;
+}
+
+export function findAvailableQuestTargetMatch(
+  db: Database,
+  candidateNames: string[]
+): AvailableQuestTargetMatch | null {
+  const uniqueCandidateNames = uniqueNormalized(candidateNames);
+  if (uniqueCandidateNames.length === 0) {
+    return null;
+  }
+
+  const quests = loadIncompleteQuests(db);
+  if (quests.length === 0) {
+    return null;
+  }
+
+  for (const candidateName of uniqueCandidateNames) {
+    const normalizedCandidateName = normalizeQuestName(candidateName);
+    const exactQuest = quests.find((quest) => quest.normalizedName === normalizedCandidateName);
+    if (exactQuest) {
+      return {
+        questName: exactQuest.name,
+        matchedItemName: candidateName,
+      };
+    }
+
+    for (const quest of quests) {
+      const overlapName = findProgrammaticQuestNameOverlap(candidateName, [
+        quest.name,
+        ...quest.alternateSpellings,
+      ]);
+      if (overlapName) {
+        return {
+          questName: quest.name,
+          matchedItemName: candidateName,
+        };
+      }
+    }
+  }
+
   return null;
 }
 
