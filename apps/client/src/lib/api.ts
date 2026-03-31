@@ -174,7 +174,6 @@ export async function combineElements(
   options?: {
     creative?: boolean;
     ponderificate?: boolean;
-    useWebSearch?: boolean;
     categoryConstraint?: string;
     actionConstraint?: string;
     model?: AiModel;
@@ -189,7 +188,6 @@ export async function combineElements(
       inputs,
       creative: options?.creative ?? false,
       ponderificate: options?.ponderificate ?? false,
-      useWebSearch: options?.useWebSearch ?? false,
       categoryConstraint: options?.categoryConstraint ?? null,
       actionConstraint: options?.actionConstraint ?? null,
       model: options?.model,

@@ -10,7 +10,6 @@ import {
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM_ID,
   PONDERIFICATE_CATALYST_ITEM_ID,
-  WEB_CATALYST_ITEM_ID,
 } from "./types";
 import type {
   AutoUnlockedActionWord,
@@ -153,6 +152,7 @@ const App: React.FC = () => {
   const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [ponderingNodeIds, setPonderingNodeIds] = useState<string[]>([]);
+  const [webSearchingNodeIds, setWebSearchingNodeIds] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
@@ -886,16 +886,6 @@ const App: React.FC = () => {
       onClick: () => addItemToWorkspace(PONDERIFICATE_CATALYST_ITEM_ID),
     });
 
-    actions.push({
-      key: "web",
-      title: "Web",
-      badgeLabel: "exp",
-      icon: "🌐",
-      tint: "rgba(96, 165, 250, 0.22)",
-      iconTint: "#dbeafe",
-      onClick: () => addItemToWorkspace(WEB_CATALYST_ITEM_ID),
-    });
-
     for (const catalyst of ACTION_CATALYSTS) {
       if (!unlockedCatalystFamilyKeys.has(catalyst.familyKey)) {
         continue;
@@ -1126,7 +1116,6 @@ const App: React.FC = () => {
     const creativeCatalyst = selectedItems.find((item) => item.id === CREATIVE_ITEM_ID) ?? null;
     const ponderificateCatalyst =
       selectedItems.find((item) => item.id === PONDERIFICATE_CATALYST_ITEM_ID) ?? null;
-    const webCatalyst = selectedItems.find((item) => item.id === WEB_CATALYST_ITEM_ID) ?? null;
     const actionCatalysts = selectedItems
       .map((item) => ACTION_CATALYST_BY_ID.get(item.id) ?? null)
       .filter((entry): entry is NonNullable<(typeof ACTION_CATALYSTS)[number]> => entry != null);
@@ -1137,13 +1126,9 @@ const App: React.FC = () => {
       (node) => node.actionConstraintName && node.actionConstraintNormalizedName
     );
     const activeCatalystCount =
-      [creativeCatalyst, actionCatalysts[0] ?? null, webCatalyst].filter(Boolean).length;
+      [creativeCatalyst, actionCatalysts[0] ?? null].filter(Boolean).length;
     if (activeCatalystCount > 1) {
       showError("Use only one catalyst at a time.", null);
-      return false;
-    }
-    if (webCatalyst && (ponderificateCatalyst || categoryAnchors.length > 0 || actionAnchors.length > 0)) {
-      showError("Web only works with regular items.", null);
       return false;
     }
     if (actionCatalysts.length > 1) {
@@ -1163,7 +1148,9 @@ const App: React.FC = () => {
     const actionCatalyst = actionCatalysts[0] ?? null;
     const effectiveActionConstraint =
       actionAnchor?.actionConstraintName ?? actionCatalyst?.actionConstraint ?? null;
-    const isCompoundCombine = resolveActionPromptFamilyKey(effectiveActionConstraint) === "compound";
+    const resolvedActionFamilyKey = resolveActionPromptFamilyKey(effectiveActionConstraint);
+    const isCompoundCombine = resolvedActionFamilyKey === "compound";
+    const usesWebSearch = resolvedActionFamilyKey === "pop_culture";
     const actualInputItems = selectedItems.filter(
       (item) => !NON_INGREDIENT_ITEM_IDS.has(item.id)
     );
@@ -1189,8 +1176,6 @@ const App: React.FC = () => {
       .filter((item): item is Item => !!item);
     const catalystLabel = creativeCatalyst
       ? "Creative Spark"
-      : webCatalyst
-        ? "Web"
       : ponderificateCatalyst
         ? actionCatalyst
           ? `Ponderificate + ${actionCatalyst.actionConstraint}`
@@ -1220,15 +1205,7 @@ const App: React.FC = () => {
       return false;
     }
     if (
-      webCatalyst &&
-      actualInputItems.length < 2
-    ) {
-      showError("Web needs at least two regular items to combine.", null);
-      return false;
-    }
-    if (
       !creativeCatalyst &&
-      !webCatalyst &&
       !actionCatalyst &&
       !categoryAnchor &&
       !actionAnchor &&
@@ -1275,10 +1252,14 @@ const App: React.FC = () => {
           Array.from(new Set([...prev, ...operationCombiningIds]))
         );
       }
+      if (usesWebSearch) {
+        setWebSearchingNodeIds((prev) =>
+          Array.from(new Set([...prev, ...operationCombiningIds]))
+        );
+      }
       const recipe = await combineElements(inputNames, {
         creative: Boolean(creativeCatalyst),
         ponderificate: Boolean(ponderificateCatalyst),
-        useWebSearch: Boolean(webCatalyst),
         categoryConstraint: categoryAnchor?.categoryConstraintName ?? undefined,
         actionConstraint: effectiveActionConstraint ?? undefined,
         model: selectedModel,
@@ -1472,6 +1453,9 @@ const App: React.FC = () => {
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
       setPonderingNodeIds((prev) =>
+        prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
+      );
+      setWebSearchingNodeIds((prev) =>
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
     }
@@ -1716,6 +1700,7 @@ const App: React.FC = () => {
                   onViewportCenterChange={handleViewportCenterChange}
                   combiningNodeIds={combiningNodeIds}
                   ponderingNodeIds={ponderingNodeIds}
+                  webSearchingNodeIds={webSearchingNodeIds}
                   onClearActionModifier={clearActionModifier}
                   onClearCategoryModifier={clearCategoryModifier}
                   onClearWorkspace={clearWorkspaceItems}

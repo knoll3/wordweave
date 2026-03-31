@@ -41,7 +41,6 @@ function buildRecipeInputKey(params: {
   actionConstraint: string | null;
   creative: boolean;
   ponderificate: boolean;
-  useWebSearch: boolean;
 }): string {
   const {
     inputKey,
@@ -49,7 +48,6 @@ function buildRecipeInputKey(params: {
     actionConstraint,
     creative,
     ponderificate,
-    useWebSearch,
   } = params;
 
   const normalizedCategoryConstraint = categoryConstraint?.trim().toLowerCase() ?? null;
@@ -65,11 +63,7 @@ function buildRecipeInputKey(params: {
     ? `creative|${inputKey}`
     : inputKey;
 
-  return useWebSearch
-    ? `web|${baseKey}`
-    : ponderificate
-      ? `ponderificate|${baseKey}`
-      : baseKey;
+  return ponderificate ? `ponderificate|${baseKey}` : baseKey;
 }
 
 function buildStoredRecipeInputKey(baseInputKey: string, bypassCache: boolean): string {
@@ -88,7 +82,6 @@ function isCatalystRecipeInputKey(inputKey: string): boolean {
   const modeKey = inputKey.split("|", 1)[0] ?? "";
   return (
     modeKey === "ponderificate" ||
-    modeKey === "web" ||
     modeKey === "creative" ||
     modeKey.startsWith("action:") ||
     modeKey.startsWith("category:")
@@ -503,14 +496,11 @@ router.post("/combine", async (req, res) => {
 
   const creative = parsedBody.data.creative ?? false;
   const ponderificate = parsedBody.data.ponderificate ?? false;
-  const useWebSearch = parsedBody.data.useWebSearch ?? false;
   const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
   const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
-  if (useWebSearch && (creative || ponderificate || categoryConstraint || actionConstraint)) {
-    return res.status(400).json({ error: "Web only works with the default combine prompt." });
-  }
   const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
+  const useWebSearch = actionPromptFamily?.key === "pop_culture";
 
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
@@ -533,7 +523,6 @@ router.post("/combine", async (req, res) => {
       actionConstraint,
       creative: effectiveCreative,
       ponderificate,
-      useWebSearch,
     });
     const bypassCache = useWebSearch || ponderificate || isCatalystRecipeInputKey(recipeInputKey);
 
@@ -804,6 +793,11 @@ router.post("/combine", async (req, res) => {
     try {
       llmResult = useWebSearch
         ? await generateResultWithWebSearch(orderedInputs.map((i) => i.name), {
+            creative: effectiveCreative,
+            ponderificate,
+            categoryConstraint: categoryConstraint ?? undefined,
+            actionConstraint: actionConstraint ?? undefined,
+            actionPromptFamily: actionPromptFamily?.key ?? null,
             model,
           })
         : await generateResult(

@@ -52,7 +52,6 @@ export const COMPOUND_CATALYST_ITEM_ID = -16;
 export const ROOT_CATALYST_ITEM_ID = -17;
 export const COMMON_CATALYST_ITEM_ID = -18;
 export const PONDERIFICATE_CATALYST_ITEM_ID = -19;
-export const WEB_CATALYST_ITEM_ID = -20;
 
 export const SPLIT_CATALYST_ITEM: Item = {
   id: SPLIT_CATALYST_ITEM_ID,
@@ -115,13 +114,6 @@ export const PONDERIFICATE_CATALYST_ITEM: Item = {
   name: "Ponderificate",
   normalizedName: "ponderificate",
   icon: "🫧",
-};
-
-export const WEB_CATALYST_ITEM: Item = {
-  id: WEB_CATALYST_ITEM_ID,
-  name: "Web",
-  normalizedName: "web",
-  icon: "🌐",
 };
 
 export const COMBINE_RESULT_PLACEHOLDER_ITEM_ID = -7;

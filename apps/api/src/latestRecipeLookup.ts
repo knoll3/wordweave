@@ -39,11 +39,6 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
     normalizedName: "ponderificate",
     icon: "🫧",
   },
-  web: {
-    name: "Web",
-    normalizedName: "web",
-    icon: "🌐",
-  },
   creative: {
     name: "Creative Spark",
     normalizedName: "creative spark",
@@ -84,9 +79,6 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
 function getCatalystFromInputKey(inputKey: string): LatestRecipeCatalyst | null {
   if (inputKey.startsWith("ponderificate|")) {
     return CATALYST_BY_MODE_KEY.ponderificate;
-  }
-  if (inputKey.startsWith("web|")) {
-    return CATALYST_BY_MODE_KEY.web;
   }
   if (inputKey.startsWith("action:") && inputKey.includes("|category:")) {
     return {

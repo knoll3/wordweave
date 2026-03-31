@@ -76,6 +76,7 @@ interface Props {
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
   ponderingNodeIds?: string[] | null;
+  webSearchingNodeIds?: string[] | null;
   onClearActionModifier: (nodeId: string) => void;
   onClearCategoryModifier: (nodeId: string) => void;
   onClearWorkspace: () => void;
@@ -146,6 +147,7 @@ function GraphView({
   onViewportCenterChange,
   combiningNodeIds,
   ponderingNodeIds,
+  webSearchingNodeIds,
   onClearCategoryModifier,
   onClearActionModifier,
   onClearWorkspace,
@@ -183,6 +185,7 @@ function GraphView({
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const ponderingNodeIdsRef = useRef<string[]>(ponderingNodeIds ?? []);
+  const webSearchingNodeIdsRef = useRef<string[]>(webSearchingNodeIds ?? []);
   const previousCombiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
   const workspaceItemsRef = useRef<WorkspaceItem[]>(workspaceItems);
@@ -248,6 +251,7 @@ function GraphView({
   workspaceItemsRef.current = workspaceItems;
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
   ponderingNodeIdsRef.current = ponderingNodeIds ?? [];
+  webSearchingNodeIdsRef.current = webSearchingNodeIds ?? [];
   onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
   onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onAttachActionModifierRef.current = onAttachActionModifier;
@@ -583,15 +587,18 @@ function GraphView({
   };
 
   const refreshPonderOverlay = () => {
-    const currentPonderingNodeIds = ponderingNodeIdsRef.current;
+    const currentOverlayNodeIds =
+      webSearchingNodeIdsRef.current.length > 0
+        ? webSearchingNodeIdsRef.current
+        : ponderingNodeIdsRef.current;
     const currentSelectionLayout = selectionLayoutRef.current;
-    if (currentPonderingNodeIds.length === 0) {
+    if (currentOverlayNodeIds.length === 0) {
       setPonderOverlayRect(null);
       return;
     }
 
     const worldBounds = getSelectionWorldBounds(
-      currentPonderingNodeIds,
+      currentOverlayNodeIds,
       currentSelectionLayout
     );
     if (!worldBounds) {
@@ -2047,7 +2054,7 @@ function GraphView({
 
   useEffect(() => {
     syncScene(workspaceItems);
-  }, [combiningNodeIds, itemById, ponderingNodeIds, selectedNodeIds, workspaceItems]);
+  }, [combiningNodeIds, itemById, ponderingNodeIds, selectedNodeIds, webSearchingNodeIds, workspaceItems]);
 
   useEffect(() => {
     if (!celebratedNodeId) {
@@ -2071,7 +2078,7 @@ function GraphView({
 
   useEffect(() => {
     refreshPonderOverlay();
-  }, [ponderingNodeIds, selectionLayout, workspaceItems]);
+  }, [ponderingNodeIds, selectionLayout, webSearchingNodeIds, workspaceItems]);
 
   useEffect(() => {
     if (!selectionLayout) return;
@@ -2087,8 +2094,18 @@ function GraphView({
     selectionLayout?.nodeIds.some((nodeId) => (combiningNodeIds ?? []).includes(nodeId)) ?? false;
   const isSelectionPondering =
     selectionLayout?.nodeIds.some((nodeId) => (ponderingNodeIds ?? []).includes(nodeId)) ?? false;
+  const isSelectionWebSearching =
+    selectionLayout?.nodeIds.some((nodeId) => (webSearchingNodeIds ?? []).includes(nodeId)) ?? false;
   const activePonderOverlayRect =
-    isSelectionPondering && selectionOverlayRect ? selectionOverlayRect : ponderOverlayRect;
+    (isSelectionWebSearching || isSelectionPondering) && selectionOverlayRect
+      ? selectionOverlayRect
+      : ponderOverlayRect;
+  const overlayTitle = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
+    ? "Searching"
+    : "Ponderificating";
+  const overlayCopy = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
+    ? "Searching the web for better results."
+    : "Thinking harder for a better result.";
   return (
     <div ref={hostRef} className="graph-pixi-host">
       {workspaceItems.length === 0 ? (
@@ -2150,8 +2167,8 @@ function GraphView({
               <span />
               <span />
             </div>
-            <div className="graph-ponder-overlay-title">Ponderificating</div>
-            <div className="graph-ponder-overlay-copy">Thinking harder for a better result.</div>
+            <div className="graph-ponder-overlay-title">{overlayTitle}</div>
+            <div className="graph-ponder-overlay-copy">{overlayCopy}</div>
           </div>
         </div>
       ) : null}

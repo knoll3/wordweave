@@ -5,7 +5,6 @@ import {
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM_ID,
   PONDERIFICATE_CATALYST_ITEM_ID,
-  WEB_CATALYST_ITEM_ID,
 } from "../../types";
 import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
 
@@ -82,7 +81,6 @@ export function isCatalystItemId(itemId: number) {
     itemId === CATEGORY_MODIFIER_ITEM_ID ||
     itemId === CREATIVE_ITEM_ID ||
     itemId === PONDERIFICATE_CATALYST_ITEM_ID ||
-    itemId === WEB_CATALYST_ITEM_ID ||
     ACTION_CATALYST_BY_ID.has(itemId)
   );
 }
@@ -111,7 +109,6 @@ export function getNodeTint(itemId: number) {
   if (itemId === -17) return 0x2dd4bf;
   if (itemId === -18) return 0x94a3b8;
   if (itemId === PONDERIFICATE_CATALYST_ITEM_ID) return 0x7dd3fc;
-  if (itemId === WEB_CATALYST_ITEM_ID) return 0x60a5fa;
   if (itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID) return 0x64748b;
   return 0x94a3b8;
 }

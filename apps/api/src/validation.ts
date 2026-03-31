@@ -6,7 +6,6 @@ export const combineRequestSchema = z.object({
   actionConstraint: z.string().min(1).max(64).nullable().optional(),
   creative: z.boolean().optional().default(false),
   ponderificate: z.boolean().optional().default(false),
-  useWebSearch: z.boolean().optional().default(false),
   model: z
     .enum(["gpt-5.4", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),

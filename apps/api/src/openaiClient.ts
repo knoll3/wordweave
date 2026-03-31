@@ -293,9 +293,9 @@ export async function generateResult(
     }
 > {
   const openai = getOpenAI();
-  const model = options?.ponderificate ? "gpt-5.4" : (options?.model ?? DEFAULT_MODEL_NAME);
+  const model = options?.ponderificate ? "gpt-5-mini" : (options?.model ?? DEFAULT_MODEL_NAME);
   const reasoningEffort =
-    options?.ponderificate ? "medium" : getReasoningEffortForModel(model);
+    options?.ponderificate ? "low" : getReasoningEffortForModel(model);
   const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
 
   console.log("[openai] sending request", {
@@ -403,6 +403,11 @@ export async function generateResult(
 export async function generateResultWithWebSearch(
   inputs: string[],
   options?: {
+    actionConstraint?: string;
+    actionPromptFamily?: ActionPromptFamilyKey | null;
+    categoryConstraint?: string;
+    creative?: boolean;
+    ponderificate?: boolean;
     model?: OpenAiModel;
   }
 ): Promise<{
@@ -411,12 +416,16 @@ export async function generateResultWithWebSearch(
 }> {
   const openai = getOpenAI();
   const model = options?.model ?? DEFAULT_MODEL_NAME;
-  const { prompt } = renderGenerateResultPrompt(inputs);
+  const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
 
   console.log("[openai][web-search] sending request", {
     model,
     inputs,
     tool: "web_search",
+    actionConstraint: options?.actionConstraint ?? null,
+    actionPromptFamily: actionPromptFamily?.key ?? null,
+    categoryConstraint: options?.categoryConstraint ?? null,
+    creative: options?.creative ?? false,
     prompt,
   });
 
