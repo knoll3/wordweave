@@ -20,6 +20,7 @@ interface Props {
 }
 
 const RANDOM_SPAWN_COUNT = 4;
+const MAX_VISIBLE_SEARCH_RESULTS = 100;
 
 function tokenize(value: string) {
   return value
@@ -310,17 +311,41 @@ const ElementSidebar: React.FC<Props> = ({
           deduped.set(item.id, item);
         }
       }
-      return [...deduped.values()];
+      return [...deduped.values()].slice(0, MAX_VISIBLE_SEARCH_RESULTS);
     }
 
-    if (sortBy === "time") {
-      // Keep API order (created_at ASC) so newest items stay toward the end.
-      return items;
-    }
-    return [...items].sort((a, b) =>
-      a.name.localeCompare(b.name, "en", { sensitivity: "base" })
-    );
+    return [];
   }, [items, lexicalSearchItems, search, semanticItems, sortBy]);
+
+  const totalSearchMatches = useMemo(() => {
+    if (!search.trim()) {
+      return 0;
+    }
+
+    const deduped = new Set<number>();
+    for (const item of lexicalSearchItems) {
+      deduped.add(item.id);
+    }
+    for (const item of semanticItems) {
+      deduped.add(item.id);
+    }
+    return deduped.size;
+  }, [lexicalSearchItems, search, semanticItems]);
+
+  const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
+
+  const searchStatusLabel = useMemo(() => {
+    if (!search.trim()) {
+      return null;
+    }
+    if (isSearchAwaitingMore) {
+      return null;
+    }
+    if (totalSearchMatches > MAX_VISIBLE_SEARCH_RESULTS) {
+      return `Showing top ${MAX_VISIBLE_SEARCH_RESULTS} of ${totalSearchMatches} matches.`;
+    }
+    return null;
+  }, [isSearchAwaitingMore, search, totalSearchMatches]);
 
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
 
@@ -341,8 +366,6 @@ const ElementSidebar: React.FC<Props> = ({
   function handleSearchChange(value: string) {
     setSearch(value);
   }
-
-  const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
 
   function handleAddRandomItems() {
     if (!items.length) return;
@@ -599,6 +622,22 @@ const ElementSidebar: React.FC<Props> = ({
               items={displayedItems}
               onAddToWorkspace={onAddItemToWorkspace}
               pendingLabel={isSearchAwaitingMore ? "Searching more results…" : null}
+              statusLabel={searchStatusLabel}
+              emptyLabel={
+                search.trim()
+                  ? "No matching items found."
+                  : "Search to show matching library items."
+              }
+              emptyState={
+                search.trim() ? null : (
+                  <div className="library-empty-state" role="status" aria-live="polite">
+                    <p className="library-empty-state-copy">
+                      {items.length.toLocaleString()} items loaded
+                    </p>
+                    <div className="library-empty-state-title">Search to browse the library</div>
+                  </div>
+                )
+              }
               listRef={elementListRef}
             />
           </div>

@@ -5,6 +5,9 @@ interface Props {
   items: Item[];
   onAddToWorkspace: (item: Item) => void;
   pendingLabel?: string | null;
+  statusLabel?: string | null;
+  emptyLabel?: string;
+  emptyState?: React.ReactNode;
   listRef?: React.Ref<HTMLDivElement>;
 }
 
@@ -12,14 +15,13 @@ const ElementList: React.FC<Props> = ({
   items,
   onAddToWorkspace,
   pendingLabel = null,
+  statusLabel = null,
+  emptyLabel = "No items yet. Start by combining the base items.",
+  emptyState = null,
   listRef,
 }) => {
-  if (!items.length && !pendingLabel) {
-    return (
-      <div className="sidebar-placeholder">
-        No items yet. Start by combining the base items.
-      </div>
-    );
+  if (!items.length && !pendingLabel && !statusLabel) {
+    return emptyState ? <>{emptyState}</> : <div className="sidebar-placeholder">{emptyLabel}</div>;
   }
 
   return (
@@ -51,6 +53,11 @@ const ElementList: React.FC<Props> = ({
         <div className="element-list-status" role="status" aria-live="polite">
           <span className="search-pending-spinner" aria-hidden="true" />
           <span>{pendingLabel}</span>
+        </div>
+      ) : null}
+      {statusLabel ? (
+        <div className="element-list-status" role="status" aria-live="polite">
+          <span>{statusLabel}</span>
         </div>
       ) : null}
     </div>

@@ -1476,6 +1476,31 @@
   overflow: auto;
 }
 
+.library-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 6px;
+  min-height: 100%;
+  padding: 16px;
+  color: var(--text-soft);
+}
+
+.library-empty-state-title {
+  font-size: 0.84rem;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.library-empty-state-copy {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.4;
+  color: var(--text-soft);
+}
+
 .element-list-status {
   display: inline-flex;
   align-items: center;
