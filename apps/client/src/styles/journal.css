@@ -509,6 +509,15 @@
   gap: 12px;
 }
 
+.quest-archive-load-more {
+  display: flex;
+  justify-content: center;
+}
+
+.quest-archive-load-more-button {
+  align-self: center;
+}
+
 .quest-section-label {
   font-size: 0.68rem;
   font-weight: 700;

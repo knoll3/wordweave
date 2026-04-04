@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { PanelRightClose } from "lucide-react";
 import type { Item, QuestRecord } from "../../types";
 import type { ItemReference } from "../../lib/api";
@@ -77,6 +77,7 @@ const JournalDock: React.FC<Props> = ({
   pendingQuestAction,
   truncateReference,
 }) => {
+  const COMPLETED_QUESTS_PAGE_SIZE = 50;
   const trackedQuests = quests.filter((quest) =>
     trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
   );
@@ -86,6 +87,24 @@ const JournalDock: React.FC<Props> = ({
   const completedQuests = quests.filter((quest) =>
     completedQuestNames.has(quest.name)
   );
+  const [visibleCompletedCount, setVisibleCompletedCount] = useState(
+    Math.min(COMPLETED_QUESTS_PAGE_SIZE, completedQuests.length)
+  );
+
+  useEffect(() => {
+    setVisibleCompletedCount((prev) => {
+      if (completedQuests.length <= COMPLETED_QUESTS_PAGE_SIZE) {
+        return completedQuests.length;
+      }
+      return Math.min(
+        Math.max(prev, COMPLETED_QUESTS_PAGE_SIZE),
+        completedQuests.length
+      );
+    });
+  }, [completedQuests.length]);
+
+  const visibleCompletedQuests = completedQuests.slice(0, visibleCompletedCount);
+  const hasMoreCompletedQuests = visibleCompletedCount < completedQuests.length;
 
   const renderQuestCard = (
     quest: QuestRecord,
@@ -269,8 +288,28 @@ const JournalDock: React.FC<Props> = ({
                   </summary>
                   <div className="quest-archive-list">
                     <div className="quest-card-list">
-                      {completedQuests.map((quest) => renderQuestCard(quest, "completed"))}
+                      {visibleCompletedQuests.map((quest) =>
+                        renderQuestCard(quest, "completed")
+                      )}
                     </div>
+                    {hasMoreCompletedQuests ? (
+                      <div className="quest-archive-load-more">
+                        <button
+                          type="button"
+                          className="quest-generate-button quest-archive-load-more-button"
+                          onClick={() =>
+                            setVisibleCompletedCount((prev) =>
+                              Math.min(
+                                prev + COMPLETED_QUESTS_PAGE_SIZE,
+                                completedQuests.length
+                              )
+                            )
+                          }
+                        >
+                          Load More
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </details>
               ) : null}
