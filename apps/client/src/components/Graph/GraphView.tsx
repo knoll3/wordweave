@@ -221,6 +221,12 @@ function GraphView({
     width: number;
     height: number;
   } | null>(null);
+  const [activeOverlayWorldBounds, setActiveOverlayWorldBounds] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const [ponderOverlayRect, setPonderOverlayRect] = useState<{
     left: number;
     top: number;
@@ -230,6 +236,12 @@ function GraphView({
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
+  const activeOverlayWorldBoundsRef = useRef<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
   const lastCelebratedNodeIdRef = useRef<string | null>(null);
   const ARRIVAL_HIGHLIGHT_MAX_MS = 30_000;
   const ARRIVAL_BOUNCE_MS = 500;
@@ -264,6 +276,7 @@ function GraphView({
   selectionModeRef.current = isSelectionMode;
   selectedNodeIdsRef.current = selectedNodeIds;
   selectionLayoutRef.current = selectionLayout;
+  activeOverlayWorldBoundsRef.current = activeOverlayWorldBounds;
 
   const updateViewportCenter = () => {
     const app = appRef.current;
@@ -418,6 +431,13 @@ function GraphView({
     setSelectionOverlayRect(null);
   };
 
+  const getCurrentOverlayNodeIds = () =>
+    webSearchingNodeIdsRef.current.length > 0
+      ? webSearchingNodeIdsRef.current
+      : ponderingNodeIdsRef.current;
+
+  const isNodeCoveredByOverlay = (nodeId: string) => getCurrentOverlayNodeIds().includes(nodeId);
+
   const cancelActiveDrag = () => {
     const dragState = dragStateRef.current;
     if (!dragState) return;
@@ -520,7 +540,8 @@ function GraphView({
 
   const getSelectionWorldBounds = (
     nodeIds: string[],
-    layout?: SelectionCombineLayout | null
+    layout?: SelectionCombineLayout | null,
+    options?: { preferLayoutPositions?: boolean }
   ) => {
     const involvedNodeIds = new Set(nodeIds);
     if (layout) {
@@ -533,9 +554,12 @@ function GraphView({
             ? layout.placeholderPosition
             : layout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
         const liveView = itemViewsRef.current.get(nodeId);
-        const position = liveView
-          ? getViewTopLeftPosition(liveView)
-          : layoutPosition;
+        const position =
+          options?.preferLayoutPositions && layoutPosition
+            ? layoutPosition
+            : liveView
+              ? getViewTopLeftPosition(liveView)
+              : layoutPosition;
         const width =
           layout?.placeholderNodeId === nodeId
             ? Math.max(
@@ -587,26 +611,12 @@ function GraphView({
   };
 
   const refreshPonderOverlay = () => {
-    const currentOverlayNodeIds =
-      webSearchingNodeIdsRef.current.length > 0
-        ? webSearchingNodeIdsRef.current
-        : ponderingNodeIdsRef.current;
-    const currentSelectionLayout = selectionLayoutRef.current;
-    if (currentOverlayNodeIds.length === 0) {
+    if (!activeOverlayWorldBoundsRef.current) {
       setPonderOverlayRect(null);
       return;
     }
 
-    const worldBounds = getSelectionWorldBounds(
-      currentOverlayNodeIds,
-      currentSelectionLayout
-    );
-    if (!worldBounds) {
-      setPonderOverlayRect(null);
-      return;
-    }
-
-    setPonderOverlayRect(worldRectToScreenRect(worldBounds));
+    setPonderOverlayRect(worldRectToScreenRect(activeOverlayWorldBoundsRef.current));
   };
 
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
@@ -1000,6 +1010,9 @@ function GraphView({
       actionBadge.cursor = "pointer";
       actionBadge.on("pointerdown", (event) => {
         event.stopPropagation();
+        if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+          return;
+        }
         onClearActionModifierRef.current(workspaceItem.nodeId);
       });
     }
@@ -1028,6 +1041,9 @@ function GraphView({
       categoryBadge.cursor = "pointer";
       categoryBadge.on("pointerdown", (event) => {
         event.stopPropagation();
+        if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+          return;
+        }
         onClearCategoryModifierRef.current(workspaceItem.nodeId);
       });
     }
@@ -1085,6 +1101,9 @@ function GraphView({
           beginTouchGesture();
           return;
         }
+      }
+      if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+        return;
       }
       if (selectionModeRef.current) {
         return;
@@ -1541,6 +1560,9 @@ function GraphView({
 
         const selectedIds = workspaceItemsRef.current
           .filter((item) => {
+            if (isNodeCoveredByOverlay(item.nodeId)) {
+              return false;
+            }
             const view = itemViewsRef.current.get(item.nodeId);
             if (!view) return false;
             const position = getViewTopLeftPosition(view);
@@ -2078,7 +2100,50 @@ function GraphView({
 
   useEffect(() => {
     refreshPonderOverlay();
-  }, [ponderingNodeIds, selectionLayout, webSearchingNodeIds, workspaceItems]);
+  }, [activeOverlayWorldBounds]);
+
+  useEffect(() => {
+    const currentOverlayNodeIds = getCurrentOverlayNodeIds();
+    if (currentOverlayNodeIds.length === 0) {
+      setActiveOverlayWorldBounds(null);
+      setPonderOverlayRect(null);
+      return;
+    }
+
+    const worldBounds = getSelectionWorldBounds(
+      currentOverlayNodeIds,
+      selectionLayoutRef.current,
+      { preferLayoutPositions: true }
+    );
+    if (!worldBounds) {
+      return;
+    }
+
+    setActiveOverlayWorldBounds((prev) => {
+      if (
+        prev &&
+        prev.x === worldBounds.x &&
+        prev.y === worldBounds.y &&
+        prev.width === worldBounds.width &&
+        prev.height === worldBounds.height
+      ) {
+        return prev;
+      }
+      return worldBounds;
+    });
+
+    if (
+      selectedNodeIdsRef.current.some((nodeId) => currentOverlayNodeIds.includes(nodeId)) ||
+      selectionLayoutRef.current
+    ) {
+      clearSelection();
+    }
+
+    selectionDragRef.current = null;
+    selectionDragRectRef.current = null;
+    setSelectionDragRect(null);
+    cancelActiveDrag();
+  }, [ponderingNodeIds, webSearchingNodeIds]);
 
   useEffect(() => {
     if (!selectionLayout) return;
@@ -2172,7 +2237,7 @@ function GraphView({
           </div>
         </div>
       ) : null}
-      {selectionOverlayRect && selectedNodeIds.length >= 2 && !activePonderOverlayRect ? (
+      {selectionOverlayRect && selectedNodeIds.length >= 2 ? (
         <div
           className="graph-selection-overlay"
           style={{
