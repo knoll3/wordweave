@@ -914,7 +914,7 @@ const App: React.FC = () => {
   function addItemToWorkspace(
     itemId: number,
     position?: { x: number; y: number },
-    options?: { isNewDiscovery?: boolean; arrivalHighlightMode?: "library" }
+    options?: { isNewDiscovery?: boolean; arrivalHighlightMode?: "library" | "combine" }
   ) {
     const item = findItemById(itemId);
     if (!item) return;
@@ -1320,12 +1320,13 @@ const App: React.FC = () => {
 
       if (selectionLayout) {
         updateWorkspaceItems((prev) => {
-          const updated = prev.map((node) =>
+          const updated: WorkspaceItem[] = prev.map((node) =>
             node.nodeId === selectionLayout.placeholderNodeId
               ? {
                   ...node,
                   itemId: producedItemsWithDiscovery[0].item.id,
                   isNewDiscovery: producedItemsWithDiscovery[0].isNewDiscovery,
+                  arrivalHighlightMode: "combine",
                 }
               : node
           );
@@ -1340,7 +1341,7 @@ const App: React.FC = () => {
             return updated;
           }
 
-          const extras = producedItemsWithDiscovery.slice(1).map((produced, index) => ({
+          const extras: WorkspaceItem[] = producedItemsWithDiscovery.slice(1).map((produced, index) => ({
             nodeId: producedNodeIds[index + 1],
             itemId: produced.item.id,
             position: {
@@ -1348,6 +1349,7 @@ const App: React.FC = () => {
               y: placeholderNode.position.y,
             },
             isNewDiscovery: produced.isNewDiscovery,
+            arrivalHighlightMode: "combine" as const,
           }));
 
           return [...updated, ...extras];
@@ -1372,7 +1374,7 @@ const App: React.FC = () => {
         updateWorkspaceItems((prev) => {
           const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
           const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
-          const spawned = producedItemsWithDiscovery.map((produced, index) => ({
+          const spawned: WorkspaceItem[] = producedItemsWithDiscovery.map((produced, index) => ({
             nodeId: producedNodeIds[index],
             itemId: produced.item.id,
             position: {
@@ -1380,6 +1382,7 @@ const App: React.FC = () => {
               y: center.y,
             },
             isNewDiscovery: produced.isNewDiscovery,
+            arrivalHighlightMode: "combine" as const,
           }));
           return [...withoutInputs, ...spawned];
         }, { recordHistory: false });

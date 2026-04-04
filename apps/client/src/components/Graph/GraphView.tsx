@@ -543,16 +543,22 @@ function GraphView({
     layout?: SelectionCombineLayout | null,
     options?: { preferLayoutPositions?: boolean }
   ) => {
+    const relevantLayout =
+      layout &&
+      layout.nodeIds.length === nodeIds.length &&
+      layout.nodeIds.every((nodeId) => nodeIds.includes(nodeId))
+        ? layout
+        : null;
     const involvedNodeIds = new Set(nodeIds);
-    if (layout) {
-      involvedNodeIds.add(layout.placeholderNodeId);
+    if (relevantLayout) {
+      involvedNodeIds.add(relevantLayout.placeholderNodeId);
     }
     const entries = Array.from(involvedNodeIds)
       .map((nodeId) => {
         const layoutPosition =
-          layout?.placeholderNodeId === nodeId
-            ? layout.placeholderPosition
-            : layout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
+          relevantLayout?.placeholderNodeId === nodeId
+            ? relevantLayout.placeholderPosition
+            : relevantLayout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
         const liveView = itemViewsRef.current.get(nodeId);
         const position =
           options?.preferLayoutPositions && layoutPosition
@@ -561,7 +567,7 @@ function GraphView({
               ? getViewTopLeftPosition(liveView)
               : layoutPosition;
         const width =
-          layout?.placeholderNodeId === nodeId
+          relevantLayout?.placeholderNodeId === nodeId
             ? Math.max(
                 ...nodeIds.map(
                   (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
@@ -1301,9 +1307,15 @@ function GraphView({
         view.contentAlpha = currentAlpha;
         view.targetContentAlpha = currentAlpha;
         view.container.alpha = currentAlpha;
-        view.arrivalTintProgress = currentArrivalTintProgress;
-        view.arrivalHighlightUntil = currentArrivalHighlightUntil;
-        view.arrivalHighlightStartedAt = currentArrivalHighlightStartedAt;
+        if (workspaceItem.arrivalHighlightMode) {
+          view.arrivalTintProgress = 1;
+          view.arrivalHighlightStartedAt = Date.now();
+          view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
+        } else {
+          view.arrivalTintProgress = currentArrivalTintProgress;
+          view.arrivalHighlightUntil = currentArrivalHighlightUntil;
+          view.arrivalHighlightStartedAt = currentArrivalHighlightStartedAt;
+        }
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
       }
@@ -1313,7 +1325,7 @@ function GraphView({
         world.addChild(view.container);
         if (
           addedNodeIds.includes(workspaceItem.nodeId) &&
-          workspaceItem.arrivalHighlightMode === "library"
+          workspaceItem.arrivalHighlightMode
         ) {
           view.arrivalTintProgress = 1;
           view.arrivalHighlightStartedAt = Date.now();
