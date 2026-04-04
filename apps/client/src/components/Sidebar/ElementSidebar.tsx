@@ -551,16 +551,6 @@ const ElementSidebar: React.FC<Props> = ({
                 Undo
               </button>
             </div>
-            <div className="library-count-label" aria-live="polite">
-              {loadingItems ? (
-                <span
-                  className="library-count-skeleton"
-                  aria-hidden="true"
-                />
-              ) : (
-                `${items.length} items`
-              )}
-            </div>
             <div
               className={`library-points-label ${
                 isQuestPointsHighlighted ? "library-points-label-highlighted" : ""
@@ -569,6 +559,16 @@ const ElementSidebar: React.FC<Props> = ({
             >
               {totalQuestPoints} points
             </div>
+          </div>
+          <div className="library-count-label" aria-live="polite">
+            {loadingItems ? (
+              <span
+                className="library-count-skeleton"
+                aria-hidden="true"
+              />
+            ) : (
+              `${items.length} items`
+            )}
           </div>
           {randomUnlocked ? (
             <button
@@ -588,7 +588,12 @@ const ElementSidebar: React.FC<Props> = ({
         </div>
         <ElementSearch value={search} onChange={handleSearchChange} />
         {loadingItems ? (
-          <div className="sidebar-placeholder">Loading items…</div>
+          <div className="library-results">
+            <div className="library-empty-state" role="status" aria-live="polite">
+              <span className="search-pending-spinner library-loading-spinner" aria-hidden="true" />
+              <p className="library-empty-state-copy">Loading library</p>
+            </div>
+          </div>
         ) : libraryLoadError ? (
           <div className="sidebar-placeholder">{libraryLoadError}</div>
         ) : !search.trim() && browseMode === "tree" ? (

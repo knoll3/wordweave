@@ -124,6 +124,40 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey: key });
 }
 
+function extractWebSearchCitations(response: { output?: unknown }) {
+  const citations: Array<{ title: string; url: string }> = [];
+
+  for (const item of Array.isArray(response.output) ? response.output : []) {
+    if (item.type !== "message" || !Array.isArray(item.content)) {
+      continue;
+    }
+
+    for (const contentItem of item.content) {
+      if (contentItem.type !== "output_text" || !Array.isArray(contentItem.annotations)) {
+        continue;
+      }
+
+      for (const annotation of contentItem.annotations) {
+        if (
+          annotation?.type === "url_citation" &&
+          typeof annotation.title === "string" &&
+          typeof annotation.url === "string"
+        ) {
+          citations.push({
+            title: annotation.title,
+            url: annotation.url,
+          });
+        }
+      }
+    }
+  }
+
+  return citations.filter(
+    (citation, index, array) =>
+      array.findIndex((candidate) => candidate.url === citation.url) === index
+  );
+}
+
 export function renderGenerateResultPrompt(
   inputs: string[],
   options?: {
@@ -473,6 +507,10 @@ export async function generateResultWithWebSearch(
   console.log(
     "[openai][web-search] response output",
     Array.isArray(response.output) ? response.output : []
+  );
+  console.log(
+    "[openai][web-search] citations",
+    extractWebSearchCitations(response)
   );
   if (!content) {
     console.error("[openai][web-search] empty response content", response);

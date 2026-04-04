@@ -30,6 +30,7 @@ export type ActionPromptFamily = {
 };
 
 const CATEGORY_RULES_PLACEHOLDER = "{{OPTIONAL_CATEGORY_RULES}}";
+const LITERAL_WEB_SEARCH_QUERY_PLACEHOLDER = "{{LITERAL_WEB_SEARCH_QUERY}}";
 
 const OPTIONAL_CATEGORY_RULES = `
 
@@ -197,6 +198,18 @@ You are the pop culture engine for a sandbox discovery game.
 The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
 The player provides several inputs as clues. Your job is to return the single most recognizable specific pop culture reference those clues point to.
+
+Search the web using this exact literal query string and seriously and carefully consider the top results before deciding on your answer:
+"{{LITERAL_WEB_SEARCH_QUERY}}"
+
+Use that exact string as written.
+Do not change the wording.
+Do not change the order.
+Do not add extra words.
+Do not remove words.
+Do not infer a candidate answer and then search for that candidate.
+Do not run alternative searches, follow-up searches, or rewritten searches.
+Use only the literal query string above for web search.
 
 Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
 
@@ -859,6 +872,7 @@ export function renderActionPromptFamily(params: {
   categoryConstraint?: string;
   inputs: string[];
 }) {
+  const literalWebSearchQuery = params.inputs.join(" ").trim();
   const categoryRules = params.categoryConstraint
     ? OPTIONAL_CATEGORY_RULES.replace(
         /{{CATEGORY_CONSTRAINT}}/g,
@@ -869,6 +883,7 @@ export function renderActionPromptFamily(params: {
   const renderedPrompt = params.family.prompt
     .replace(/{{ACTION_CONSTRAINT}}/g, params.actionConstraint)
     .replace(CATEGORY_RULES_PLACEHOLDER, categoryRules)
+    .replace(LITERAL_WEB_SEARCH_QUERY_PLACEHOLDER, literalWebSearchQuery)
     .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(params.inputs));
 
   if (params.family.responseMode === "split") {
