@@ -13,6 +13,7 @@ import {
   renderRecipeBatchPrompt,
   type OpenAiModel,
 } from "../openaiClient";
+import { searchGoogleLikeWeb } from "../webSearch";
 
 const router = express.Router();
 
@@ -206,12 +207,20 @@ router.post("/test", async (req, res) => {
     const creative = promptDefinition.key === "creative";
     const actionPromptFamily =
       promptDefinition.actionFamilyKey == null ? null : promptDefinition.actionFamilyKey;
+    const webSearchResults =
+      actionPromptFamily === "pop_culture"
+        ? await searchGoogleLikeWeb(inputs.join(" "), { limit: 3 })
+        : undefined;
+    if (actionPromptFamily === "pop_culture" && (!webSearchResults || webSearchResults.length === 0)) {
+      throw new Error("No web search results returned for the pop culture query");
+    }
     const { prompt: renderedPrompt, actionPromptFamily: resolvedFamily } =
       renderGenerateResultPrompt(inputs, {
         creative,
         actionConstraint,
         actionPromptFamily,
         categoryConstraint,
+        webSearchResults,
       });
     const result = await generateResult(inputs, {
       model,
@@ -219,6 +228,7 @@ router.post("/test", async (req, res) => {
       actionConstraint,
       actionPromptFamily,
       categoryConstraint,
+      webSearchResults,
     });
 
     return res.json({
@@ -226,6 +236,7 @@ router.post("/test", async (req, res) => {
       promptTitle: promptDefinition.title,
       model,
       renderedPrompt,
+      webSearchResults: webSearchResults ?? [],
       resolvedActionFamilyKey: resolvedFamily?.key ?? null,
       result,
     });

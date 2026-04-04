@@ -2,6 +2,7 @@ import {
   RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS,
   RANKED_OPTIONS_OVERLAY_INSTRUCTIONS,
 } from "./openaiPrompts/combinePrompts";
+import type { WebSearchResult } from "./webSearch";
 
 export type ActionPromptResponseMode = "default" | "strict" | "split";
 
@@ -30,7 +31,8 @@ export type ActionPromptFamily = {
 };
 
 const CATEGORY_RULES_PLACEHOLDER = "{{OPTIONAL_CATEGORY_RULES}}";
-const LITERAL_WEB_SEARCH_QUERY_PLACEHOLDER = "{{LITERAL_WEB_SEARCH_QUERY}}";
+const POP_CULTURE_SEARCH_QUERY_PLACEHOLDER = "{{POP_CULTURE_SEARCH_QUERY}}";
+const POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER = "{{POP_CULTURE_SEARCH_RESULTS}}";
 
 const OPTIONAL_CATEGORY_RULES = `
 
@@ -197,41 +199,57 @@ You are the pop culture engine for a sandbox discovery game.
 
 The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
 
-The player provides several inputs as clues. Your job is to return the single most recognizable specific pop culture reference those clues point to.
+The player provides several inputs as clues. A separate Google-like web search has already been run using the exact literal query string below:
+"{{POP_CULTURE_SEARCH_QUERY}}"
 
-Search the web using this exact literal query string and seriously and carefully consider the top results before deciding on your answer:
-"{{LITERAL_WEB_SEARCH_QUERY}}"
+You are also given the first web results from that exact search.
 
-Use that exact string as written.
-Do not change the wording.
-Do not change the order.
-Do not add extra words.
-Do not remove words.
-Do not infer a candidate answer and then search for that candidate.
-Do not run alternative searches, follow-up searches, or rewritten searches.
-Use only the literal query string above for web search.
+Treat those web results as the primary evidence.
+Do not perform your own web search.
+Do not imagine better search results.
+Do not solve the clue from scratch while ignoring the search results.
+The original inputs are only context for understanding why that literal search was run.
 
+Your job is to infer what recognizable pop culture reference the player is most likely aiming for based on what that exact search surfaces first.
+
+Prefer candidates that are directly supported by the top search results.
 Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
-
-${CLUE_INTERPRETATION_GUIDANCE}
+If multiple nearby answers appear in the results, return the strongest few options and score them by how directly the search results support them.
+Only introduce a normalized alias or obvious canonical name when the top results clearly support it.
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
-- Return exactly one result.
-- Keep the result short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
+- Return between 2 and 5 distinct options with scores, plus the best option.
+- Search results are the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
+- Weight the highest-ranked search results most heavily.
+- Keep every option short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
-- Favor the most specific and widely recognizable reference.
+- Favor the most specific and widely recognizable reference strongly supported by the results.
 
 Return ONLY valid JSON in this format:
 
 {
-  "name": "result name",
-  "icon": "emoji"
+  "options": [
+    { "name": "option one", "icon": "emoji", "score": 93 },
+    { "name": "option two", "icon": "emoji", "score": 88 },
+    { "name": "option three", "icon": "emoji", "score": 81 }
+  ],
+  "bestOption": { "name": "option one", "icon": "emoji", "score": 93 }
 }
+
+Rules for the JSON response:
+- Return between 2 and 5 distinct options.
+- Scores must be integers from 0 to 100 and reflect how strongly the search results support the candidate.
+- bestOption must exactly match one entry from options.
+- Keep every option short and recognizable.
+- Do not return explanations, descriptions, or sentences.
 
 Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
+
+Web search results:
+{{POP_CULTURE_SEARCH_RESULTS}}
 `.trim();
 
 const COMPOUND_ACTION_PROMPT = `
@@ -871,6 +889,7 @@ export function renderActionPromptFamily(params: {
   actionConstraint: string;
   categoryConstraint?: string;
   inputs: string[];
+  webSearchResults?: WebSearchResult[];
 }) {
   const literalWebSearchQuery = params.inputs.join(" ").trim();
   const categoryRules = params.categoryConstraint
@@ -883,10 +902,14 @@ export function renderActionPromptFamily(params: {
   const renderedPrompt = params.family.prompt
     .replace(/{{ACTION_CONSTRAINT}}/g, params.actionConstraint)
     .replace(CATEGORY_RULES_PLACEHOLDER, categoryRules)
-    .replace(LITERAL_WEB_SEARCH_QUERY_PLACEHOLDER, literalWebSearchQuery)
+    .replace(POP_CULTURE_SEARCH_QUERY_PLACEHOLDER, literalWebSearchQuery)
+    .replace(
+      POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER,
+      JSON.stringify(params.webSearchResults ?? [], null, 2)
+    )
     .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(params.inputs));
 
-  if (params.family.responseMode === "split") {
+  if (params.family.responseMode === "split" || params.family.key === "pop_culture") {
     return renderedPrompt;
   }
 

@@ -1,6 +1,7 @@
 import type {
   AiModel,
   CacheRecipe,
+  CatalystAvailabilityStatus,
   FeatureUnlockStatus,
   GenerateCacheRecipesResult,
   Item,
@@ -87,6 +88,11 @@ export async function fetchItems(query?: string): Promise<Item[]> {
 export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {
   const res = await fetch(`${API_BASE}/elements/unlocks`);
   return handleResponse<FeatureUnlockStatus[]>(res);
+}
+
+export async function fetchCatalystAvailabilityStatuses(): Promise<CatalystAvailabilityStatus[]> {
+  const res = await fetch(`${API_BASE}/elements/catalysts/status`);
+  return handleResponse<CatalystAvailabilityStatus[]>(res);
 }
 
 export async function markUnlockIntroSeen(key: FeatureUnlockStatus["key"]): Promise<{

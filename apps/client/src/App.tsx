@@ -14,6 +14,7 @@ import {
 import type {
   AutoUnlockedActionWord,
   AiModel,
+  CatalystAvailabilityStatus,
   FeatureUnlockStatus,
   Item,
   PlayerQuestStats,
@@ -26,12 +27,14 @@ import type {
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
 import GraphView from "./components/Graph/GraphView";
+import type { CatalystAction } from "./components/Graph/CatalystDock";
 import JournalDock from "./components/Journal/JournalDock";
 import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import {
   acceptGeneratedQuestSet,
   combineElements,
+  fetchCatalystAvailabilityStatuses,
   fetchQuests,
   fetchUnlockStatuses,
   generateQuestDraft,
@@ -156,6 +159,9 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
+  const [catalystAvailabilityStatuses, setCatalystAvailabilityStatuses] = useState<
+    CatalystAvailabilityStatus[]
+  >([]);
   const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [quests, setQuests] = useState<QuestRecord[]>([]);
@@ -528,16 +534,35 @@ const App: React.FC = () => {
   }
 
   async function loadFeatureUnlocks() {
-    try {
-      const statuses = await fetchUnlockStatuses();
-      setFeatureUnlocks(statuses);
-    } catch {
+    const [unlockStatusesResult, catalystStatusesResult] = await Promise.allSettled([
+      fetchUnlockStatuses(),
+      fetchCatalystAvailabilityStatuses(),
+    ]);
+
+    if (unlockStatusesResult.status === "fulfilled") {
+      setFeatureUnlocks(unlockStatusesResult.value);
+    }
+
+    if (catalystStatusesResult.status === "fulfilled") {
+      setCatalystAvailabilityStatuses(catalystStatusesResult.value);
+    } else {
+      setCatalystAvailabilityStatuses([
+        {
+          key: "pop_culture",
+          available: false,
+          reason: "Pop Culture is unavailable because web search status could not be loaded.",
+        },
+      ]);
     }
   }
 
   function isFeatureUnlocked(key: UnlockKey) {
     if (forceUnlocks) return true;
     return featureUnlocks.some((unlock) => unlock.key === key && unlock.unlocked);
+  }
+
+  function getCatalystAvailabilityStatus(key: string): CatalystAvailabilityStatus | null {
+    return catalystAvailabilityStatuses.find((status) => status.key === key) ?? null;
   }
 
   function openQuestGenerationModal() {
@@ -846,15 +871,7 @@ const App: React.FC = () => {
     );
   }, [items]);
   const catalystActions = useMemo(() => {
-    const actions: Array<{
-      key: string;
-      title: string;
-      badgeLabel?: string;
-      icon: React.ReactNode;
-      tint: string;
-      iconTint: string;
-      onClick: () => void;
-    }> = [];
+    const actions: CatalystAction[] = [];
 
     actions.push({
       key: "category",
@@ -890,18 +907,28 @@ const App: React.FC = () => {
       if (!unlockedCatalystFamilyKeys.has(catalyst.familyKey)) {
         continue;
       }
+      const availabilityStatus = getCatalystAvailabilityStatus(catalyst.familyKey);
+      const disabled = availabilityStatus != null && !availabilityStatus.available;
       actions.push({
         key: catalyst.familyKey,
         title: catalyst.actionConstraint,
+        disabled,
+        disabledReason: disabled ? availabilityStatus?.reason ?? "Unavailable" : null,
         icon: catalyst.item.icon ?? catalyst.actionConstraint.charAt(0),
         tint: catalyst.tint,
         iconTint: catalyst.iconTint,
-        onClick: () => addItemToWorkspace(catalyst.item.id),
+        onClick: () => {
+          if (disabled) {
+            showError(availabilityStatus?.reason ?? `${catalyst.actionConstraint} is unavailable.`, null);
+            return;
+          }
+          addItemToWorkspace(catalyst.item.id);
+        },
       });
     }
 
     return actions;
-  }, [items, unlockedCatalystFamilyKeys]);
+  }, [catalystAvailabilityStatuses, items, unlockedCatalystFamilyKeys]);
 
   function makeWorkspaceNodeId() {
     return `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`;

@@ -5,6 +5,8 @@ export interface CatalystAction {
   key: string;
   title: string;
   badgeLabel?: string;
+  disabled?: boolean;
+  disabledReason?: string | null;
   icon: React.ReactNode;
   tint: string;
   iconTint: string;
@@ -22,6 +24,9 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
     return null;
   }
 
+  const readyCount = catalystActions.filter((action) => !action.disabled).length;
+  const unavailableCount = catalystActions.length - readyCount;
+
   return (
     <div className={`graph-catalyst-dock${isOpen ? "" : " is-collapsed"}`} aria-label="Catalysts">
       <button
@@ -37,7 +42,11 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
           </span>
           <span className="graph-catalyst-dock-copy">
             <span className="graph-catalyst-dock-label">Catalysts</span>
-            <span className="graph-catalyst-dock-meta">{catalystActions.length} ready</span>
+            <span className="graph-catalyst-dock-meta">
+              {unavailableCount > 0
+                ? `${readyCount} ready · ${unavailableCount} unavailable`
+                : `${readyCount} ready`}
+            </span>
           </span>
         </span>
         <span className="graph-catalyst-dock-header-end">
@@ -56,8 +65,10 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
             <button
               key={action.key}
               type="button"
-              className="graph-catalyst-button"
+              className={`graph-catalyst-button${action.disabled ? " is-disabled" : ""}`}
               onClick={action.onClick}
+              title={action.disabledReason ?? undefined}
+              aria-disabled={action.disabled ? true : undefined}
               style={{ ["--catalyst-tint" as string]: action.tint }}
             >
               <span

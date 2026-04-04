@@ -14,10 +14,11 @@ import {
   DEFAULT_MODEL_NAME,
   generateRecipeBatch,
   generateResult,
-  generateResultWithWebSearch,
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
+import type { WebSearchResult } from "../webSearch";
+import { searchGoogleLikeWeb } from "../webSearch";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -500,7 +501,7 @@ router.post("/combine", async (req, res) => {
   const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
   const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
   const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
-  const useWebSearch = actionPromptFamily?.key === "pop_culture";
+  const usePopCultureSearch = actionPromptFamily?.key === "pop_culture";
 
   const { normalizedInputs, inputKey } = normalizeInputs(
     parsedBody.data.inputs
@@ -524,7 +525,8 @@ router.post("/combine", async (req, res) => {
       creative: effectiveCreative,
       ponderificate,
     });
-    const bypassCache = useWebSearch || ponderificate || isCatalystRecipeInputKey(recipeInputKey);
+    const bypassCache =
+      usePopCultureSearch || ponderificate || isCatalystRecipeInputKey(recipeInputKey);
 
     console.log("[api][combine] resolved mode", {
       inputKey,
@@ -532,7 +534,7 @@ router.post("/combine", async (req, res) => {
       bypassCache,
       creative: effectiveCreative,
       ponderificate,
-      useWebSearch,
+      usePopCultureSearch,
       categoryConstraint,
       actionConstraint,
       actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -553,7 +555,7 @@ router.post("/combine", async (req, res) => {
         inputKey: recipeInputKey,
         creative,
         ponderificate,
-        useWebSearch,
+        usePopCultureSearch,
         categoryConstraint,
         actionConstraint,
         actionPromptFamily: actionPromptFamily?.key ?? null,
@@ -776,41 +778,43 @@ router.post("/combine", async (req, res) => {
         bypassCache,
         creative,
         ponderificate,
-        useWebSearch,
+        usePopCultureSearch,
         categoryConstraint,
         actionConstraint,
         actionPromptFamily: actionPromptFamily?.key ?? null,
         inputs: orderedInputs.map((i) => i.name),
       }
     );
-    if (useWebSearch) {
-      console.log("[api][combine][web] default prompt with web search enabled", {
-        inputs: orderedInputs.map((i) => i.name),
-        model,
-      });
-    }
+    let popCultureSearchResults: WebSearchResult[] | undefined;
     let llmResult;
     try {
-      llmResult = useWebSearch
-        ? await generateResultWithWebSearch(orderedInputs.map((i) => i.name), {
-            creative: effectiveCreative,
-            ponderificate,
-            categoryConstraint: categoryConstraint ?? undefined,
-            actionConstraint: actionConstraint ?? undefined,
-            actionPromptFamily: actionPromptFamily?.key ?? null,
-            model,
+      popCultureSearchResults = usePopCultureSearch
+        ? await searchGoogleLikeWeb(orderedInputs.map((input) => input.name).join(" "), {
+            limit: 3,
           })
-        : await generateResult(
-            orderedInputs.map((i) => i.name),
-            {
-              creative: effectiveCreative,
-              ponderificate,
-              categoryConstraint: categoryConstraint ?? undefined,
-              actionConstraint: actionConstraint ?? undefined,
-              actionPromptFamily: actionPromptFamily?.key ?? null,
-              model,
-            }
-          );
+        : undefined;
+
+      if (usePopCultureSearch && (!popCultureSearchResults || popCultureSearchResults.length === 0)) {
+        throw new Error("No web search results returned for the pop culture query");
+      }
+
+      if (usePopCultureSearch) {
+        console.log("[api][combine][pop-culture] using external search context", {
+          inputs: orderedInputs.map((i) => i.name),
+          model,
+          searchResultCount: popCultureSearchResults?.length ?? 0,
+        });
+      }
+
+      llmResult = await generateResult(orderedInputs.map((i) => i.name), {
+        creative: effectiveCreative,
+        ponderificate,
+        categoryConstraint: categoryConstraint ?? undefined,
+        actionConstraint: actionConstraint ?? undefined,
+        actionPromptFamily: actionPromptFamily?.key ?? null,
+        model,
+        webSearchResults: popCultureSearchResults,
+      });
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {
       console.error("Error generating result", err);

@@ -5,6 +5,7 @@ import {
   resolveActionPromptFamily,
   type ActionPromptFamilyKey,
 } from "./actionPromptFamilies";
+import type { WebSearchResult } from "./webSearch";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 import {
   ACTION_PROMPT,
@@ -124,40 +125,6 @@ function getOpenAI(): OpenAI {
   return new OpenAI({ apiKey: key });
 }
 
-function extractWebSearchCitations(response: { output?: unknown }) {
-  const citations: Array<{ title: string; url: string }> = [];
-
-  for (const item of Array.isArray(response.output) ? response.output : []) {
-    if (item.type !== "message" || !Array.isArray(item.content)) {
-      continue;
-    }
-
-    for (const contentItem of item.content) {
-      if (contentItem.type !== "output_text" || !Array.isArray(contentItem.annotations)) {
-        continue;
-      }
-
-      for (const annotation of contentItem.annotations) {
-        if (
-          annotation?.type === "url_citation" &&
-          typeof annotation.title === "string" &&
-          typeof annotation.url === "string"
-        ) {
-          citations.push({
-            title: annotation.title,
-            url: annotation.url,
-          });
-        }
-      }
-    }
-  }
-
-  return citations.filter(
-    (citation, index, array) =>
-      array.findIndex((candidate) => candidate.url === citation.url) === index
-  );
-}
-
 export function renderGenerateResultPrompt(
   inputs: string[],
   options?: {
@@ -166,6 +133,7 @@ export function renderGenerateResultPrompt(
     categoryConstraint?: string;
     creative?: boolean;
     ponderificate?: boolean;
+    webSearchResults?: WebSearchResult[];
   }
 ) {
   const actionPromptFamily =
@@ -179,6 +147,7 @@ export function renderGenerateResultPrompt(
         actionConstraint: options.actionConstraint,
         categoryConstraint: options.categoryConstraint,
         inputs,
+        webSearchResults: options.webSearchResults,
       })
     : options?.actionConstraint
       ? options?.categoryConstraint
@@ -248,39 +217,6 @@ function normalizePonderificateResult(value: PonderificateLlmResult) {
   };
 }
 
-const RANKED_OPTIONS_JSON_SCHEMA = {
-  type: "object",
-  additionalProperties: false,
-  properties: {
-    options: {
-      type: "array",
-      minItems: 2,
-      maxItems: 8,
-      items: {
-        type: "object",
-        additionalProperties: false,
-        properties: {
-          name: { type: "string", minLength: 1, maxLength: 64 },
-          icon: { type: "string", minLength: 1, maxLength: 8 },
-          score: { type: "integer", minimum: 0, maximum: 100 },
-        },
-        required: ["name", "icon", "score"],
-      },
-    },
-    bestOption: {
-      type: "object",
-      additionalProperties: false,
-      properties: {
-        name: { type: "string", minLength: 1, maxLength: 64 },
-        icon: { type: "string", minLength: 1, maxLength: 8 },
-        score: { type: "integer", minimum: 0, maximum: 100 },
-      },
-      required: ["name", "icon", "score"],
-    },
-  },
-  required: ["options", "bestOption"],
-} as const;
-
 export function renderRecipeBatchPrompt(params: {
   pairs: Array<{ left: string; right: string }>;
 }) {
@@ -317,6 +253,7 @@ export async function generateResult(
     creative?: boolean;
     ponderificate?: boolean;
     model?: OpenAiModel;
+    webSearchResults?: WebSearchResult[];
   }
 ): Promise<
   | { name: string; icon: string }
@@ -341,6 +278,7 @@ export async function generateResult(
     categoryConstraint: options?.categoryConstraint ?? null,
     creative: options?.creative ?? false,
     ponderificate: options?.ponderificate ?? false,
+    webSearchResultCount: options?.webSearchResults?.length ?? 0,
     temperature: 1,
     prompt,
   });
@@ -431,110 +369,6 @@ export async function generateResult(
 
   const normalizedResult = normalizePonderificateResult(result.data);
   console.log("[openai] parsed result", normalizedResult);
-  return normalizedResult;
-}
-
-export async function generateResultWithWebSearch(
-  inputs: string[],
-  options?: {
-    actionConstraint?: string;
-    actionPromptFamily?: ActionPromptFamilyKey | null;
-    categoryConstraint?: string;
-    creative?: boolean;
-    ponderificate?: boolean;
-    model?: OpenAiModel;
-  }
-): Promise<{
-  options: Array<{ name: string; icon: string; score: number }>;
-  bestOption: { name: string; icon: string; score: number };
-}> {
-  const openai = getOpenAI();
-  const model = options?.model ?? DEFAULT_MODEL_NAME;
-  const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
-
-  console.log("[openai][web-search] sending request", {
-    model,
-    inputs,
-    tool: "web_search",
-    actionConstraint: options?.actionConstraint ?? null,
-    actionPromptFamily: actionPromptFamily?.key ?? null,
-    categoryConstraint: options?.categoryConstraint ?? null,
-    creative: options?.creative ?? false,
-    prompt,
-  });
-
-  const response = await openai.responses.create({
-    model,
-    input: prompt,
-    tools: [{ type: "web_search" as const }],
-    text: {
-      format: {
-        type: "json_schema",
-        name: "web_search_result",
-        strict: true,
-        schema: RANKED_OPTIONS_JSON_SCHEMA,
-      },
-    },
-  } as any);
-
-  const usage = response as {
-    usage?: {
-      input_tokens?: number;
-      output_tokens?: number;
-      input_tokens_details?: {
-        cached_tokens?: number;
-      };
-    };
-  };
-  const promptTokens = usage.usage?.input_tokens ?? 0;
-  const completionTokens = usage.usage?.output_tokens ?? 0;
-  const cachedPromptTokens = usage.usage?.input_tokens_details?.cached_tokens ?? 0;
-  logUsageAndCost({
-    logPrefix: "[openai][web-search]",
-    responseModel: model,
-    promptTokens,
-    completionTokens,
-    cachedPromptTokens,
-  });
-
-  const content = response.output_text;
-  console.log("[openai][web-search] response metadata", {
-    id: response.id ?? null,
-    status: (response as { status?: string }).status ?? null,
-    outputCount: Array.isArray(response.output) ? response.output.length : 0,
-    usage: (response as { usage?: unknown }).usage ?? null,
-  });
-  console.log(
-    "[openai][web-search] response output",
-    Array.isArray(response.output) ? response.output : []
-  );
-  console.log(
-    "[openai][web-search] citations",
-    extractWebSearchCitations(response)
-  );
-  if (!content) {
-    console.error("[openai][web-search] empty response content", response);
-    throw new Error("No content returned from OpenAI web search");
-  }
-
-  console.log("[openai][web-search] raw response content", content);
-
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (err) {
-    console.error("[openai][web-search] failed to parse response as JSON", err);
-    throw new Error("Failed to parse OpenAI web search JSON response");
-  }
-
-  const result = ponderificateLlmResultSchema.safeParse(parsed);
-  if (!result.success) {
-    console.error("[openai][web-search] response failed schema validation", parsed);
-    throw new Error("OpenAI web search response failed validation");
-  }
-
-  const normalizedResult = normalizePonderificateResult(result.data);
-  console.log("[openai][web-search] parsed result", normalizedResult);
   return normalizedResult;
 }
 
