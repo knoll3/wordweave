@@ -1,4 +1,5 @@
 import path from "path";
+import http from "http";
 import express from "express";
 import cors from "cors";
 import dotenv from "dotenv";
@@ -7,6 +8,8 @@ import recipesRouter from "./routes/recipes";
 import elementsRouter from "./routes/elements";
 import questsRouter from "./routes/quests";
 import promptsRouter from "./routes/prompts";
+import boardRouter from "./routes/board";
+import { createLiveBoardSocketServer } from "./liveBoardSocket";
 
 // Load .env from the monorepo root
 dotenv.config({
@@ -57,6 +60,7 @@ app.use("/api/recipes", recipesRouter);
 app.use("/api/elements", elementsRouter);
 app.use("/api/quests", questsRouter);
 app.use("/api/prompts", promptsRouter);
+app.use("/api/board", boardRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -64,10 +68,12 @@ app.get("/api/health", (_req, res) => {
 
 const port = process.env.API_PORT ? Number(process.env.API_PORT) : 4000;
 const host = process.env.API_BIND_HOST || "0.0.0.0";
+const httpServer = http.createServer(app);
+createLiveBoardSocketServer(httpServer);
 
 getDb()
   .then(() => {
-    app.listen(port, host, () => {
+    httpServer.listen(port, host, () => {
       console.log(`API server listening on http://${host}:${port}`);
     });
   })

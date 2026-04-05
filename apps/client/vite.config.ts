@@ -11,6 +11,11 @@ export default defineConfig({
         target: `http://${process.env.API_HOST || "127.0.0.1"}:${Number(process.env.API_PORT) || 4000}`,
         changeOrigin: true,
       },
+      "/socket.io": {
+        target: `http://${process.env.API_HOST || "127.0.0.1"}:${Number(process.env.API_PORT) || 4000}`,
+        changeOrigin: true,
+        ws: true,
+      },
     },
   },
 });

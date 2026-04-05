@@ -43,6 +43,12 @@
   box-shadow: 0 0 0 1px rgba(191, 219, 254, 0.08);
 }
 
+.graph-selection-overlay-remote {
+  border-color: rgba(244, 114, 182, 0.72);
+  background: rgba(244, 114, 182, 0.07);
+  box-shadow: 0 0 0 1px rgba(251, 207, 232, 0.08);
+}
+
 .graph-selection-overlay .graph-selection-combine-button {
   position: absolute;
   right: 0;

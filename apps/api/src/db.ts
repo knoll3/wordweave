@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
 import BetterSqlite3 from "better-sqlite3";
+import { ensureDefaultRoom } from "./boardState";
 
 type RowObject = Record<string, unknown>;
 
@@ -105,6 +106,7 @@ async function initDatabase(): Promise<Database> {
 
   createSchema(db);
   seedBaseElements(db);
+  ensureDefaultRoom(db);
 
   return db;
 }
@@ -258,6 +260,31 @@ function createSchema(db: Database): void {
       FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS rooms (
+      id TEXT PRIMARY KEY,
+      invite_code TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS room_board_items (
+      id TEXT PRIMARY KEY,
+      room_id TEXT NOT NULL,
+      item_id INTEGER NOT NULL,
+      position_x REAL NOT NULL,
+      position_y REAL NOT NULL,
+      is_new_discovery INTEGER NOT NULL DEFAULT 0,
+      arrival_highlight_mode TEXT NULL CHECK(arrival_highlight_mode IN ('library', 'combine')),
+      category_constraint_name TEXT NULL,
+      category_constraint_normalized_name TEXT NULL,
+      action_constraint_name TEXT NULL,
+      action_constraint_normalized_name TEXT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS element_embeddings (
       element_id INTEGER PRIMARY KEY,
       model TEXT NOT NULL,
@@ -340,6 +367,18 @@ function createSchema(db: Database): void {
   ensureColumn(db, "recipe_feedback", "comment_text", "TEXT NULL");
   ensureColumn(db, "combination_run_traces", "legacy_recipe_trace_id", "INTEGER NULL");
   ensureColumn(db, "combination_run_feedback", "legacy_recipe_feedback_id", "INTEGER NULL");
+  ensureColumn(db, "room_board_items", "is_new_discovery", "INTEGER NOT NULL DEFAULT 0");
+  ensureColumn(
+    db,
+    "room_board_items",
+    "arrival_highlight_mode",
+    "TEXT NULL CHECK(arrival_highlight_mode IN ('library', 'combine'))"
+  );
+  ensureColumn(db, "room_board_items", "category_constraint_name", "TEXT NULL");
+  ensureColumn(db, "room_board_items", "category_constraint_normalized_name", "TEXT NULL");
+  ensureColumn(db, "room_board_items", "action_constraint_name", "TEXT NULL");
+  ensureColumn(db, "room_board_items", "action_constraint_normalized_name", "TEXT NULL");
+  ensureColumn(db, "room_board_items", "revision", "INTEGER NOT NULL DEFAULT 1");
 
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_combination_runs_result_element ON combination_runs (result_element_id, id)"
@@ -358,6 +397,9 @@ function createSchema(db: Database): void {
   );
   db.run(
     "CREATE UNIQUE INDEX IF NOT EXISTS idx_combination_run_feedback_legacy_recipe_feedback ON combination_run_feedback (legacy_recipe_feedback_id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_room_board_items_room ON room_board_items (room_id, created_at, id)"
   );
 
   backfillCombinationRuns(db);

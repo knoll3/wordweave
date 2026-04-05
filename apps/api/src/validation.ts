@@ -76,6 +76,61 @@ export const questTargetVariantsSchema = z.object({
   ),
 });
 
+const boardPositionSchema = z.object({
+  x: z.number().finite(),
+  y: z.number().finite(),
+});
+
+export const boardItemInputSchema = z.object({
+  itemId: z.number().int(),
+  position: boardPositionSchema,
+  isNewDiscovery: z.boolean().optional(),
+  arrivalHighlightMode: z.enum(["library", "combine"]).nullable().optional(),
+  categoryConstraintName: z.string().min(1).max(64).nullable().optional(),
+  categoryConstraintNormalizedName: z.string().min(1).max(64).nullable().optional(),
+  actionConstraintName: z.string().min(1).max(64).nullable().optional(),
+  actionConstraintNormalizedName: z.string().min(1).max(64).nullable().optional(),
+});
+
+export const createBoardItemRequestSchema = boardItemInputSchema;
+
+export const updateBoardItemRequestSchema = z.object({
+  itemId: z.number().int().optional(),
+  isNewDiscovery: z.boolean().nullable().optional(),
+  arrivalHighlightMode: z.enum(["library", "combine"]).nullable().optional(),
+  categoryConstraintName: z.string().min(1).max(64).nullable().optional().or(z.literal("")).optional(),
+  categoryConstraintNormalizedName: z.string().min(1).max(64).nullable().optional().or(z.literal("")).optional(),
+  actionConstraintName: z.string().min(1).max(64).nullable().optional().or(z.literal("")).optional(),
+  actionConstraintNormalizedName: z.string().min(1).max(64).nullable().optional().or(z.literal("")).optional(),
+});
+
+export const moveBoardItemRequestSchema = z.object({
+  position: boardPositionSchema,
+});
+
+export const moveBoardItemsRequestSchema = z.object({
+  items: z.array(
+    z.object({
+      nodeId: z.string().min(1).max(128),
+      position: boardPositionSchema,
+    })
+  ).min(1).max(100),
+});
+
+export const attachBoardModifierRequestSchema = z.object({
+  sourceNodeId: z.string().min(1).max(128),
+  targetNodeId: z.string().min(1).max(128),
+});
+
+export const combineBoardRequestSchema = z.object({
+  consumedNodeIds: z.array(z.string().min(1).max(128)).min(1),
+  producedItems: z.array(boardItemInputSchema).min(1).max(8),
+});
+
+export const deleteBoardItemsRequestSchema = z.object({
+  nodeIds: z.array(z.string().min(1).max(128)).min(1).max(100),
+});
+
 export type LlmResult = z.infer<typeof llmResultSchema>;
 export type PonderificateLlmResult = z.infer<typeof ponderificateLlmResultSchema>;
 export type SplitLlmResult = z.infer<typeof splitLlmResultSchema>;

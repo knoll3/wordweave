@@ -73,7 +73,23 @@ interface Props {
   celebratedNodeId?: string | null;
   onAttachActionModifier: (sourceNodeId: string, targetNodeId: string) => void;
   onAttachCategoryModifier: (sourceNodeId: string, targetNodeId: string) => void;
-  onWorkspaceItemsChange: (update: React.SetStateAction<WorkspaceItem[]>) => void;
+  onMoveWorkspaceItems: (
+    items: Array<{ nodeId: string; position: { x: number; y: number } }>
+  ) => void;
+  onDeleteWorkspaceItems: (nodeIds: string[]) => void;
+  onDuplicateWorkspaceItem: (nodeId: string) => void;
+  onClaimWorkspaceDrag: (nodeId: string) => void;
+  onDragWorkspaceItem: (nodeId: string, position: { x: number; y: number }) => void;
+  onReleaseWorkspaceDrag: (nodeId: string, position: { x: number; y: number }) => void;
+  onDragWorkspaceGroup?: (
+    items: Array<{ nodeId: string; position: { x: number; y: number } }>
+  ) => void;
+  remoteSelectedNodeIds?: string[];
+  remoteSelectionLayout?: SelectionCombineLayout | null;
+  onSelectionStateChange?: (
+    nodeIds: string[],
+    layout?: SelectionCombineLayout | null
+  ) => void;
   onViewportCenterChange?: (position: { x: number; y: number }) => void;
   combiningNodeIds?: string[] | null;
   ponderingNodeIds?: string[] | null;
@@ -145,7 +161,16 @@ function GraphView({
   celebratedNodeId = null,
   onAttachCategoryModifier,
   onAttachActionModifier,
-  onWorkspaceItemsChange,
+  onMoveWorkspaceItems,
+  onDeleteWorkspaceItems,
+  onDuplicateWorkspaceItem,
+  onClaimWorkspaceDrag,
+  onDragWorkspaceItem,
+  onReleaseWorkspaceDrag,
+  onDragWorkspaceGroup,
+  remoteSelectedNodeIds = [],
+  remoteSelectionLayout = null,
+  onSelectionStateChange,
   onViewportCenterChange,
   combiningNodeIds,
   ponderingNodeIds,
@@ -192,7 +217,16 @@ function GraphView({
   const previousWorkspaceNodeIdsRef = useRef<string[]>(workspaceItems.map((item) => item.nodeId));
   const workspaceItemsRef = useRef<WorkspaceItem[]>(workspaceItems);
   const itemByIdRef = useRef<Map<number, Item>>(new Map());
-  const onWorkspaceItemsChangeRef = useRef(onWorkspaceItemsChange);
+  const onMoveWorkspaceItemsRef = useRef(onMoveWorkspaceItems);
+  const onDeleteWorkspaceItemsRef = useRef(onDeleteWorkspaceItems);
+  const onDuplicateWorkspaceItemRef = useRef(onDuplicateWorkspaceItem);
+  const onClaimWorkspaceDragRef = useRef(onClaimWorkspaceDrag);
+  const onDragWorkspaceItemRef = useRef(onDragWorkspaceItem);
+  const onReleaseWorkspaceDragRef = useRef(onReleaseWorkspaceDrag);
+  const onDragWorkspaceGroupRef = useRef(onDragWorkspaceGroup);
+  const remoteSelectedNodeIdsRef = useRef<string[]>(remoteSelectedNodeIds);
+  const remoteSelectionLayoutRef = useRef<SelectionCombineLayout | null>(remoteSelectionLayout);
+  const onSelectionStateChangeRef = useRef(onSelectionStateChange);
   const onAttachCategoryModifierRef = useRef(onAttachCategoryModifier);
   const onAttachActionModifierRef = useRef(onAttachActionModifier);
   const onViewportCenterChangeRef = useRef(onViewportCenterChange);
@@ -218,6 +252,12 @@ function GraphView({
   const [selectionLayout, setSelectionLayout] = useState<SelectionCombineLayout | null>(null);
   const [isCatalystDockOpen, setIsCatalystDockOpen] = useState(false);
   const [selectionOverlayRect, setSelectionOverlayRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [remoteSelectionOverlayRect, setRemoteSelectionOverlayRect] = useState<{
     left: number;
     top: number;
     width: number;
@@ -266,7 +306,16 @@ function GraphView({
   combiningNodeIdsRef.current = combiningNodeIds ?? [];
   ponderingNodeIdsRef.current = ponderingNodeIds ?? [];
   webSearchingNodeIdsRef.current = webSearchingNodeIds ?? [];
-  onWorkspaceItemsChangeRef.current = onWorkspaceItemsChange;
+  onMoveWorkspaceItemsRef.current = onMoveWorkspaceItems;
+  onDeleteWorkspaceItemsRef.current = onDeleteWorkspaceItems;
+  onDuplicateWorkspaceItemRef.current = onDuplicateWorkspaceItem;
+  onClaimWorkspaceDragRef.current = onClaimWorkspaceDrag;
+  onDragWorkspaceItemRef.current = onDragWorkspaceItem;
+  onReleaseWorkspaceDragRef.current = onReleaseWorkspaceDrag;
+  onDragWorkspaceGroupRef.current = onDragWorkspaceGroup;
+  remoteSelectedNodeIdsRef.current = remoteSelectedNodeIds;
+  remoteSelectionLayoutRef.current = remoteSelectionLayout;
+  onSelectionStateChangeRef.current = onSelectionStateChange;
   onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onAttachActionModifierRef.current = onAttachActionModifier;
   onViewportCenterChangeRef.current = onViewportCenterChange;
@@ -618,6 +667,23 @@ function GraphView({
     setSelectionOverlayRect(worldRectToScreenRect(worldBounds));
   };
 
+  const refreshRemoteSelectionOverlay = () => {
+    const currentRemoteSelectedNodeIds = remoteSelectedNodeIdsRef.current;
+    if (currentRemoteSelectedNodeIds.length < 2) {
+      setRemoteSelectionOverlayRect(null);
+      return;
+    }
+    const worldBounds = getSelectionWorldBounds(
+      currentRemoteSelectedNodeIds,
+      remoteSelectionLayoutRef.current
+    );
+    if (!worldBounds) {
+      setRemoteSelectionOverlayRect(null);
+      return;
+    }
+    setRemoteSelectionOverlayRect(worldRectToScreenRect(worldBounds));
+  };
+
   const refreshPonderOverlay = () => {
     if (!activeOverlayWorldBoundsRef.current) {
       setPonderOverlayRect(null);
@@ -771,13 +837,11 @@ function GraphView({
       return;
     }
 
-    onWorkspaceItemsChangeRef.current((prev) =>
-      prev.map((item) => {
-        const nextPosition = nextLayout.nodePositions.find(
-          (entry) => entry.nodeId === item.nodeId
-        )?.position;
-        return nextPosition ? { ...item, position: nextPosition } : item;
-      })
+    onMoveWorkspaceItemsRef.current(
+      nextLayout.nodePositions.map((entry) => ({
+        nodeId: entry.nodeId,
+        position: entry.position,
+      }))
     );
     setSelectedNodeIds(nextLayout.nodeIds);
     setSelectionLayout(nextLayout);
@@ -822,25 +886,7 @@ function GraphView({
   const duplicateWorkspaceItem = (nodeId: string) => {
     const sourceItem = workspaceItemsRef.current.find((item) => item.nodeId === nodeId);
     if (!sourceItem) return;
-
-    onWorkspaceItemsChangeRef.current((prev) => [
-      ...prev,
-      {
-        nodeId: `workspace-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
-        itemId: sourceItem.itemId,
-        position: {
-          x: sourceItem.position.x + DUPLICATE_OFFSET_X,
-          y: sourceItem.position.y + DUPLICATE_OFFSET_Y,
-        },
-        isNewDiscovery: false,
-        categoryConstraintName: sourceItem.categoryConstraintName ?? null,
-        categoryConstraintNormalizedName:
-          sourceItem.categoryConstraintNormalizedName ?? null,
-        actionConstraintName: sourceItem.actionConstraintName ?? null,
-        actionConstraintNormalizedName:
-          sourceItem.actionConstraintNormalizedName ?? null,
-      },
-    ]);
+    onDuplicateWorkspaceItemRef.current(nodeId);
   };
 
   const clearSelectedWorkspaceItems = () => {
@@ -849,9 +895,7 @@ function GraphView({
       return;
     }
 
-    onWorkspaceItemsChangeRef.current((prev) =>
-      prev.filter((item) => !selectedIds.has(item.nodeId))
-    );
+    onDeleteWorkspaceItemsRef.current([...selectedIds]);
     clearSelection();
     setIsSelectionMode(false);
   };
@@ -1195,6 +1239,9 @@ function GraphView({
             } => entry != null
           ),
       };
+      if (!isDraggingSelectedGroup) {
+        onClaimWorkspaceDragRef.current(workspaceItem.nodeId);
+      }
       const touchedView = itemViewsRef.current.get(workspaceItem.nodeId);
       if (touchedView) {
         touchedView.arrivalHighlightUntil = null;
@@ -1360,6 +1407,7 @@ function GraphView({
     previousWorkspaceNodeIdsRef.current = nextWorkspaceItems.map((item) => item.nodeId);
     previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
     refreshSelectionOverlay();
+    refreshRemoteSelectionOverlay();
     refreshPonderOverlay();
   };
 
@@ -1445,21 +1493,36 @@ function GraphView({
         if (dragState.draggedNodeIds.length > 1) {
           const deltaX = worldPosition.x - dragState.pointerStartX;
           const deltaY = worldPosition.y - dragState.pointerStartY;
+          const liveMoves: Array<{ nodeId: string; position: { x: number; y: number } }> = [];
           for (const startPosition of dragState.nodeStartPositions) {
             const view = itemViewsRef.current.get(startPosition.nodeId);
             if (!view) continue;
-            setViewTopLeftPosition(view, {
+            const nextPosition = {
               x: startPosition.x + deltaX,
               y: startPosition.y + deltaY,
+            };
+            setViewTopLeftPosition(view, nextPosition);
+            liveMoves.push({
+              nodeId: startPosition.nodeId,
+              position: {
+                x: nextPosition.x,
+                y: nextPosition.y,
+              },
             });
           }
+          onDragWorkspaceGroupRef.current?.(liveMoves);
           refreshSelectionOverlay();
         } else {
           const view = itemViewsRef.current.get(dragState.nodeId);
           if (view) {
-            setViewTopLeftPosition(view, {
+            const nextPosition = {
               x: worldPosition.x - dragState.offsetX,
               y: worldPosition.y - dragState.offsetY,
+            };
+            setViewTopLeftPosition(view, nextPosition);
+            onDragWorkspaceItemRef.current(dragState.nodeId, {
+              x: Math.round(nextPosition.x),
+              y: Math.round(nextPosition.y),
             });
             updateHoverTarget(dragState.nodeId);
           }
@@ -1624,11 +1687,10 @@ function GraphView({
             })
           );
 
-          onWorkspaceItemsChangeRef.current((prev) =>
-            prev.map((item) => {
-              const nextPosition = nextPositions.get(item.nodeId);
-              return nextPosition == null ? item : { ...item, position: nextPosition };
-            })
+          onMoveWorkspaceItemsRef.current(
+            [...nextPositions.entries()]
+              .filter((entry): entry is [string, { x: number; y: number }] => entry[1] != null)
+              .map(([nodeId, position]) => ({ nodeId, position }))
           );
           lastItemClickRef.current = null;
           return;
@@ -1664,18 +1726,10 @@ function GraphView({
             : undefined;
           if (releasedOutsideWorkspace) {
             lastItemClickRef.current = null;
-            onWorkspaceItemsChangeRef.current((prev) =>
-              prev.filter((item) => item.nodeId !== dragState.nodeId)
-            );
+            onDeleteWorkspaceItemsRef.current([dragState.nodeId]);
             return;
           }
-          onWorkspaceItemsChangeRef.current((prev) =>
-            prev.map((item) =>
-              item.nodeId === dragState.nodeId
-                ? { ...item, position: nextPosition }
-                : item
-            )
-          );
+          onReleaseWorkspaceDragRef.current(dragState.nodeId, nextPosition);
           if (
             (view.itemId === CATEGORY_MODIFIER_ITEM_ID ||
               view.itemId === ACTION_MODIFIER_ITEM_ID) &&
@@ -1846,16 +1900,32 @@ function GraphView({
       syncScene(workspaceItems);
       app.ticker.add(() => {
         let shouldRefreshSelectionOverlay = false;
+        let shouldRefreshRemoteSelectionOverlay = false;
         const now = Date.now();
         itemViewsRef.current.forEach((view) => {
-          const nextX = moveToward(view.container.x, view.targetX, POSITION_STEP);
-          const nextY = moveToward(view.container.y, view.targetY, POSITION_STEP);
+          const positionStepX = Math.max(
+            POSITION_STEP,
+            Math.abs(view.targetX - view.container.x) * 0.24
+          );
+          const positionStepY = Math.max(
+            POSITION_STEP,
+            Math.abs(view.targetY - view.container.y) * 0.24
+          );
+          const nextX = moveToward(view.container.x, view.targetX, positionStepX);
+          const nextY = moveToward(view.container.y, view.targetY, positionStepY);
           if (
             (selectedNodeIdsRef.current.includes(view.nodeId) ||
               selectionLayoutRef.current?.placeholderNodeId === view.nodeId) &&
             (nextX !== view.container.x || nextY !== view.container.y)
           ) {
             shouldRefreshSelectionOverlay = true;
+          }
+          if (
+            (remoteSelectedNodeIdsRef.current.includes(view.nodeId) ||
+              remoteSelectionLayoutRef.current?.placeholderNodeId === view.nodeId) &&
+            (nextX !== view.container.x || nextY !== view.container.y)
+          ) {
+            shouldRefreshRemoteSelectionOverlay = true;
           }
           view.container.x = nextX;
           view.container.y = nextY;
@@ -2029,6 +2099,9 @@ function GraphView({
         if (shouldRefreshSelectionOverlay) {
           refreshSelectionOverlay();
         }
+        if (shouldRefreshRemoteSelectionOverlay) {
+          refreshRemoteSelectionOverlay();
+        }
       });
 
       app.stage.on("pointerdown", handleStagePointerDown);
@@ -2113,6 +2186,14 @@ function GraphView({
   }, [selectionLayout]);
 
   useEffect(() => {
+    refreshRemoteSelectionOverlay();
+  }, [remoteSelectedNodeIds, workspaceItems]);
+
+  useEffect(() => {
+    onSelectionStateChangeRef.current?.(selectedNodeIds, selectionLayout);
+  }, [selectedNodeIds, selectionLayout]);
+
+  useEffect(() => {
     refreshPonderOverlay();
   }, [activeOverlayWorldBounds]);
 
@@ -2168,6 +2249,19 @@ function GraphView({
       clearSelection();
     }
   }, [combiningNodeIds, selectionLayout, workspaceItems]);
+
+  useEffect(() => {
+    if (selectedNodeIds.length < 2) {
+      return;
+    }
+    const remainingSelectedCount = selectedNodeIds.filter((nodeId) =>
+      workspaceItems.some((item) => item.nodeId === nodeId)
+    ).length;
+    if (remainingSelectedCount === 0) {
+      clearSelection();
+      setIsSelectionMode(false);
+    }
+  }, [selectedNodeIds, workspaceItems]);
 
   const isSelectionCombining =
     selectionLayout?.nodeIds.some((nodeId) => (combiningNodeIds ?? []).includes(nodeId)) ?? false;
@@ -2282,6 +2376,17 @@ function GraphView({
             {isSelectionCombining ? "Combining..." : "Combine"}
           </button>
         </div>
+      ) : null}
+      {remoteSelectionOverlayRect && remoteSelectedNodeIds.length >= 2 ? (
+        <div
+          className="graph-selection-overlay graph-selection-overlay-remote"
+          style={{
+            left: remoteSelectionOverlayRect.left,
+            top: remoteSelectionOverlayRect.top,
+            width: remoteSelectionOverlayRect.width,
+            height: remoteSelectionOverlayRect.height,
+          }}
+        />
       ) : null}
       {workspaceItems.length > 0 ? (
         <button

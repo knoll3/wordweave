@@ -1,4 +1,10 @@
 import type {
+  SharedBoardCombineInput,
+  SharedBoardCreateItemInput,
+  SharedBoardItem,
+  SharedRoomSnapshot,
+} from "../liveBoardTypes";
+import type {
   AiModel,
   CacheRecipe,
   FeatureUnlockStatus,
@@ -103,6 +109,140 @@ export async function fetchItems(query?: string): Promise<Item[]> {
     throw new Error("Items response was not an array");
   }
   return data as Item[];
+}
+
+export async function fetchBoardSnapshot(): Promise<SharedRoomSnapshot> {
+  const res = await fetch(`${API_BASE}/board`);
+  return handleResponse<SharedRoomSnapshot>(res);
+}
+
+export async function createBoardItem(
+  item: SharedBoardCreateItemInput
+): Promise<SharedBoardItem> {
+  const res = await fetch(`${API_BASE}/board/items`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(item),
+  });
+  return handleResponse<SharedBoardItem>(res);
+}
+
+export async function duplicateBoardItem(nodeId: string): Promise<SharedBoardItem> {
+  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}/duplicate`, {
+    method: "POST",
+  });
+  return handleResponse<SharedBoardItem>(res);
+}
+
+export async function updateBoardItem(
+  nodeId: string,
+  payload: {
+    itemId?: number;
+    isNewDiscovery?: boolean | null;
+    arrivalHighlightMode?: "library" | "combine" | null;
+    categoryConstraintName?: string | null;
+    categoryConstraintNormalizedName?: string | null;
+    actionConstraintName?: string | null;
+    actionConstraintNormalizedName?: string | null;
+  }
+): Promise<SharedBoardItem> {
+  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<SharedBoardItem>(res);
+}
+
+export async function moveBoardItems(
+  items: Array<{ nodeId: string; position: { x: number; y: number } }>
+): Promise<{ ok: boolean; items: SharedBoardItem[] }> {
+  const res = await fetch(`${API_BASE}/board/items/move`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ items }),
+  });
+  return handleResponse<{ ok: boolean; items: SharedBoardItem[] }>(res);
+}
+
+export async function deleteBoardItem(nodeId: string): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
+    method: "DELETE",
+  });
+  return handleResponse<{ ok: boolean }>(res);
+}
+
+export async function deleteBoardItems(nodeIds: string[]): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/board/items/delete`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ nodeIds }),
+  });
+  return handleResponse<{ ok: boolean }>(res);
+}
+
+export async function attachBoardActionModifier(payload: {
+  sourceNodeId: string;
+  targetNodeId: string;
+}): Promise<{ ok: boolean; item: SharedBoardItem | null }> {
+  const res = await fetch(`${API_BASE}/board/attach-action`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<{ ok: boolean; item: SharedBoardItem | null }>(res);
+}
+
+export async function attachBoardCategoryModifier(payload: {
+  sourceNodeId: string;
+  targetNodeId: string;
+}): Promise<{ ok: boolean; item: SharedBoardItem | null }> {
+  const res = await fetch(`${API_BASE}/board/attach-category`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<{ ok: boolean; item: SharedBoardItem | null }>(res);
+}
+
+export async function combineBoardItems(
+  payload: SharedBoardCombineInput
+): Promise<{
+  ok: boolean;
+  created: SharedBoardItem[];
+  deletedNodeIds: string[];
+}> {
+  const res = await fetch(`${API_BASE}/board/combine`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<{
+    ok: boolean;
+    created: SharedBoardItem[];
+    deletedNodeIds: string[];
+  }>(res);
+}
+
+export async function clearBoardItems(): Promise<{ ok: boolean }> {
+  const res = await fetch(`${API_BASE}/board/clear`, {
+    method: "POST",
+  });
+  return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {

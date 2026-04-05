@@ -1,0 +1,95 @@
+import { io, type Socket } from "socket.io-client";
+import type {
+  SharedBoardDragClaim,
+  SharedBoardDragMove,
+  SharedBoardDragResult,
+  SharedBoardPatch,
+  SharedRoomSnapshot,
+} from "../liveBoardTypes";
+
+let socket: Socket | null = null;
+
+function getSocketBaseUrl() {
+  const base = import.meta.env.VITE_API_BASE_URL;
+  if (!base || base.startsWith("/")) {
+    return window.location.origin;
+  }
+
+  try {
+    return new URL(base).origin;
+  } catch {
+    return window.location.origin;
+  }
+}
+
+export function getLiveBoardSocket() {
+  if (!socket) {
+    socket = io(getSocketBaseUrl(), {
+      transports: ["websocket", "polling"],
+    });
+  }
+  return socket;
+}
+
+export function subscribeToRoomSnapshot(
+  listener: (snapshot: SharedRoomSnapshot) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("room:snapshot", listener);
+  return () => {
+    current.off("room:snapshot", listener);
+  };
+}
+
+export function subscribeToBoardPatch(
+  listener: (patch: SharedBoardPatch) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:patch", listener);
+  return () => {
+    current.off("board:patch", listener);
+  };
+}
+
+export function claimBoardDrag(payload: SharedBoardDragClaim) {
+  return new Promise<SharedBoardDragResult>((resolve) => {
+    getLiveBoardSocket().emit("board:drag-claim", payload, resolve);
+  });
+}
+
+export function sendBoardDragMove(payload: SharedBoardDragMove) {
+  getLiveBoardSocket().emit("board:drag-move", payload);
+}
+
+export function endBoardDrag(payload: SharedBoardDragMove) {
+  return new Promise<SharedBoardDragResult>((resolve) => {
+    getLiveBoardSocket().emit("board:drag-end", payload, resolve);
+  });
+}
+
+export function sendBoardGroupMove(
+  items: Array<{ nodeId: string; position: { x: number; y: number } }>
+) {
+  getLiveBoardSocket().emit("board:group-move", { items });
+}
+
+export function publishBoardSelection(nodeIds: string[]) {
+  getLiveBoardSocket().emit("board:selection", { nodeIds });
+}
+
+export function subscribeToBoardSelection(
+  listener: (payload: { nodeIds: string[]; layout?: unknown | null }) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:selection", listener);
+  return () => {
+    current.off("board:selection", listener);
+  };
+}
+
+export function publishBoardSelectionState(payload: {
+  nodeIds: string[];
+  layout?: unknown | null;
+}) {
+  getLiveBoardSocket().emit("board:selection", payload);
+}

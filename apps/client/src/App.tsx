@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import type { SharedBoardPatch, SharedRoomSnapshot } from "./liveBoardTypes";
 import {
   ScrollText,
   Tags,
@@ -31,14 +32,35 @@ import JournalDock from "./components/Journal/JournalDock";
 import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import {
+  attachBoardActionModifier,
+  attachBoardCategoryModifier,
+  clearBoardItems as clearSharedBoardItems,
+  combineBoardItems,
   acceptGeneratedQuestSet,
   combineElements,
-  fetchQuests,
+  createBoardItem,
+  deleteBoardItems,
+    duplicateBoardItem,
+    fetchBoardSnapshot,
+    fetchItems,
+    fetchQuests,
   fetchUnlockStatuses,
   generateQuestDraft,
   importLegacyQuestState,
+  moveBoardItems,
+  updateBoardItem,
   updateQuestStatus,
 } from "./lib/api";
+import {
+  claimBoardDrag,
+  endBoardDrag,
+  publishBoardSelectionState,
+  sendBoardGroupMove,
+  sendBoardDragMove,
+  subscribeToBoardPatch,
+  subscribeToBoardSelection,
+  subscribeToRoomSnapshot,
+} from "./lib/liveBoardSocket";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
@@ -68,7 +90,6 @@ const AI_MODELS: AiModel[] = [
 ];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
-const WORKSPACE_STORAGE_KEY = "wordweave.workspace-items";
 const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const QUEST_REFERENCE_PREVIEW_LIMIT = 180;
@@ -101,38 +122,6 @@ type VirtualKeyboardApi = {
   ) => void;
 };
 
-const loadStoredWorkspaceItems = (): WorkspaceItem[] => {
-  if (typeof window === "undefined") {
-    return [];
-  }
-
-  const storedWorkspace = window.localStorage.getItem(WORKSPACE_STORAGE_KEY);
-  if (!storedWorkspace) {
-    return [];
-  }
-
-  try {
-    const parsed = JSON.parse(storedWorkspace);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter(
-      (item): item is WorkspaceItem =>
-        !!item &&
-        typeof item.nodeId === "string" &&
-        typeof item.itemId === "number" &&
-        (item.itemId > 0 || SPECIAL_ITEM_BY_ID.has(item.itemId)) &&
-        item.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID &&
-        !!item.position &&
-        typeof item.position.x === "number" &&
-        typeof item.position.y === "number"
-    );
-  } catch {
-    return [];
-  }
-};
-
 function truncateReferencePreview(value: string, limit: number) {
   const normalized = value.trim().replace(/\s+/g, " ");
   if (normalized.length <= limit) {
@@ -145,16 +134,61 @@ function normalizeItemName(value: string) {
   return value.trim().toLowerCase();
 }
 
+function applyWorkspaceSnapshot(snapshot: SharedRoomSnapshot) {
+  return snapshot.boardItems as WorkspaceItem[];
+}
+
+function applyWorkspacePatch(
+  current: WorkspaceItem[],
+  patch: SharedBoardPatch
+): WorkspaceItem[] {
+  const deletedIds = new Set(patch.deletedNodeIds);
+  const byId = new Map(
+    current
+      .filter((item) => !deletedIds.has(item.nodeId))
+      .map((item) => [item.nodeId, item])
+  );
+
+  for (const item of patch.upserts) {
+    byId.set(item.nodeId, item as WorkspaceItem);
+  }
+
+  return [...byId.values()];
+}
+
+function upsertWorkspaceItems(
+  current: WorkspaceItem[],
+  upserts: WorkspaceItem[]
+): WorkspaceItem[] {
+  const byId = new Map(current.map((item) => [item.nodeId, item]));
+  for (const item of upserts) {
+    byId.set(item.nodeId, item);
+  }
+  return [...byId.values()];
+}
+
+function collectMissingWorkspaceItemIds(
+  workspaceEntries: WorkspaceItem[],
+  knownItems: Item[]
+) {
+  const knownIds = new Set(knownItems.map((item) => item.id));
+  return workspaceEntries
+    .map((item) => item.itemId)
+    .filter((itemId) => itemId > 0 && !knownIds.has(itemId));
+}
+
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [hasLoadedInitialLibrary, setHasLoadedInitialLibrary] = useState(false);
-  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(
-    loadStoredWorkspaceItems
-  );
+  const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [ponderingNodeIds, setPonderingNodeIds] = useState<string[]>([]);
   const [webSearchingNodeIds, setWebSearchingNodeIds] = useState<string[]>([]);
+  const [remoteSelectedNodeIds, setRemoteSelectedNodeIds] = useState<string[]>([]);
+  const [remoteSelectionLayout, setRemoteSelectionLayout] = useState<SelectionCombineLayout | null>(
+    null
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
@@ -201,14 +235,18 @@ const App: React.FC = () => {
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const isRestoringWorkspaceRef = useRef(false);
+  const itemsRef = useRef<Item[]>([]);
   const viewportCenterRef = useRef<{
     x: number;
     y: number;
   } | null>(null);
+  const activeDragNodeIdRef = useRef<string | null>(null);
+  const dragSequenceRef = useRef(0);
+  const lastDragSentAtRef = useRef(0);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
-  const isRestoringWorkspace =
-    workspaceItems.length > 0 && !hasLoadedInitialLibrary;
+  const isRestoringWorkspace = false;
+  itemsRef.current = items;
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -433,18 +471,6 @@ const App: React.FC = () => {
   }, [isAndroidDevice]);
 
   useEffect(() => {
-    if (combiningNodeIds.length > 0) return;
-    if (workspaceItems.some((item) => item.itemId === COMBINE_RESULT_PLACEHOLDER_ITEM_ID)) {
-      return;
-    }
-
-    window.localStorage.setItem(
-      WORKSPACE_STORAGE_KEY,
-      JSON.stringify(workspaceItems)
-    );
-  }, [combiningNodeIds, workspaceItems]);
-
-  useEffect(() => {
     if (!errorMessage) return;
     const timeoutId = window.setTimeout(() => {
       setErrorMessage(null);
@@ -454,6 +480,55 @@ const App: React.FC = () => {
 
   useEffect(() => {
     void loadFeatureUnlocks();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const snapshot = await fetchBoardSnapshot();
+        if (!cancelled) {
+          const nextWorkspace = applyWorkspaceSnapshot(snapshot);
+          setWorkspaceItems(nextWorkspace);
+          void refreshSharedItemsIfNeeded(nextWorkspace);
+        }
+      } catch {
+      }
+    })();
+
+    const unsubscribeSnapshot = subscribeToRoomSnapshot((snapshot) => {
+      if (cancelled) {
+        return;
+      }
+      const nextWorkspace = applyWorkspaceSnapshot(snapshot);
+      setWorkspaceItems(nextWorkspace);
+      void refreshSharedItemsIfNeeded(nextWorkspace);
+    });
+    const unsubscribePatch = subscribeToBoardPatch((patch) => {
+      if (cancelled) {
+        return;
+      }
+      setWorkspaceItems((prev) => {
+        const nextWorkspace = applyWorkspacePatch(prev, patch);
+        void refreshSharedItemsIfNeeded(nextWorkspace);
+        return nextWorkspace;
+      });
+    });
+    const unsubscribeSelection = subscribeToBoardSelection((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setRemoteSelectedNodeIds(payload.nodeIds);
+      setRemoteSelectionLayout((payload.layout as SelectionCombineLayout | null) ?? null);
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeSnapshot();
+      unsubscribePatch();
+      unsubscribeSelection();
+    };
   }, []);
 
   useEffect(() => {
@@ -535,6 +610,18 @@ const App: React.FC = () => {
     try {
       const statuses = await fetchUnlockStatuses();
       setFeatureUnlocks(statuses);
+    } catch {
+    }
+  }
+
+  async function refreshSharedItemsIfNeeded(workspaceEntries: WorkspaceItem[]) {
+    if (collectMissingWorkspaceItemIds(workspaceEntries, itemsRef.current).length === 0) {
+      return;
+    }
+    try {
+      const nextItems = await fetchItems();
+      setItems(nextItems);
+      setHasLoadedInitialLibrary(true);
     } catch {
     }
   }
@@ -927,17 +1014,21 @@ const App: React.FC = () => {
           x: anchorPosition.x + (Math.random() - 0.5) * 160,
           y: anchorPosition.y + (Math.random() - 0.5) * 120,
         };
-
-    updateWorkspaceItems((prev) => [
-      ...prev,
-      {
-        nodeId: makeWorkspaceNodeId(),
-        itemId,
-        position: { x: nextPosition.x, y: nextPosition.y },
-        isNewDiscovery: options?.isNewDiscovery ?? false,
-        arrivalHighlightMode: options?.arrivalHighlightMode,
-      },
-    ]);
+    void createBoardItem({
+      itemId,
+      position: { x: nextPosition.x, y: nextPosition.y },
+      isNewDiscovery: options?.isNewDiscovery ?? false,
+      arrivalHighlightMode: options?.arrivalHighlightMode ?? null,
+    })
+      .then((created) => {
+        setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
+      })
+      .catch((err) => {
+        showError(
+          err instanceof Error ? err.message : "Failed to add item to the shared board.",
+          err
+        );
+      });
   }
 
   function addLibraryItemToWorkspace(item: Item) {
@@ -959,90 +1050,67 @@ const App: React.FC = () => {
         y: 180,
       } as const);
 
-    updateWorkspaceItems((prev) => [
-      ...prev,
-      {
-        nodeId: makeWorkspaceNodeId(),
-        itemId: item.id,
-        position: {
-          x: anchorPosition.x + (Math.random() - 0.5) * 160,
-          y: anchorPosition.y + (Math.random() - 0.5) * 120,
-        },
-        arrivalHighlightMode: "library",
-        actionConstraintName: item.name,
-        actionConstraintNormalizedName: item.normalizedName,
+    void createBoardItem({
+      itemId: item.id,
+      position: {
+        x: anchorPosition.x + (Math.random() - 0.5) * 160,
+        y: anchorPosition.y + (Math.random() - 0.5) * 120,
       },
-    ]);
+      arrivalHighlightMode: "library",
+      actionConstraintName: item.name,
+      actionConstraintNormalizedName: item.normalizedName,
+    })
+      .then((created) => {
+        setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
+      })
+      .catch((err) => {
+        showError(
+          err instanceof Error ? err.message : "Failed to add item to the shared board.",
+          err
+        );
+      });
   }
 
   function attachCategoryModifier(sourceNodeId: string, targetNodeId: string) {
-    updateWorkspaceItems((prev) => {
-      const targetNode = prev.find((item) => item.nodeId === targetNodeId);
-      const targetItem = targetNode ? findItemById(targetNode.itemId) : null;
-      if (!targetNode || !targetItem || targetItem.id < 0) {
-        return prev;
-      }
-      return prev
-        .filter((item) => item.nodeId !== sourceNodeId)
-        .map((item) =>
-          item.nodeId === targetNodeId
-            ? {
-                ...item,
-                categoryConstraintName: targetItem.name,
-                categoryConstraintNormalizedName: targetItem.normalizedName,
-              }
-            : item
-        );
+    void attachBoardCategoryModifier({ sourceNodeId, targetNodeId }).catch((err) => {
+      showError(
+        err instanceof Error ? err.message : "Failed to attach the category modifier.",
+        err
+      );
     });
   }
 
   function attachActionModifier(sourceNodeId: string, targetNodeId: string) {
-    updateWorkspaceItems((prev) => {
-      const targetNode = prev.find((item) => item.nodeId === targetNodeId);
-      const targetItem = targetNode ? findItemById(targetNode.itemId) : null;
-      if (!targetNode || !targetItem || targetItem.id < 0) {
-        return prev;
-      }
-      return prev
-        .filter((item) => item.nodeId !== sourceNodeId)
-        .map((item) =>
-          item.nodeId === targetNodeId
-            ? {
-                ...item,
-                actionConstraintName: targetItem.name,
-                actionConstraintNormalizedName: targetItem.normalizedName,
-              }
-            : item
-        );
+    void attachBoardActionModifier({ sourceNodeId, targetNodeId }).catch((err) => {
+      showError(
+        err instanceof Error ? err.message : "Failed to attach the action modifier.",
+        err
+      );
     });
   }
 
   function clearCategoryModifier(nodeId: string) {
-    updateWorkspaceItems((prev) =>
-      prev.map((item) =>
-        item.nodeId === nodeId
-          ? {
-              ...item,
-              categoryConstraintName: null,
-              categoryConstraintNormalizedName: null,
-            }
-          : item
-      )
-    );
+    void updateBoardItem(nodeId, {
+      categoryConstraintName: null,
+      categoryConstraintNormalizedName: null,
+    }).catch((err) => {
+      showError(
+        err instanceof Error ? err.message : "Failed to clear the category modifier.",
+        err
+      );
+    });
   }
 
   function clearActionModifier(nodeId: string) {
-    updateWorkspaceItems((prev) =>
-      prev.map((item) =>
-        item.nodeId === nodeId
-          ? {
-              ...item,
-              actionConstraintName: null,
-              actionConstraintNormalizedName: null,
-            }
-          : item
-      )
-    );
+    void updateBoardItem(nodeId, {
+      actionConstraintName: null,
+      actionConstraintNormalizedName: null,
+    }).catch((err) => {
+      showError(
+        err instanceof Error ? err.message : "Failed to clear the action modifier.",
+        err
+      );
+    });
   }
 
   function openItemDetails(item: Item) {
@@ -1077,11 +1145,147 @@ const App: React.FC = () => {
   }
 
   function clearWorkspaceItems() {
-    updateWorkspaceItems([]);
+    void clearSharedBoardItems()
+      .then(() => {
+        setWorkspaceItems([]);
+      })
+      .catch((err) => {
+        showError(err instanceof Error ? err.message : "Failed to clear the shared board.", err);
+      });
   }
 
   function handleViewportCenterChange(position: { x: number; y: number }) {
     viewportCenterRef.current = position;
+  }
+
+  function moveSharedWorkspaceItems(
+    nextItems: Array<{ nodeId: string; position: { x: number; y: number } }>
+  ) {
+    if (nextItems.length === 0) {
+      return;
+    }
+    setWorkspaceItems((prev) =>
+      prev.map((item) => {
+        const moved = nextItems.find((entry) => entry.nodeId === item.nodeId);
+        return moved ? { ...item, position: moved.position } : item;
+      })
+    );
+    void moveBoardItems(nextItems).catch((err) => {
+      showError(err instanceof Error ? err.message : "Failed to move board items.", err);
+      void fetchBoardSnapshot().then((snapshot) => {
+        setWorkspaceItems(applyWorkspaceSnapshot(snapshot));
+      });
+    });
+  }
+
+  function dragSharedWorkspaceGroup(
+    nextItems: Array<{ nodeId: string; position: { x: number; y: number } }>
+  ) {
+    if (nextItems.length === 0) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastDragSentAtRef.current < 45) {
+      return;
+    }
+    lastDragSentAtRef.current = now;
+    sendBoardGroupMove(nextItems);
+  }
+
+  function deleteSharedWorkspaceItems(nodeIds: string[]) {
+    if (nodeIds.length === 0) {
+      return;
+    }
+    void deleteBoardItems(nodeIds)
+      .then(() => {
+        setWorkspaceItems((prev) => prev.filter((item) => !nodeIds.includes(item.nodeId)));
+      })
+      .catch((err) => {
+        showError(err instanceof Error ? err.message : "Failed to delete board items.", err);
+      });
+  }
+
+  function duplicateSharedWorkspaceItem(nodeId: string) {
+    void duplicateBoardItem(nodeId)
+      .then((created) => {
+        setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
+      })
+      .catch((err) => {
+        showError(err instanceof Error ? err.message : "Failed to duplicate board item.", err);
+      });
+  }
+
+  function claimSharedWorkspaceDrag(nodeId: string) {
+    activeDragNodeIdRef.current = nodeId;
+    dragSequenceRef.current = 0;
+    lastDragSentAtRef.current = 0;
+    void claimBoardDrag({ nodeId }).then((result) => {
+      if (result.ok || activeDragNodeIdRef.current !== nodeId) {
+        return;
+      }
+      activeDragNodeIdRef.current = null;
+      if (result.position) {
+        setWorkspaceItems((prev) =>
+          prev.map((item) =>
+            item.nodeId === nodeId ? { ...item, position: result.position! } : item
+          )
+        );
+      } else {
+        void fetchBoardSnapshot().then((snapshot) => {
+          setWorkspaceItems(applyWorkspaceSnapshot(snapshot));
+        });
+      }
+    });
+  }
+
+  function dragSharedWorkspaceItem(nodeId: string, position: { x: number; y: number }) {
+    if (activeDragNodeIdRef.current !== nodeId) {
+      return;
+    }
+    const now = Date.now();
+    if (now - lastDragSentAtRef.current < 45) {
+      return;
+    }
+    lastDragSentAtRef.current = now;
+    dragSequenceRef.current += 1;
+    sendBoardDragMove({
+      nodeId,
+      position,
+      sequence: dragSequenceRef.current,
+    });
+  }
+
+  function releaseSharedWorkspaceDrag(nodeId: string, position: { x: number; y: number }) {
+    activeDragNodeIdRef.current = null;
+    dragSequenceRef.current += 1;
+    setWorkspaceItems((prev) =>
+      prev.map((item) =>
+        item.nodeId === nodeId ? { ...item, position } : item
+      )
+    );
+    void endBoardDrag({
+      nodeId,
+      position,
+      sequence: dragSequenceRef.current,
+    }).then((result) => {
+      if (!result.ok && result.position) {
+        setWorkspaceItems((prev) =>
+          prev.map((item) =>
+            item.nodeId === nodeId ? { ...item, position: result.position! } : item
+          )
+        );
+      }
+    });
+  }
+
+  function publishSharedSelection(
+    nodeIds: string[],
+    layout?: SelectionCombineLayout | null
+  ) {
+    publishBoardSelectionState({
+      nodeIds,
+      layout: layout ?? null,
+    });
   }
 
   async function combineWorkspaceNodeIds(
@@ -1214,31 +1418,7 @@ const App: React.FC = () => {
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
-      const placeholderNodeId = selectionLayout?.placeholderNodeId ?? null;
-      operationCombiningIds = placeholderNodeId
-        ? [...uniqueNodeIds, placeholderNodeId]
-        : uniqueNodeIds;
-
-      pushWorkspaceUndoSnapshot(workspaceItems);
-
-      if (selectionLayout) {
-        updateWorkspaceItems((prev) => {
-          const next = prev.map((node) => {
-            const layoutNode = selectionLayout.nodePositions.find(
-              (entry) => entry.nodeId === node.nodeId
-            );
-            return layoutNode ? { ...node, position: layoutNode.position } : node;
-          });
-          return [
-            ...next,
-            {
-              nodeId: selectionLayout.placeholderNodeId,
-              itemId: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-              position: selectionLayout.placeholderPosition,
-            },
-          ];
-        }, { recordHistory: false });
-      }
+      operationCombiningIds = uniqueNodeIds;
 
       setCombiningNodeIds((prev) =>
         Array.from(new Set([...prev, ...operationCombiningIds]))
@@ -1308,81 +1488,35 @@ const App: React.FC = () => {
         });
       }
 
-      const producedNodeIds = producedItemsWithDiscovery.map((_, index) =>
-        selectionLayout && index === 0
-          ? selectionLayout.placeholderNodeId
-          : makeWorkspaceNodeId()
-      );
-
-      if (selectionLayout) {
-        updateWorkspaceItems((prev) => {
-          const updated: WorkspaceItem[] = prev.map((node) =>
-            node.nodeId === selectionLayout.placeholderNodeId
-              ? {
-                  ...node,
-                  itemId: producedItemsWithDiscovery[0].item.id,
-                  isNewDiscovery: producedItemsWithDiscovery[0].isNewDiscovery,
-                  arrivalHighlightMode: "combine",
-                }
-              : node
+      const center =
+        options?.resultCenter ??
+        (() => {
+          const centerSum = selectedNodes.reduce(
+            (acc, node) => ({
+              x: acc.x + node.position.x,
+              y: acc.y + node.position.y,
+            }),
+            { x: 0, y: 0 }
           );
-          if (producedItemsWithDiscovery.length === 1) {
-            return updated;
-          }
-
-          const placeholderNode = updated.find(
-            (node) => node.nodeId === selectionLayout.placeholderNodeId
-          );
-          if (!placeholderNode) {
-            return updated;
-          }
-
-          const extras: WorkspaceItem[] = producedItemsWithDiscovery.slice(1).map((produced, index) => ({
-            nodeId: producedNodeIds[index + 1],
-            itemId: produced.item.id,
-            position: {
-              x: placeholderNode.position.x + 124 + index * 110,
-              y: placeholderNode.position.y,
-            },
-            isNewDiscovery: produced.isNewDiscovery,
-            arrivalHighlightMode: "combine" as const,
-          }));
-
-          return [...updated, ...extras];
-        }, { recordHistory: false });
-      } else {
-        const center =
-          options?.resultCenter ??
-          (() => {
-            const centerSum = selectedNodes.reduce(
-              (acc, node) => ({
-                x: acc.x + node.position.x,
-                y: acc.y + node.position.y,
-              }),
-              { x: 0, y: 0 }
-            );
-            return {
-              x: centerSum.x / selectedNodes.length,
-              y: centerSum.y / selectedNodes.length,
-            };
-          })();
-
-        updateWorkspaceItems((prev) => {
-          const withoutInputs = prev.filter((node) => !uniqueNodeIds.includes(node.nodeId));
-          const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
-          const spawned: WorkspaceItem[] = producedItemsWithDiscovery.map((produced, index) => ({
-            nodeId: producedNodeIds[index],
-            itemId: produced.item.id,
-            position: {
-              x: center.x + index * 112 - spawnOffset,
-              y: center.y,
-            },
-            isNewDiscovery: produced.isNewDiscovery,
-            arrivalHighlightMode: "combine" as const,
-          }));
-          return [...withoutInputs, ...spawned];
-        }, { recordHistory: false });
-      }
+          return {
+            x: centerSum.x / selectedNodes.length,
+            y: centerSum.y / selectedNodes.length,
+          };
+        })();
+      const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
+      const producedBoardItems = producedItemsWithDiscovery.map((produced, index) => ({
+        itemId: produced.item.id,
+        position: {
+          x: center.x + index * 112 - spawnOffset,
+          y: center.y,
+        },
+        isNewDiscovery: produced.isNewDiscovery,
+        arrivalHighlightMode: "combine" as const,
+      }));
+      const boardMutation = await combineBoardItems({
+        consumedNodeIds: uniqueNodeIds,
+        producedItems: producedBoardItems,
+      });
       const celebrationMatchedItemName =
         completedQuestMatches.find((match) =>
           producedItemsWithDiscovery.some(
@@ -1405,7 +1539,7 @@ const App: React.FC = () => {
             : -1;
       const resolvedCelebrationNodeId =
         celebrationItemIndex >= 0
-          ? producedNodeIds[celebrationItemIndex] ?? null
+          ? boardMutation.created[celebrationItemIndex]?.nodeId ?? null
           : null;
       applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
       if (recipe.totalPoints != null) {
@@ -1445,13 +1579,6 @@ const App: React.FC = () => {
       }
       return true;
     } catch (err) {
-      if (options?.selectionLayout) {
-        updateWorkspaceItems(
-          (prev) =>
-            prev.filter((node) => node.nodeId !== options.selectionLayout!.placeholderNodeId),
-          { recordHistory: false }
-        );
-      }
       showError(
         err instanceof Error && err.message
           ? err.message
@@ -1662,8 +1789,7 @@ const App: React.FC = () => {
               setHasLoadedInitialLibrary(true);
             }}
             randomUnlocked={isFeatureUnlocked("random_tools")}
-            canUndoWorkspace={workspaceUndoStack.length > 0 && combiningNodeIds.length === 0}
-            onUndoWorkspace={undoWorkspaceBoardAction}
+            canUndoWorkspace={false}
           />
         </aside>
 
@@ -1714,7 +1840,16 @@ const App: React.FC = () => {
                   celebratedNodeId={celebratedQuestNodeId}
                   onAttachActionModifier={attachActionModifier}
                   onAttachCategoryModifier={attachCategoryModifier}
-                  onWorkspaceItemsChange={updateWorkspaceItems}
+                  onMoveWorkspaceItems={moveSharedWorkspaceItems}
+                  onDeleteWorkspaceItems={deleteSharedWorkspaceItems}
+                  onDuplicateWorkspaceItem={duplicateSharedWorkspaceItem}
+                  onClaimWorkspaceDrag={claimSharedWorkspaceDrag}
+                  onDragWorkspaceItem={dragSharedWorkspaceItem}
+                  onReleaseWorkspaceDrag={releaseSharedWorkspaceDrag}
+                  onDragWorkspaceGroup={dragSharedWorkspaceGroup}
+                  remoteSelectedNodeIds={remoteSelectedNodeIds}
+                  remoteSelectionLayout={remoteSelectionLayout}
+                  onSelectionStateChange={publishSharedSelection}
                   onViewportCenterChange={handleViewportCenterChange}
                   combiningNodeIds={combiningNodeIds}
                   ponderingNodeIds={ponderingNodeIds}

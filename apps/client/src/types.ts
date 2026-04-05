@@ -209,6 +209,7 @@ export interface WorkspaceItem {
   nodeId: string;
   itemId: number;
   position: { x: number; y: number };
+  revision?: number;
   isNewDiscovery?: boolean;
   arrivalHighlightMode?: "library" | "combine";
   categoryConstraintName?: string | null;
