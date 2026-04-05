@@ -1,0 +1,12 @@
+services:
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    container_name: wordweave-searxng
+    ports:
+      - "127.0.0.1:8081:8080"
+    environment:
+      BASE_URL: "http://127.0.0.1:8081/"
+      INSTANCE_NAME: "Wordweave Local Search"
+    volumes:
+      - ./ops/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    restart: unless-stopped

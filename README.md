@@ -6,6 +6,7 @@ Local-first Infinite Craft–style prototype with:
 - Pixi-powered crafting graph
 - Express + SQLite (via `sql.js`) API
 - OpenAI-powered multi-input crafting using `gpt-5-mini`
+- Local SearXNG search for Pop Culture retrieval in development
 
 ### Tech Stack
 
@@ -25,6 +26,7 @@ Repo layout:
 
 - Node.js (LTS recommended)
 - An OpenAI API key with access to `gpt-5-mini`
+- Docker with Compose support
 
 ---
 
@@ -43,6 +45,7 @@ At the repo root:
    - **`OPENAI_API_KEY`** – your OpenAI API key
    - **`API_PORT`** (optional, default `4000`)
    - **`CLIENT_PORT`** (optional, default `5173`)
+   - **`SEARXNG_BASE_URL`** (optional, default `http://127.0.0.1:8081`)
 
 The `.env` file is read by the API. In development, the client uses the Vite dev server proxy by default and talks to `/api`, which is forwarded to the API server. If needed, you can still override `VITE_API_BASE_URL` in a client-side `.env`.
 
@@ -121,6 +124,7 @@ npm run dev
 
 This runs:
 
+- `npm run dev:search` to start the local SearXNG container and wait for readiness
 - `npm run dev:api` in one process
 - `npm run dev:client` in another
 
