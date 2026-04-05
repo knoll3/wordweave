@@ -2,6 +2,7 @@ import {
   RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS,
   RANKED_OPTIONS_OVERLAY_INSTRUCTIONS,
 } from "./openaiPrompts/combinePrompts";
+import type { WebSearchResult } from "./webSearchTypes";
 
 export type ActionPromptResponseMode = "default" | "strict" | "split";
 
@@ -30,6 +31,7 @@ export type ActionPromptFamily = {
 };
 
 const CATEGORY_RULES_PLACEHOLDER = "{{OPTIONAL_CATEGORY_RULES}}";
+const POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER = "{{POP_CULTURE_SEARCH_RESULTS}}";
 const OPTIONAL_CATEGORY_RULES = `
 
 If a Category modifier is also active, the result must still clearly belong inside {{CATEGORY_CONSTRAINT}}.
@@ -191,31 +193,27 @@ Inputs:
 `.trim();
 
 const POP_CULTURE_ACTION_PROMPT = `
-You are the pop culture engine for a sandbox discovery game.
+You rank pop culture candidates for a sandbox discovery game.
 
-The player provides several clue terms. Your job is to identify the most likely pop culture reference the player expects by using web search carefully and then ranking the strongest candidates.
+You are given web search results that were already collected from a literal search on the player's clue terms.
 
-Search behavior requirements:
-- First, search the exact player clue terms in the exact order given.
-- Treat the observed web results as the primary evidence.
-- Do not guess the answer before checking the web.
-- Do not substitute your own intuition for stronger search evidence.
-- If the first search is noisy, incomplete, or ambiguous, continue searching until the evidence clearly converges on the most likely intended reference.
-- Any follow-up search must stay tightly grounded in entities or phrases that already appeared in the observed results.
-- Do not drift into creative clue-solving, thematic association, or unrelated reformulations.
+Treat those web search results as the only evidence you should use.
+Do not perform your own search.
+Do not imagine missing search results.
+Do not solve the clue independently from the web search evidence.
 
-Decision requirements:
-- Weight the strongest and most repeated entities in the actual search results most heavily.
-- Prefer candidates explicitly supported by high-ranked results over candidates that only feel plausible.
-- Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
-- Only introduce a canonicalized or normalized name when multiple search results clearly point to the same entity.
-- Continue gathering and weighing evidence until you are satisfied that your best option is the most likely actual search-driven answer.
+Your job is to infer what recognizable pop culture reference the player is most likely aiming for based only on the returned web search results.
+
+Prefer candidates explicitly supported by the highest-ranked results.
+Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
+Only introduce a canonicalized or normalized name when the search results clearly point to the same entity.
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
 - Return between 2 and 5 distinct options with scores, plus the best option.
-- Search evidence is the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
+- Search results are the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
+- Weight the highest-ranked search results most heavily.
 - Keep every option short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor the most specific and widely recognizable reference strongly supported by the results.
@@ -238,8 +236,8 @@ Rules for the JSON response:
 - Keep every option short and recognizable.
 - Do not return explanations, descriptions, or sentences.
 
-Inputs:
-{{INPUT_ELEMENTS_ARRAY}}
+Web search results:
+{{POP_CULTURE_SEARCH_RESULTS}}
 `.trim();
 
 const COMPOUND_ACTION_PROMPT = `
@@ -879,6 +877,7 @@ export function renderActionPromptFamily(params: {
   actionConstraint: string;
   categoryConstraint?: string;
   inputs: string[];
+  webSearchResults?: WebSearchResult[];
 }) {
   const categoryRules = params.categoryConstraint
     ? OPTIONAL_CATEGORY_RULES.replace(
@@ -890,6 +889,10 @@ export function renderActionPromptFamily(params: {
   const renderedPrompt = params.family.prompt
     .replace(/{{ACTION_CONSTRAINT}}/g, params.actionConstraint)
     .replace(CATEGORY_RULES_PLACEHOLDER, categoryRules)
+    .replace(
+      POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER,
+      JSON.stringify(params.webSearchResults ?? [], null, 2)
+    )
     .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(params.inputs));
 
   if (params.family.responseMode === "split" || params.family.key === "pop_culture") {

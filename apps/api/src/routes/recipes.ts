@@ -17,6 +17,8 @@ import {
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
+import type { WebSearchResult } from "../webSearchTypes";
+import { searchGoogleLikeWeb } from "../webSearch";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -783,12 +785,19 @@ router.post("/combine", async (req, res) => {
         inputs: orderedInputs.map((i) => i.name),
       }
     );
+    let popCultureSearchResults: WebSearchResult[] | undefined;
     let llmResult;
     try {
       if (usePopCultureSearch) {
-        console.log("[api][combine][pop-culture] using integrated web search prompt", {
+        popCultureSearchResults = await searchGoogleLikeWeb(
+          orderedInputs.map((input) => input.name).join(" "),
+          { limit: 3 }
+        );
+
+        console.log("[api][combine][pop-culture] using searxng search context", {
           inputs: orderedInputs.map((i) => i.name),
           requestedModel: model,
+          searchResultCount: popCultureSearchResults.length,
         });
       }
 
@@ -799,6 +808,7 @@ router.post("/combine", async (req, res) => {
         actionConstraint: actionConstraint ?? undefined,
         actionPromptFamily: actionPromptFamily?.key ?? null,
         model,
+        webSearchResults: popCultureSearchResults,
       });
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {
