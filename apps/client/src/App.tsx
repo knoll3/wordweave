@@ -140,6 +140,13 @@ function applyWorkspaceSnapshot(snapshot: SharedRoomSnapshot) {
   return snapshot.boardItems as WorkspaceItem[];
 }
 
+function stripWorkspaceArrivalHighlights(entries: WorkspaceItem[]) {
+  return entries.map((item) => ({
+    ...item,
+    arrivalHighlightMode: undefined,
+  }));
+}
+
 function applyWorkspacePatch(
   current: WorkspaceItem[],
   patch: SharedBoardPatch
@@ -237,6 +244,7 @@ const App: React.FC = () => {
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const isRestoringWorkspaceRef = useRef(false);
+  const hasHydratedSharedSnapshotRef = useRef(false);
   const itemsRef = useRef<Item[]>([]);
   const viewportCenterRef = useRef<{
     x: number;
@@ -491,7 +499,10 @@ const App: React.FC = () => {
       try {
         const snapshot = await fetchBoardSnapshot();
         if (!cancelled) {
-          const nextWorkspace = applyWorkspaceSnapshot(snapshot);
+          const nextWorkspace = hasHydratedSharedSnapshotRef.current
+            ? applyWorkspaceSnapshot(snapshot)
+            : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
+          hasHydratedSharedSnapshotRef.current = true;
           setWorkspaceItems(nextWorkspace);
           void refreshSharedItemsIfNeeded(nextWorkspace);
         }
@@ -503,7 +514,10 @@ const App: React.FC = () => {
       if (cancelled) {
         return;
       }
-      const nextWorkspace = applyWorkspaceSnapshot(snapshot);
+      const nextWorkspace = hasHydratedSharedSnapshotRef.current
+        ? applyWorkspaceSnapshot(snapshot)
+        : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
+      hasHydratedSharedSnapshotRef.current = true;
       setWorkspaceItems(nextWorkspace);
       void refreshSharedItemsIfNeeded(nextWorkspace);
     });
@@ -1046,7 +1060,17 @@ const App: React.FC = () => {
           x: anchorPosition.x + (Math.random() - 0.5) * 160,
           y: anchorPosition.y + (Math.random() - 0.5) * 120,
         };
+    const nodeId = makeWorkspaceNodeId();
+    const optimisticItem: WorkspaceItem = {
+      nodeId,
+      itemId,
+      position: { x: nextPosition.x, y: nextPosition.y },
+      isNewDiscovery: options?.isNewDiscovery ?? false,
+      arrivalHighlightMode: options?.arrivalHighlightMode,
+    };
+    setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [optimisticItem]));
     void createBoardItem({
+      nodeId,
       itemId,
       position: { x: nextPosition.x, y: nextPosition.y },
       isNewDiscovery: options?.isNewDiscovery ?? false,
@@ -1056,6 +1080,7 @@ const App: React.FC = () => {
         setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
       })
       .catch((err) => {
+        setWorkspaceItems((prev) => prev.filter((item) => item.nodeId !== nodeId));
         showError(
           err instanceof Error ? err.message : "Failed to add item to the shared board.",
           err
@@ -1081,13 +1106,25 @@ const App: React.FC = () => {
         x: 260,
         y: 180,
       } as const);
+    const nodeId = makeWorkspaceNodeId();
+    const nextPosition = {
+      x: anchorPosition.x + (Math.random() - 0.5) * 160,
+      y: anchorPosition.y + (Math.random() - 0.5) * 120,
+    };
+    const optimisticItem: WorkspaceItem = {
+      nodeId,
+      itemId: item.id,
+      position: nextPosition,
+      arrivalHighlightMode: "library",
+      actionConstraintName: item.name,
+      actionConstraintNormalizedName: item.normalizedName,
+    };
+    setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [optimisticItem]));
 
     void createBoardItem({
+      nodeId,
       itemId: item.id,
-      position: {
-        x: anchorPosition.x + (Math.random() - 0.5) * 160,
-        y: anchorPosition.y + (Math.random() - 0.5) * 120,
-      },
+      position: nextPosition,
       arrivalHighlightMode: "library",
       actionConstraintName: item.name,
       actionConstraintNormalizedName: item.normalizedName,
@@ -1096,6 +1133,7 @@ const App: React.FC = () => {
         setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
       })
       .catch((err) => {
+        setWorkspaceItems((prev) => prev.filter((workspaceItem) => workspaceItem.nodeId !== nodeId));
         showError(
           err instanceof Error ? err.message : "Failed to add item to the shared board.",
           err
@@ -1228,21 +1266,46 @@ const App: React.FC = () => {
     if (nodeIds.length === 0) {
       return;
     }
+    const removedItems = workspaceItems.filter((item) => nodeIds.includes(item.nodeId));
+    setWorkspaceItems((prev) => prev.filter((item) => !nodeIds.includes(item.nodeId)));
     void deleteBoardItems(nodeIds)
-      .then(() => {
-        setWorkspaceItems((prev) => prev.filter((item) => !nodeIds.includes(item.nodeId)));
-      })
       .catch((err) => {
+        setWorkspaceItems((prev) => upsertWorkspaceItems(prev, removedItems));
         showError(err instanceof Error ? err.message : "Failed to delete board items.", err);
       });
   }
 
   function duplicateSharedWorkspaceItem(nodeId: string) {
-    void duplicateBoardItem(nodeId)
+    const sourceItem = workspaceItems.find((item) => item.nodeId === nodeId);
+    if (!sourceItem) {
+      return;
+    }
+    const optimisticNodeId = makeWorkspaceNodeId();
+    const optimisticItem: WorkspaceItem = {
+      nodeId: optimisticNodeId,
+      itemId: sourceItem.itemId,
+      position: {
+        x: sourceItem.position.x + 12,
+        y: sourceItem.position.y + 12,
+      },
+      isNewDiscovery: false,
+      categoryConstraintName: sourceItem.categoryConstraintName ?? null,
+      categoryConstraintNormalizedName:
+        sourceItem.categoryConstraintNormalizedName ?? null,
+      actionConstraintName: sourceItem.actionConstraintName ?? null,
+      actionConstraintNormalizedName:
+        sourceItem.actionConstraintNormalizedName ?? null,
+    };
+    setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [optimisticItem]));
+    void duplicateBoardItem(nodeId, {
+      nodeId: optimisticNodeId,
+      position: optimisticItem.position,
+    })
       .then((created) => {
         setWorkspaceItems((prev) => upsertWorkspaceItems(prev, [created as WorkspaceItem]));
       })
       .catch((err) => {
+        setWorkspaceItems((prev) => prev.filter((item) => item.nodeId !== optimisticNodeId));
         showError(err instanceof Error ? err.message : "Failed to duplicate board item.", err);
       });
   }
@@ -1323,6 +1386,7 @@ const App: React.FC = () => {
   async function combineWorkspaceNodeIds(
     nodeIds: string[],
     options?: {
+      mode?: "selection" | "direct";
       selectionLayout?: SelectionCombineLayout | null;
       resultCenter?: { x: number; y: number } | null;
     }
@@ -1447,6 +1511,9 @@ const App: React.FC = () => {
     }
 
     const inputNames = effectiveInputItems.map((item) => item.name);
+    const combineMode = options?.mode ?? "direct";
+    const usesPendingPlaceholder = combineMode === "selection";
+    let pendingPlaceholderNodeId: string | null = null;
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
@@ -1466,12 +1533,15 @@ const App: React.FC = () => {
           };
         })();
       const placeholderPosition = selectionLayout?.placeholderPosition ?? center;
-      const pendingPlaceholder = await createBoardItem({
-        nodeId: selectionLayout?.placeholderNodeId,
-        itemId: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-        position: placeholderPosition,
-      });
-      operationCombiningIds = [...uniqueNodeIds, pendingPlaceholder.nodeId];
+      if (usesPendingPlaceholder) {
+        const pendingPlaceholder = await createBoardItem({
+          nodeId: selectionLayout?.placeholderNodeId,
+          itemId: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+          position: placeholderPosition,
+        });
+        pendingPlaceholderNodeId = pendingPlaceholder.nodeId;
+        operationCombiningIds = [...uniqueNodeIds, pendingPlaceholder.nodeId];
+      }
 
       setCombiningNodeIds((prev) =>
         Array.from(new Set([...prev, ...operationCombiningIds]))
@@ -1573,7 +1643,7 @@ const App: React.FC = () => {
             : -1;
       await combineBoardItems({
         consumedNodeIds: uniqueNodeIds,
-        placeholderNodeId: pendingPlaceholder.nodeId,
+        placeholderNodeId: pendingPlaceholderNodeId ?? undefined,
         producedItems: producedBoardItems,
         questSync:
           newlyCompletedQuestNames.length > 0 ||
@@ -1616,9 +1686,8 @@ const App: React.FC = () => {
       }
       return true;
     } catch (err) {
-      if (operationCombiningIds.length > uniqueNodeIds.length) {
-        const placeholderNodeId = operationCombiningIds[operationCombiningIds.length - 1];
-        void deleteBoardItems([placeholderNodeId]).catch(() => {});
+      if (pendingPlaceholderNodeId) {
+        void deleteBoardItems([pendingPlaceholderNodeId]).catch(() => {});
       }
       showError(
         err instanceof Error && err.message
@@ -1647,12 +1716,14 @@ const App: React.FC = () => {
   ) {
     if (sourceNodeId === targetNodeId) return;
     await combineWorkspaceNodeIds([sourceNodeId, targetNodeId], {
+      mode: "direct",
       resultCenter: resultCenter ?? null,
     });
   }
 
   async function combineWorkspaceSelection(selectionLayout: SelectionCombineLayout) {
     await combineWorkspaceNodeIds(selectionLayout.nodeIds, {
+      mode: "selection",
       selectionLayout,
     });
   }

@@ -1304,6 +1304,7 @@ function GraphView({
 
     const existingViews = itemViewsRef.current;
     const previousNodeIds = previousWorkspaceNodeIdsRef.current;
+    const isInitialSceneHydration = previousNodeIds.length === 0;
     const previousCombiningNodeIds = previousCombiningNodeIdsRef.current;
     const nextNodeIds = new Set(nextWorkspaceItems.map((item) => item.nodeId));
     const addedNodeIds = nextWorkspaceItems
@@ -1362,7 +1363,7 @@ function GraphView({
         view.contentAlpha = currentAlpha;
         view.targetContentAlpha = currentAlpha;
         view.container.alpha = currentAlpha;
-        if (workspaceItem.arrivalHighlightMode) {
+        if (workspaceItem.arrivalHighlightMode && !isInitialSceneHydration) {
           view.arrivalTintProgress = 1;
           view.arrivalHighlightStartedAt = Date.now();
           view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
@@ -1378,7 +1379,7 @@ function GraphView({
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
-        if (workspaceItem.arrivalHighlightMode) {
+        if (workspaceItem.arrivalHighlightMode && !isInitialSceneHydration) {
           view.arrivalTintProgress = 1;
           view.arrivalHighlightStartedAt = Date.now();
           view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;

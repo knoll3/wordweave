@@ -129,9 +129,19 @@ export async function createBoardItem(
   return handleResponse<SharedBoardItem>(res);
 }
 
-export async function duplicateBoardItem(nodeId: string): Promise<SharedBoardItem> {
+export async function duplicateBoardItem(
+  nodeId: string,
+  payload?: {
+    nodeId?: string;
+    position?: { x: number; y: number };
+  }
+): Promise<SharedBoardItem> {
   const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}/duplicate`, {
     method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
   });
   return handleResponse<SharedBoardItem>(res);
 }

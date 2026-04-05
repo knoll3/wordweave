@@ -97,6 +97,11 @@ export const createBoardItemWithIdRequestSchema = boardItemInputSchema.extend({
   nodeId: z.string().min(1).max(128).optional(),
 });
 
+export const duplicateBoardItemRequestSchema = z.object({
+  nodeId: z.string().min(1).max(128).optional(),
+  position: boardPositionSchema.optional(),
+});
+
 export const updateBoardItemRequestSchema = z.object({
   itemId: z.number().int().optional(),
   isNewDiscovery: z.boolean().nullable().optional(),

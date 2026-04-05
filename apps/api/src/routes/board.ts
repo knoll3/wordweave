@@ -21,6 +21,7 @@ import {
   combineBoardRequestSchema,
   createBoardItemWithIdRequestSchema,
   deleteBoardItemsRequestSchema,
+  duplicateBoardItemRequestSchema,
   moveBoardItemsRequestSchema,
   updateBoardItemRequestSchema,
 } from "../validation";
@@ -67,8 +68,12 @@ router.post("/items", async (req, res) => {
 
 router.post("/items/:id/duplicate", async (req, res) => {
   const nodeId = String(req.params.id ?? "");
+  const parsed = duplicateBoardItemRequestSchema.safeParse(req.body ?? {});
   if (!nodeId) {
     return res.status(400).json({ error: "Invalid node id" });
+  }
+  if (!parsed.success) {
+    return res.status(400).json({ error: "Invalid duplicate request" });
   }
 
   try {
@@ -79,13 +84,18 @@ router.post("/items/:id/duplicate", async (req, res) => {
     }
     const item = insertBoardItem(db, {
       roomId: DEFAULT_ROOM_ID,
-      nodeId: randomUUID(),
+      nodeId: parsed.data.nodeId?.trim() || randomUUID(),
       item: {
         itemId: Number(existing.item_id),
-        position: {
-          x: Number(existing.position_x) + 38,
-          y: Number(existing.position_y) + 38,
-        },
+        position: parsed.data.position
+          ? {
+              x: Number(parsed.data.position.x),
+              y: Number(parsed.data.position.y),
+            }
+          : {
+              x: Number(existing.position_x) + 12,
+              y: Number(existing.position_y) + 12,
+            },
         isNewDiscovery: false,
         arrivalHighlightMode: undefined,
         categoryConstraintName:
@@ -331,6 +341,8 @@ router.post("/combine", async (req, res) => {
     const placeholderNodeId = parsed.data.placeholderNodeId?.trim() || null;
     const consumedNodeIds = [...parsed.data.consumedNodeIds];
 
+    let deletedNodeIds: string[] = [];
+
     if (placeholderNodeId) {
       const placeholder = getBoardItemById(db, placeholderNodeId);
       if (!placeholder) {
@@ -380,12 +392,16 @@ router.post("/combine", async (req, res) => {
         );
       }
     }
+    if (!placeholderNodeId) {
+      deleteBoardItems(db, consumedNodeIds);
+      deletedNodeIds = consumedNodeIds;
+    }
     persistDatabase(db);
 
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: created,
-      deletedNodeIds: [],
+      deletedNodeIds,
     });
 
     if (parsed.data.questSync) {
@@ -415,7 +431,7 @@ router.post("/combine", async (req, res) => {
     return res.json({
       ok: true,
       created,
-      deletedNodeIds: [],
+      deletedNodeIds,
     });
   } catch (err) {
     console.error("Error in POST /board/combine", err);
