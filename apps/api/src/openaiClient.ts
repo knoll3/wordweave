@@ -5,7 +5,6 @@ import {
   resolveActionPromptFamily,
   type ActionPromptFamilyKey,
 } from "./actionPromptFamilies";
-import type { WebSearchResult } from "./webSearch";
 import { estimateTextTokenCostUsd } from "./config/openaiPricing";
 import {
   ACTION_PROMPT,
@@ -72,6 +71,8 @@ function getReasoningEffortForModel(model: OpenAiModel): OpenAiReasoningEffort |
 
 export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
 export const DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-small";
+const POP_CULTURE_MODEL_NAME: OpenAiModel = "gpt-5.4";
+const POP_CULTURE_REASONING_EFFORT: OpenAiReasoningEffort = "medium";
 
 const CREATIVE_OVERLAY_INSTRUCTIONS = `
 
@@ -133,7 +134,6 @@ export function renderGenerateResultPrompt(
     categoryConstraint?: string;
     creative?: boolean;
     ponderificate?: boolean;
-    webSearchResults?: WebSearchResult[];
   }
 ) {
   const actionPromptFamily =
@@ -142,12 +142,11 @@ export function renderGenerateResultPrompt(
       : resolveActionPromptFamily(options?.actionConstraint);
 
   const basePrompt = actionPromptFamily && options?.actionConstraint
-    ? renderActionPromptFamily({
+      ? renderActionPromptFamily({
         family: actionPromptFamily,
         actionConstraint: options.actionConstraint,
         categoryConstraint: options.categoryConstraint,
         inputs,
-        webSearchResults: options.webSearchResults,
       })
     : options?.actionConstraint
       ? options?.categoryConstraint
@@ -253,7 +252,6 @@ export async function generateResult(
     creative?: boolean;
     ponderificate?: boolean;
     model?: OpenAiModel;
-    webSearchResults?: WebSearchResult[];
   }
 ): Promise<
   | { name: string; icon: string }
@@ -265,12 +263,17 @@ export async function generateResult(
 > {
   const openai = getOpenAI();
   const model = options?.ponderificate ? "gpt-5-mini" : (options?.model ?? DEFAULT_MODEL_NAME);
-  const reasoningEffort =
-    options?.ponderificate ? "low" : getReasoningEffortForModel(model);
   const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
+  const useIntegratedWebSearch = actionPromptFamily?.key === "pop_culture";
+  const responseModel = useIntegratedWebSearch ? POP_CULTURE_MODEL_NAME : model;
+  const reasoningEffort = useIntegratedWebSearch
+    ? POP_CULTURE_REASONING_EFFORT
+    : options?.ponderificate
+      ? "low"
+      : getReasoningEffortForModel(model);
 
   console.log("[openai] sending request", {
-    model,
+    model: responseModel,
     reasoningEffort,
     inputs,
     actionConstraint: options?.actionConstraint ?? null,
@@ -278,45 +281,122 @@ export async function generateResult(
     categoryConstraint: options?.categoryConstraint ?? null,
     creative: options?.creative ?? false,
     ponderificate: options?.ponderificate ?? false,
-    webSearchResultCount: options?.webSearchResults?.length ?? 0,
-    temperature: 1,
+    usesWebSearch: useIntegratedWebSearch,
+    temperature: useIntegratedWebSearch ? null : 1,
     prompt,
   });
 
-  const response = await openai.chat.completions.create({
-    model,
-    temperature: 1,
-    ...(reasoningEffort ? ({ reasoning_effort: reasoningEffort } as const) : {}),
-    response_format: { type: "json_object" },
-    messages: [{ role: "user", content: prompt }],
-  } as any);
-
-  const promptTokens = response.usage?.prompt_tokens ?? 0;
-  const completionTokens = response.usage?.completion_tokens ?? 0;
-  const cachedPromptTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
-  const responseModel = response.model ?? model;
-  logUsageAndCost({
-    logPrefix: "[openai]",
-    responseModel,
-    promptTokens,
-    completionTokens,
-    cachedPromptTokens,
-  });
-
-  const content = response.choices[0]?.message?.content;
-  if (!content) {
-    console.error("[openai] empty response content", response);
-    throw new Error("No content returned from OpenAI");
-  }
-
-  console.log("[openai] raw response content", content);
-
   let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (err) {
-    console.error("[openai] failed to parse response as JSON", err);
-    throw new Error("Failed to parse OpenAI JSON response");
+  if (useIntegratedWebSearch) {
+    const response = await openai.responses.create({
+      model: POP_CULTURE_MODEL_NAME,
+      input: prompt,
+      reasoning: { effort: POP_CULTURE_REASONING_EFFORT },
+      tools: [{ type: "web_search" as const }],
+      text: {
+        format: {
+          type: "json_schema",
+          name: "pop_culture_ranked_options",
+          strict: true,
+          schema: {
+            type: "object",
+            additionalProperties: false,
+            properties: {
+              options: {
+                type: "array",
+                minItems: 2,
+                maxItems: 5,
+                items: {
+                  type: "object",
+                  additionalProperties: false,
+                  properties: {
+                    name: { type: "string", minLength: 1, maxLength: 64 },
+                    icon: { type: "string", minLength: 1, maxLength: 8 },
+                    score: { type: "integer", minimum: 0, maximum: 100 },
+                  },
+                  required: ["name", "icon", "score"],
+                },
+              },
+              bestOption: {
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                  name: { type: "string", minLength: 1, maxLength: 64 },
+                  icon: { type: "string", minLength: 1, maxLength: 8 },
+                  score: { type: "integer", minimum: 0, maximum: 100 },
+                },
+                required: ["name", "icon", "score"],
+              },
+            },
+            required: ["options", "bestOption"],
+          },
+        },
+      },
+    } as any);
+
+    const usage = response as {
+      usage?: {
+        input_tokens?: number;
+        output_tokens?: number;
+        input_tokens_details?: { cached_tokens?: number };
+      };
+    };
+    logUsageAndCost({
+      logPrefix: "[openai]",
+      responseModel: response.model ?? POP_CULTURE_MODEL_NAME,
+      promptTokens: usage.usage?.input_tokens ?? 0,
+      completionTokens: usage.usage?.output_tokens ?? 0,
+      cachedPromptTokens: usage.usage?.input_tokens_details?.cached_tokens ?? 0,
+    });
+
+    const content = response.output_text;
+    if (!content) {
+      console.error("[openai] empty response content", response);
+      throw new Error("No content returned from OpenAI");
+    }
+
+    console.log("[openai] raw response content", content);
+
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      console.error("[openai] failed to parse response as JSON", err);
+      throw new Error("Failed to parse OpenAI JSON response");
+    }
+  } else {
+    const response = await openai.chat.completions.create({
+      model,
+      temperature: 1,
+      ...(reasoningEffort ? ({ reasoning_effort: reasoningEffort } as const) : {}),
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content: prompt }],
+    } as any);
+
+    const promptTokens = response.usage?.prompt_tokens ?? 0;
+    const completionTokens = response.usage?.completion_tokens ?? 0;
+    const cachedPromptTokens = response.usage?.prompt_tokens_details?.cached_tokens ?? 0;
+    logUsageAndCost({
+      logPrefix: "[openai]",
+      responseModel: response.model ?? model,
+      promptTokens,
+      completionTokens,
+      cachedPromptTokens,
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) {
+      console.error("[openai] empty response content", response);
+      throw new Error("No content returned from OpenAI");
+    }
+
+    console.log("[openai] raw response content", content);
+
+    try {
+      parsed = JSON.parse(content);
+    } catch (err) {
+      console.error("[openai] failed to parse response as JSON", err);
+      throw new Error("Failed to parse OpenAI JSON response");
+    }
   }
 
   if (options?.ponderificate) {

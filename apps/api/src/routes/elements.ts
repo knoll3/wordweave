@@ -18,7 +18,6 @@ import {
 import { getLatestRecipeContext } from "../latestRecipeLookup";
 import { getOrCreateElementReference } from "../referenceLookup";
 import { buildSemanticClusters } from "../semanticClusters";
-import { getGoogleLikeWebSearchAvailability } from "../webSearch";
 
 const router = express.Router();
 
@@ -51,18 +50,6 @@ router.get("/clusters", async (req, res) => {
     console.error("Error in GET /elements/clusters", err);
     return res.status(500).json({ error: "Failed to build semantic clusters" });
   }
-});
-
-router.get("/catalysts/status", (_req, res) => {
-  const popCultureSearch = getGoogleLikeWebSearchAvailability();
-
-  return res.json([
-    {
-      key: "pop_culture",
-      available: popCultureSearch.available,
-      reason: popCultureSearch.reason,
-    },
-  ]);
 });
 
 router.get("/:id/reference", async (req, res) => {

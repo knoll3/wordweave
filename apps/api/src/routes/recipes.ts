@@ -17,8 +17,6 @@ import {
   OpenAiModel,
 } from "../openaiClient";
 import { ensureSearchIndexForElementIds } from "../search";
-import type { WebSearchResult } from "../webSearch";
-import { searchGoogleLikeWeb } from "../webSearch";
 import {
   combineRequestSchema,
   selectRequestSchema,
@@ -785,24 +783,12 @@ router.post("/combine", async (req, res) => {
         inputs: orderedInputs.map((i) => i.name),
       }
     );
-    let popCultureSearchResults: WebSearchResult[] | undefined;
     let llmResult;
     try {
-      popCultureSearchResults = usePopCultureSearch
-        ? await searchGoogleLikeWeb(orderedInputs.map((input) => input.name).join(" "), {
-            limit: 3,
-          })
-        : undefined;
-
-      if (usePopCultureSearch && (!popCultureSearchResults || popCultureSearchResults.length === 0)) {
-        throw new Error("No web search results returned for the pop culture query");
-      }
-
       if (usePopCultureSearch) {
-        console.log("[api][combine][pop-culture] using external search context", {
+        console.log("[api][combine][pop-culture] using integrated web search prompt", {
           inputs: orderedInputs.map((i) => i.name),
-          model,
-          searchResultCount: popCultureSearchResults?.length ?? 0,
+          requestedModel: model,
         });
       }
 
@@ -813,7 +799,6 @@ router.post("/combine", async (req, res) => {
         actionConstraint: actionConstraint ?? undefined,
         actionPromptFamily: actionPromptFamily?.key ?? null,
         model,
-        webSearchResults: popCultureSearchResults,
       });
       console.log("[api][combine] OpenAI result", llmResult);
     } catch (err) {

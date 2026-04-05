@@ -347,9 +347,3 @@ export interface FeatureUnlockStatus {
   sourceMatchedWord: string | null;
   sourceMatchedWordCurrent: boolean;
 }
-
-export interface CatalystAvailabilityStatus {
-  key: string;
-  available: boolean;
-  reason: string | null;
-}

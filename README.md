@@ -41,7 +41,6 @@ At the repo root:
 2. Edit `.env` and set:
 
    - **`OPENAI_API_KEY`** – your OpenAI API key
-   - **`SERPAPI_API_KEY`** – used for Google-like web search in the Pop Culture path
    - **`API_PORT`** (optional, default `4000`)
    - **`CLIENT_PORT`** (optional, default `5173`)
 

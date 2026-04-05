@@ -2,7 +2,6 @@ import {
   RANKED_OPTIONS_OR_FAILURE_OVERLAY_INSTRUCTIONS,
   RANKED_OPTIONS_OVERLAY_INSTRUCTIONS,
 } from "./openaiPrompts/combinePrompts";
-import type { WebSearchResult } from "./webSearch";
 
 export type ActionPromptResponseMode = "default" | "strict" | "split";
 
@@ -31,9 +30,6 @@ export type ActionPromptFamily = {
 };
 
 const CATEGORY_RULES_PLACEHOLDER = "{{OPTIONAL_CATEGORY_RULES}}";
-const POP_CULTURE_SEARCH_QUERY_PLACEHOLDER = "{{POP_CULTURE_SEARCH_QUERY}}";
-const POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER = "{{POP_CULTURE_SEARCH_RESULTS}}";
-
 const OPTIONAL_CATEGORY_RULES = `
 
 If a Category modifier is also active, the result must still clearly belong inside {{CATEGORY_CONSTRAINT}}.
@@ -197,32 +193,29 @@ Inputs:
 const POP_CULTURE_ACTION_PROMPT = `
 You are the pop culture engine for a sandbox discovery game.
 
-The player has applied an Action modifier to {{ACTION_CONSTRAINT}}.
+The player provides several clue terms. Your job is to identify the most likely pop culture reference the player expects by using web search carefully and then ranking the strongest candidates.
 
-The player provides several inputs as clues. A separate Google-like web search has already been run using the exact literal query string below:
-"{{POP_CULTURE_SEARCH_QUERY}}"
+Search behavior requirements:
+- First, search the exact player clue terms in the exact order given.
+- Treat the observed web results as the primary evidence.
+- Do not guess the answer before checking the web.
+- Do not substitute your own intuition for stronger search evidence.
+- If the first search is noisy, incomplete, or ambiguous, continue searching until the evidence clearly converges on the most likely intended reference.
+- Any follow-up search must stay tightly grounded in entities or phrases that already appeared in the observed results.
+- Do not drift into creative clue-solving, thematic association, or unrelated reformulations.
 
-You are also given the first web results from that exact search.
-
-Treat those web results as the primary evidence.
-Do not perform your own web search.
-Do not imagine better search results.
-Do not solve the clue from scratch while ignoring the search results.
-The original inputs are only context for understanding why that literal search was run.
-
-Your job is to infer what recognizable pop culture reference the player is most likely aiming for based on what that exact search surfaces first.
-
-Prefer candidates that are directly supported by the top search results.
-Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
-If multiple nearby answers appear in the results, return the strongest few options and score them by how directly the search results support them.
-Only introduce a normalized alias or obvious canonical name when the top results clearly support it.
+Decision requirements:
+- Weight the strongest and most repeated entities in the actual search results most heavily.
+- Prefer candidates explicitly supported by high-ranked results over candidates that only feel plausible.
+- Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
+- Only introduce a canonicalized or normalized name when multiple search results clearly point to the same entity.
+- Continue gathering and weighing evidence until you are satisfied that your best option is the most likely actual search-driven answer.
 
 ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
 - Return between 2 and 5 distinct options with scores, plus the best option.
-- Search results are the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
-- Weight the highest-ranked search results most heavily.
+- Search evidence is the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
 - Keep every option short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor the most specific and widely recognizable reference strongly supported by the results.
@@ -247,9 +240,6 @@ Rules for the JSON response:
 
 Inputs:
 {{INPUT_ELEMENTS_ARRAY}}
-
-Web search results:
-{{POP_CULTURE_SEARCH_RESULTS}}
 `.trim();
 
 const COMPOUND_ACTION_PROMPT = `
@@ -889,9 +879,7 @@ export function renderActionPromptFamily(params: {
   actionConstraint: string;
   categoryConstraint?: string;
   inputs: string[];
-  webSearchResults?: WebSearchResult[];
 }) {
-  const literalWebSearchQuery = params.inputs.join(" ").trim();
   const categoryRules = params.categoryConstraint
     ? OPTIONAL_CATEGORY_RULES.replace(
         /{{CATEGORY_CONSTRAINT}}/g,
@@ -902,11 +890,6 @@ export function renderActionPromptFamily(params: {
   const renderedPrompt = params.family.prompt
     .replace(/{{ACTION_CONSTRAINT}}/g, params.actionConstraint)
     .replace(CATEGORY_RULES_PLACEHOLDER, categoryRules)
-    .replace(POP_CULTURE_SEARCH_QUERY_PLACEHOLDER, literalWebSearchQuery)
-    .replace(
-      POP_CULTURE_SEARCH_RESULTS_PLACEHOLDER,
-      JSON.stringify(params.webSearchResults ?? [], null, 2)
-    )
     .replace(/{{INPUT_ELEMENTS_ARRAY}}/g, JSON.stringify(params.inputs));
 
   if (params.family.responseMode === "split" || params.family.key === "pop_culture") {

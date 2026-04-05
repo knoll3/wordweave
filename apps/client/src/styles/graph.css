@@ -972,24 +972,6 @@
     0 10px 20px rgba(2, 6, 23, 0.24);
 }
 
-.graph-catalyst-button.is-disabled,
-.graph-catalyst-button:disabled {
-  cursor: pointer;
-  opacity: 0.62;
-  border-color: rgba(148, 163, 184, 0.12);
-  box-shadow: none;
-}
-
-.graph-catalyst-button.is-disabled:hover,
-.graph-catalyst-button:disabled:hover,
-.graph-catalyst-button.is-disabled:focus-visible,
-.graph-catalyst-button:disabled:focus-visible,
-.graph-catalyst-button.is-disabled:active,
-.graph-catalyst-button:disabled:active {
-  border-color: rgba(148, 163, 184, 0.12);
-  box-shadow: none;
-}
-
 .graph-catalyst-button:focus-visible {
   border-color: color-mix(in srgb, var(--catalyst-tint) 82%, rgba(255, 255, 255, 0.14));
   box-shadow:
