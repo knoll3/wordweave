@@ -69,6 +69,7 @@ import {
 interface Props {
   items: Item[];
   workspaceItems: WorkspaceItem[];
+  isRestoringWorkspace?: boolean;
   celebratedNodeId?: string | null;
   onAttachActionModifier: (sourceNodeId: string, targetNodeId: string) => void;
   onAttachCategoryModifier: (sourceNodeId: string, targetNodeId: string) => void;
@@ -140,6 +141,7 @@ type TouchGestureState = {
 function GraphView({
   items,
   workspaceItems,
+  isRestoringWorkspace = false,
   celebratedNodeId = null,
   onAttachCategoryModifier,
   onAttachActionModifier,
@@ -2185,7 +2187,14 @@ function GraphView({
     : "Thinking harder for a better result.";
   return (
     <div ref={hostRef} className="graph-pixi-host">
-      {workspaceItems.length === 0 ? (
+      {isRestoringWorkspace ? (
+        <div className="graph-placeholder graph-placeholder-loading">
+          <div className="graph-placeholder-loading-title">Restoring workspace</div>
+          <div className="graph-placeholder-loading-copy">
+            Bringing your saved items back onto the board.
+          </div>
+        </div>
+      ) : workspaceItems.length === 0 ? (
         <div className="graph-placeholder">
           Click items in the library to place them into the workspace.
         </div>

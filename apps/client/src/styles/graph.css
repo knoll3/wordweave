@@ -34,6 +34,14 @@
   max-width: min(188px, calc(100% - 24px));
 }
 
+.graph-quest-target-chip-list {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  width: 100%;
+}
+
 .graph-overlay-icon-button,
 .graph-quests-button-trigger {
   width: 34px;
@@ -64,6 +72,7 @@
 .graph-quest-target-chip {
   min-width: 0;
   max-width: 168px;
+  width: 100%;
   border: 1px solid rgba(96, 165, 250, 0.16);
   border-radius: 12px;
   background:
@@ -215,6 +224,49 @@
   border: 1px dashed rgba(148, 163, 184, 0.2);
   margin: 10px;
   pointer-events: none;
+}
+
+.graph-placeholder-loading {
+  flex-direction: column;
+  gap: 10px;
+  text-align: center;
+  color: var(--text-soft);
+  background:
+    radial-gradient(circle at top, rgba(96, 165, 250, 0.08), transparent 44%),
+    rgba(2, 6, 23, 0.26);
+}
+
+.graph-placeholder-loading::before {
+  content: "";
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  border: 2px solid rgba(148, 163, 184, 0.22);
+  border-top-color: rgba(125, 211, 252, 0.85);
+  animation: graph-placeholder-spin 900ms linear infinite;
+}
+
+.graph-placeholder-loading-title {
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.graph-placeholder-loading-copy {
+  max-width: 280px;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: var(--text-muted);
+}
+
+@keyframes graph-placeholder-spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .item-inspector {

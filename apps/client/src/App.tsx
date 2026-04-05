@@ -147,6 +147,7 @@ function normalizeItemName(value: string) {
 
 const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
+  const [hasLoadedInitialLibrary, setHasLoadedInitialLibrary] = useState(false);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>(
     loadStoredWorkspaceItems
   );
@@ -206,6 +207,8 @@ const App: React.FC = () => {
   } | null>(null);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
+  const isRestoringWorkspace =
+    workspaceItems.length > 0 && !hasLoadedInitialLibrary;
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -824,10 +827,10 @@ const App: React.FC = () => {
     selectedQuestName == null
       ? null
       : visibleQuests.find((entry) => entry.name === selectedQuestName) ?? null;
-  const primaryTrackedQuest =
-    visibleQuests.find(
-      (quest) => trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
-    ) ?? null;
+  const activeTrackedQuests = visibleQuests.filter(
+    (quest) => trackedQuestNames.has(quest.name) && !completedQuestNames.has(quest.name)
+  );
+  const visibleTrackedQuests = activeTrackedQuests.slice(0, 5);
   const selectedQuestItem =
     selectedQuest == null
       ? null
@@ -1420,8 +1423,20 @@ const App: React.FC = () => {
       ) {
         try {
           const result = await fetchQuests();
-          setQuests(result.quests);
-          applyQuestStats(result.stats);
+          const hasTrackedQuest = result.quests.some((quest) => quest.status === "tracked");
+          const nextAvailableQuest = result.quests.find((quest) => quest.status === "available");
+
+          if (!hasTrackedQuest && nextAvailableQuest) {
+            const trackedResult = await updateQuestStatus({
+              name: nextAvailableQuest.name,
+              status: "tracked",
+            });
+            setQuests(trackedResult.quests);
+            applyQuestStats(trackedResult.stats);
+          } else {
+            setQuests(result.quests);
+            applyQuestStats(result.stats);
+          }
         } catch {
         }
       }
@@ -1642,7 +1657,10 @@ const App: React.FC = () => {
             totalQuestPoints={questStats.totalPoints}
             questPointsHighlightKey={questPointsHighlightKey}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
-            onItemsLoaded={setItems}
+            onItemsLoaded={(nextItems) => {
+              setItems(nextItems);
+              setHasLoadedInitialLibrary(true);
+            }}
             randomUnlocked={isFeatureUnlocked("random_tools")}
             canUndoWorkspace={workspaceUndoStack.length > 0 && combiningNodeIds.length === 0}
             onUndoWorkspace={undoWorkspaceBoardAction}
@@ -1669,26 +1687,30 @@ const App: React.FC = () => {
                     >
                       <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
                     </button>
-                    {primaryTrackedQuest ? (
-                      <button
-                        type="button"
-                        className="graph-quest-target-chip"
-                        onClick={() => openJournal()}
-                        title={primaryTrackedQuest.name}
-                      >
-                        <span className="graph-quest-target-chip-marker" aria-hidden="true">
-                          ◎
-                        </span>
-                        <span className="graph-quest-target-chip-label">
-                          {primaryTrackedQuest.name}
-                        </span>
-                      </button>
+                    {visibleTrackedQuests.length > 0 ? (
+                      <div className="graph-quest-target-chip-list">
+                        {visibleTrackedQuests.map((quest) => (
+                          <button
+                            key={quest.name}
+                            type="button"
+                            className="graph-quest-target-chip"
+                            onClick={() => openJournal()}
+                            title={quest.name}
+                          >
+                            <span className="graph-quest-target-chip-marker" aria-hidden="true">
+                              ◎
+                            </span>
+                            <span className="graph-quest-target-chip-label">{quest.name}</span>
+                          </button>
+                        ))}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
                 <GraphView
                   items={items}
                   workspaceItems={workspaceItems}
+                  isRestoringWorkspace={isRestoringWorkspace}
                   celebratedNodeId={celebratedQuestNodeId}
                   onAttachActionModifier={attachActionModifier}
                   onAttachCategoryModifier={attachCategoryModifier}

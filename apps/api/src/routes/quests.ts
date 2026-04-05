@@ -24,6 +24,10 @@ function createQuestSetId() {
   return `set-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
+function createQuestLogRequestId() {
+  return `quest-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
 function formatQuestSetTitle(topic: string) {
   return topic
     .trim()
@@ -134,12 +138,15 @@ router.post("/import-legacy", async (req, res) => {
 });
 
 router.post("/generate", async (req, res) => {
+  const requestId = createQuestLogRequestId();
   console.log("[api][quests] generate route hit", {
+    requestId,
     body: req.body,
   });
   const parsed = generateTargetsRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     console.error("[api][quests] invalid generate request", {
+      requestId,
       issues: parsed.error.issues,
       body: req.body,
     });
@@ -157,8 +164,10 @@ router.post("/generate", async (req, res) => {
     )
   );
   console.log("[api][quests] generate request", {
+    requestId,
     topic,
     excludeTargetCount: sessionExcludedTargets.length,
+    excludeTargetsSample: sessionExcludedTargets.slice(0, 20),
   });
 
   try {
@@ -200,18 +209,43 @@ router.post("/generate", async (req, res) => {
       generated.targets.map((target) => target.name)
     );
     const acceptedTargets: Array<{ name: string; icon: string }> = [];
+    const rejectedTargets: Array<{ name: string; reason: string }> = [];
 
     for (const target of generated.targets) {
       const normalized = normalizeQuestName(target.name);
-      if (!normalized) continue;
-      if (seen.has(normalized)) continue;
-      if (existingQuestNames.has(normalized)) continue;
-      if (discoveredSet.has(normalized)) continue;
-      if (semanticallyDiscoveredTargets.has(normalized)) continue;
+      if (!normalized) {
+        rejectedTargets.push({ name: target.name, reason: "empty_normalized_name" });
+        continue;
+      }
+      if (seen.has(normalized)) {
+        rejectedTargets.push({ name: target.name, reason: "excluded_or_duplicate" });
+        continue;
+      }
+      if (existingQuestNames.has(normalized)) {
+        rejectedTargets.push({ name: target.name, reason: "already_exists" });
+        continue;
+      }
+      if (discoveredSet.has(normalized)) {
+        rejectedTargets.push({ name: target.name, reason: "already_discovered" });
+        continue;
+      }
+      if (semanticallyDiscoveredTargets.has(normalized)) {
+        rejectedTargets.push({ name: target.name, reason: "semantic_discovery_overlap" });
+        continue;
+      }
       seen.add(normalized);
       acceptedTargets.push(target);
       if (acceptedTargets.length >= generatedCount) break;
     }
+
+    console.log("[api][quests] generate result", {
+      requestId,
+      topic,
+      generatedTargetCount: generated.targets.length,
+      acceptedTargetCount: acceptedTargets.length,
+      acceptedTargetNames: acceptedTargets.map((target) => target.name),
+      rejectedTargets,
+    });
 
     return res.json({
       draft: {
@@ -229,8 +263,18 @@ router.post("/generate", async (req, res) => {
 });
 
 router.post("/generate/accept", async (req, res) => {
+  const requestId = createQuestLogRequestId();
+  console.log("[api][quests] accept route hit", {
+    requestId,
+    body: req.body,
+  });
   const parsed = acceptGeneratedTargetsRequestSchema.safeParse(req.body);
   if (!parsed.success) {
+    console.error("[api][quests] invalid generated quest accept request", {
+      requestId,
+      issues: parsed.error.issues,
+      body: req.body,
+    });
     return res.status(400).json({ error: "Invalid generated quest accept request" });
   }
 
@@ -257,16 +301,43 @@ router.post("/generate/accept", async (req, res) => {
     );
 
     const acceptedTargets: Array<{ name: string; icon: string }> = [];
+    const rejectedTargets: Array<{ name: string; reason: string }> = [];
     const seen = new Set<string>();
     for (const term of parsed.data.targets) {
       const normalized = normalizeQuestName(term.name);
-      if (!normalized || seen.has(normalized)) continue;
-      if (existingQuestNames.has(normalized)) continue;
-      if (discoveredSet.has(normalized)) continue;
-      if (semanticallyDiscoveredTargets.has(normalized)) continue;
+      if (!normalized) {
+        rejectedTargets.push({ name: term.name, reason: "empty_normalized_name" });
+        continue;
+      }
+      if (seen.has(normalized)) {
+        rejectedTargets.push({ name: term.name, reason: "duplicate_in_request" });
+        continue;
+      }
+      if (existingQuestNames.has(normalized)) {
+        rejectedTargets.push({ name: term.name, reason: "already_exists" });
+        continue;
+      }
+      if (discoveredSet.has(normalized)) {
+        rejectedTargets.push({ name: term.name, reason: "already_discovered" });
+        continue;
+      }
+      if (semanticallyDiscoveredTargets.has(normalized)) {
+        rejectedTargets.push({ name: term.name, reason: "semantic_discovery_overlap" });
+        continue;
+      }
       seen.add(normalized);
       acceptedTargets.push(term);
     }
+
+    console.log("[api][quests] accept request evaluated", {
+      requestId,
+      topic: parsed.data.topic,
+      submittedTargetCount: parsed.data.targets.length,
+      submittedTargetNames: parsed.data.targets.map((target) => target.name),
+      acceptedTargetCount: acceptedTargets.length,
+      acceptedTargetNames: acceptedTargets.map((target) => target.name),
+      rejectedTargets,
+    });
 
     if (acceptedTargets.length === 0) {
       return res.status(409).json({
@@ -295,8 +366,11 @@ router.post("/generate/accept", async (req, res) => {
 
     persistDatabase(db);
     console.log("[api][quests] accepted generated quest set", {
+      requestId,
       topic: parsed.data.topic,
       acceptedCount: acceptedTargets.length,
+      acceptedTargetNames: acceptedTargets.map((target) => target.name),
+      setId,
     });
     const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
     res.json(response);
