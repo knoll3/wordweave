@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { ThumbsDown, ThumbsUp } from "lucide-react";
 import {
   ACTION_MODIFIER_ITEM_ID,
   COMMON_CATALYST_ITEM_ID,
@@ -15,9 +16,13 @@ import {
 } from "../../types";
 import type { Item } from "../../types";
 import {
+  clearRecipeFeedback,
+  clearLatestRecipeContextCache,
   fetchItemReference,
   fetchLatestRecipeContext,
+  submitRecipeFeedback,
   type LatestRecipeCatalyst,
+  type LatestRecipeContext,
   type LatestRecipeInput,
 } from "../../lib/api";
 import {
@@ -122,6 +127,14 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   const [isLoadingReference, setIsLoadingReference] = useState(false);
   const [recipeCatalyst, setRecipeCatalyst] = useState<LatestRecipeCatalyst | null>(null);
   const [recipeInputs, setRecipeInputs] = useState<LatestRecipeInput[]>([]);
+  const [combinationRunId, setCombinationRunId] = useState<number | null>(null);
+  const [recipeFeedback, setRecipeFeedback] = useState<LatestRecipeContext["feedback"]>(null);
+  const [pendingFeedbackSentiment, setPendingFeedbackSentiment] = useState<"up" | "down" | null>(
+    null
+  );
+  const [expectedResultInput, setExpectedResultInput] = useState("");
+  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+  const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [isLoadingRecipe, setIsLoadingRecipe] = useState(false);
 
   useEffect(() => {
@@ -133,8 +146,13 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       setReferenceImageUrl(null);
       setReferenceUrl(null);
       setIsLoadingReference(false);
+      setCombinationRunId(null);
       setRecipeCatalyst(null);
       setRecipeInputs([]);
+      setRecipeFeedback(null);
+      setPendingFeedbackSentiment(null);
+      setExpectedResultInput("");
+      setFeedbackNotice(null);
       setIsLoadingRecipe(false);
       return;
     }
@@ -158,13 +176,22 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       });
 
     setIsLoadingRecipe(true);
+    setCombinationRunId(null);
     setRecipeCatalyst(null);
     setRecipeInputs([]);
+    setRecipeFeedback(null);
+    setPendingFeedbackSentiment(null);
+    setExpectedResultInput("");
+    setFeedbackNotice(null);
     void fetchLatestRecipeContext(item.id)
       .then((latestRecipe) => {
         if (cancelled) return;
+        setCombinationRunId(latestRecipe?.combinationRunId ?? null);
         setRecipeCatalyst(latestRecipe?.catalyst ?? null);
         setRecipeInputs(latestRecipe?.inputs ?? []);
+        setRecipeFeedback(latestRecipe?.feedback ?? null);
+        setPendingFeedbackSentiment(latestRecipe?.feedback?.sentiment ?? null);
+        setExpectedResultInput(latestRecipe?.feedback?.expectedResultText ?? "");
       })
       .finally(() => {
         if (cancelled) return;
@@ -192,6 +219,53 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       })),
     [itemsById, recipeInputs]
   );
+  const showRecipeFeedback =
+    !catalystGuide && !isBaseItem && recipeInputs.length > 0 && combinationRunId != null;
+  const canSubmitDownFeedback = !isSubmittingFeedback && combinationRunId != null;
+
+  async function handleClearFeedback() {
+    if (!combinationRunId || isSubmittingFeedback) {
+      return;
+    }
+
+    try {
+      setIsSubmittingFeedback(true);
+      await clearRecipeFeedback({ combinationRunId });
+      setRecipeFeedback(null);
+      setPendingFeedbackSentiment(null);
+      setExpectedResultInput("");
+      setFeedbackNotice(null);
+      clearLatestRecipeContextCache(item.id);
+    } catch {
+      setFeedbackNotice("Could not save feedback right now.");
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  }
+
+  async function handleSubmitFeedback(sentiment: "up" | "down") {
+    if (!combinationRunId || isSubmittingFeedback) {
+      return;
+    }
+
+    try {
+      setIsSubmittingFeedback(true);
+      const response = await submitRecipeFeedback({
+        combinationRunId,
+        sentiment,
+        expectedResultText: sentiment === "down" ? expectedResultInput : null,
+      });
+      setRecipeFeedback(response.feedback);
+      setPendingFeedbackSentiment(response.feedback.sentiment);
+      setExpectedResultInput(response.feedback.expectedResultText ?? "");
+      setFeedbackNotice("Thanks for the feedback.");
+      clearLatestRecipeContextCache(item.id);
+    } catch {
+      setFeedbackNotice("Could not save feedback right now.");
+    } finally {
+      setIsSubmittingFeedback(false);
+    }
+  }
   const actionTriggerSections = useMemo(() => {
     if (item.id !== ACTION_MODIFIER_ITEM_ID) {
       return null;
@@ -397,6 +471,86 @@ const ItemDetailsDrawer: React.FC<Props> = ({
                   <span>{item.name}</span>
                 </span>
               </div>
+              {showRecipeFeedback ? (
+                <div className="item-drawer-feedback">
+                  <div className="item-drawer-feedback-header">
+                    <div className="item-drawer-feedback-title">Was this result good?</div>
+                    <div className="item-drawer-feedback-copy">
+                      Help improve future combinations.
+                    </div>
+                  </div>
+                  <div className="item-drawer-feedback-actions">
+                    <button
+                      type="button"
+                      className={`item-drawer-feedback-button ${
+                        pendingFeedbackSentiment === "up" ? "is-active is-positive" : ""
+                      }`}
+                      disabled={isSubmittingFeedback}
+                      onClick={() =>
+                        pendingFeedbackSentiment === "up"
+                          ? void handleClearFeedback()
+                          : void handleSubmitFeedback("up")
+                      }
+                    >
+                      <ThumbsUp size={16} />
+                      <span>Good</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={`item-drawer-feedback-button ${
+                        pendingFeedbackSentiment === "down" ? "is-active is-negative" : ""
+                      }`}
+                      disabled={isSubmittingFeedback}
+                      onClick={() => {
+                        if (pendingFeedbackSentiment === "down") {
+                          void handleClearFeedback();
+                          return;
+                        }
+                        setPendingFeedbackSentiment("down");
+                        setFeedbackNotice(null);
+                      }}
+                    >
+                      <ThumbsDown size={16} />
+                      <span>Bad</span>
+                    </button>
+                  </div>
+                  {pendingFeedbackSentiment === "down" ? (
+                    <div className="item-drawer-feedback-form">
+                      <label className="item-drawer-feedback-label" htmlFor={`feedback-${item.id}`}>
+                        What did you expect instead?
+                      </label>
+                      <input
+                        id={`feedback-${item.id}`}
+                        className="item-drawer-feedback-input"
+                        type="text"
+                        maxLength={128}
+                        placeholder="Optional expected result"
+                        value={expectedResultInput}
+                        onChange={(event) => setExpectedResultInput(event.target.value)}
+                      />
+                      <div className="item-drawer-feedback-form-actions">
+                        <button
+                          type="button"
+                          className="button"
+                          disabled={!canSubmitDownFeedback}
+                          onClick={() => void handleSubmitFeedback("down")}
+                        >
+                          {isSubmittingFeedback ? "Saving..." : "Send Feedback"}
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                  {feedbackNotice ? (
+                    <div className="item-drawer-feedback-notice" aria-live="polite">
+                      {feedbackNotice}
+                    </div>
+                  ) : recipeFeedback ? (
+                    <div className="item-drawer-feedback-meta">
+                      Saved {new Date(recipeFeedback.updatedAt).toLocaleString()}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </>
           ) : (
             <p className="item-drawer-empty">

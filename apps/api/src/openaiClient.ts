@@ -33,6 +33,16 @@ import type {
   SplitLlmResult,
 } from "./validation";
 
+export type GenerationTracePayload = {
+  model: string;
+  prompt: string;
+  rawResponseText: string;
+  parsedResponseJson: unknown;
+  providerType: "openai_only" | "searxng_plus_openai";
+  searchQuery: string | null;
+  searchResults: WebSearchResult[] | null;
+};
+
 export type OpenAiModel =
   | "gpt-5.4"
   | "gpt-5-mini"
@@ -254,6 +264,7 @@ export async function generateResult(
     ponderificate?: boolean;
     model?: OpenAiModel;
     webSearchResults?: WebSearchResult[];
+    onTrace?: (trace: GenerationTracePayload) => void;
   }
 ): Promise<
   | { name: string; icon: string }
@@ -317,6 +328,16 @@ export async function generateResult(
     console.error("[openai] failed to parse response as JSON", err);
     throw new Error("Failed to parse OpenAI JSON response");
   }
+
+  options?.onTrace?.({
+    model: response.model ?? model,
+    prompt,
+    rawResponseText: content,
+    parsedResponseJson: parsed,
+    providerType: options?.webSearchResults?.length ? "searxng_plus_openai" : "openai_only",
+    searchQuery: options?.webSearchResults?.length ? inputs.join(" ").trim() : null,
+    searchResults: options?.webSearchResults?.length ? options.webSearchResults : null,
+  });
 
   if (options?.ponderificate) {
     const ponderificateResult = ponderificateLlmResultSchema.safeParse(parsed);
@@ -400,6 +421,12 @@ function normalizeSplitResult(
 export async function generateRecipeBatch(params: {
   model?: OpenAiModel;
   pairs: Array<{ left: string; right: string }>;
+  onTrace?: (trace: {
+    model: string;
+    prompt: string;
+    rawResponseText: string;
+    parsedResponseJson: unknown;
+  }) => void;
 }) {
   const openai = getOpenAI();
   const model = params.model ?? DEFAULT_MODEL_NAME;
@@ -447,6 +474,13 @@ export async function generateRecipeBatch(params: {
   } catch {
     throw new Error("Failed to parse OpenAI JSON response");
   }
+
+  params.onTrace?.({
+    model: responseModel,
+    prompt,
+    rawResponseText: content,
+    parsedResponseJson: parsed,
+  });
 
   const result = recipeBatchSchema.safeParse(parsed);
   if (!result.success) {

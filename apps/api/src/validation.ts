@@ -15,6 +15,17 @@ export const selectRequestSchema = z.object({
   candidateId: z.number().int().positive(),
 });
 
+export const recipeFeedbackRequestSchema = z.object({
+  clientSessionId: z.string().min(1).max(128),
+  sentiment: z.enum(["up", "down"]),
+  expectedResultText: z.string().min(1).max(128).nullable().optional().or(z.literal("")).optional(),
+  commentText: z.string().min(1).max(500).nullable().optional().or(z.literal("")).optional(),
+});
+
+export const recipeFeedbackDeleteRequestSchema = z.object({
+  clientSessionId: z.string().min(1).max(128),
+});
+
 export const llmResultSchema = z.object({
   name: z.string().min(1).max(64),
   icon: z.string().min(1).max(8),

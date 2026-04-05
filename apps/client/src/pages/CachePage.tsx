@@ -93,6 +93,9 @@ const CachePage: React.FC = () => {
           <a className="button" href="/prompts">
             Prompt Lab
           </a>
+          <a className="button" href="/feedback">
+            Feedback
+          </a>
         </div>
       </header>
 

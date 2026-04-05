@@ -154,6 +154,41 @@ function createSchema(db: Database): void {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
 
+    CREATE TABLE IF NOT EXISTS recipe_generation_traces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER NOT NULL,
+      provider_type TEXT NOT NULL,
+      model TEXT NOT NULL,
+      action_prompt_family TEXT NULL,
+      action_constraint TEXT NULL,
+      category_constraint TEXT NULL,
+      creative INTEGER NOT NULL DEFAULT 0,
+      ponderificate INTEGER NOT NULL DEFAULT 0,
+      input_terms_json TEXT NOT NULL,
+      search_query TEXT NULL,
+      search_results_json TEXT NULL,
+      prompt_text TEXT NOT NULL,
+      raw_response_text TEXT NOT NULL,
+      parsed_response_json TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS recipe_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER NOT NULL,
+      trace_id INTEGER NULL,
+      client_session_id TEXT NOT NULL,
+      sentiment TEXT NOT NULL CHECK(sentiment IN ('up', 'down')),
+      expected_result_text TEXT NULL,
+      comment_text TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(recipe_id, client_session_id),
+      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
+      FOREIGN KEY (trace_id) REFERENCES recipe_generation_traces(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS recipe_candidates (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       recipe_id INTEGER NOT NULL,
@@ -162,6 +197,59 @@ function createSchema(db: Database): void {
       order_index INTEGER NOT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS combination_runs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER NULL,
+      result_element_id INTEGER NOT NULL,
+      input_key TEXT NOT NULL,
+      input_display_json TEXT NOT NULL,
+      chosen_candidate_id INTEGER NULL,
+      chosen_name TEXT NOT NULL,
+      chosen_icon TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE SET NULL,
+      FOREIGN KEY (result_element_id) REFERENCES elements(id) ON DELETE CASCADE,
+      FOREIGN KEY (chosen_candidate_id) REFERENCES recipe_candidates(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS combination_run_traces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      combination_run_id INTEGER NOT NULL,
+      provider_type TEXT NOT NULL,
+      model TEXT NOT NULL,
+      action_prompt_family TEXT NULL,
+      action_constraint TEXT NULL,
+      category_constraint TEXT NULL,
+      creative INTEGER NOT NULL DEFAULT 0,
+      ponderificate INTEGER NOT NULL DEFAULT 0,
+      input_terms_json TEXT NOT NULL,
+      search_query TEXT NULL,
+      search_results_json TEXT NULL,
+      prompt_text TEXT NOT NULL,
+      raw_response_text TEXT NOT NULL,
+      parsed_response_json TEXT NOT NULL,
+      legacy_recipe_trace_id INTEGER NULL UNIQUE,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (combination_run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS combination_run_feedback (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      combination_run_id INTEGER NOT NULL,
+      trace_id INTEGER NULL,
+      client_session_id TEXT NOT NULL,
+      sentiment TEXT NOT NULL CHECK(sentiment IN ('up', 'down')),
+      expected_result_text TEXT NULL,
+      comment_text TEXT NULL,
+      legacy_recipe_feedback_id INTEGER NULL UNIQUE,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(combination_run_id, client_session_id),
+      FOREIGN KEY (combination_run_id) REFERENCES combination_runs(id) ON DELETE CASCADE,
+      FOREIGN KEY (trace_id) REFERENCES combination_run_traces(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS discoveries (
@@ -249,6 +337,30 @@ function createSchema(db: Database): void {
   ensureColumn(db, "quests", "set_id", "TEXT NULL");
   ensureColumn(db, "quests", "set_title", "TEXT NULL");
   ensureColumn(db, "quests", "points_awarded", "INTEGER NOT NULL DEFAULT 10");
+  ensureColumn(db, "recipe_feedback", "comment_text", "TEXT NULL");
+  ensureColumn(db, "combination_run_traces", "legacy_recipe_trace_id", "INTEGER NULL");
+  ensureColumn(db, "combination_run_feedback", "legacy_recipe_feedback_id", "INTEGER NULL");
+
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_runs_result_element ON combination_runs (result_element_id, id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_runs_recipe ON combination_runs (recipe_id, id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_run_traces_run ON combination_run_traces (combination_run_id, id)"
+  );
+  db.run(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_combination_run_traces_legacy_recipe_trace ON combination_run_traces (legacy_recipe_trace_id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_run_feedback_run ON combination_run_feedback (combination_run_id, updated_at)"
+  );
+  db.run(
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_combination_run_feedback_legacy_recipe_feedback ON combination_run_feedback (legacy_recipe_feedback_id)"
+  );
+
+  backfillCombinationRuns(db);
 }
 
 function ensureColumn(
@@ -271,6 +383,118 @@ function ensureColumn(
   if (!exists) {
     db.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnDefinition}`);
   }
+}
+
+function backfillCombinationRuns(db: Database) {
+  db.run(`
+    INSERT INTO combination_runs (
+      recipe_id,
+      result_element_id,
+      input_key,
+      input_display_json,
+      chosen_candidate_id,
+      chosen_name,
+      chosen_icon,
+      created_at,
+      updated_at
+    )
+    SELECT
+      r.id,
+      r.result_element_id,
+      r.input_key,
+      r.input_display_json,
+      r.chosen_candidate_id,
+      COALESCE(rc.name, e.name),
+      COALESCE(rc.icon, e.icon),
+      r.created_at,
+      r.updated_at
+    FROM recipes r
+    LEFT JOIN recipe_candidates rc ON rc.id = r.chosen_candidate_id
+    LEFT JOIN elements e ON e.id = r.result_element_id
+    WHERE r.result_element_id IS NOT NULL
+      AND NOT EXISTS (
+        SELECT 1
+        FROM combination_runs cr
+        WHERE cr.recipe_id = r.id
+      )
+  `);
+
+  db.run(`
+    INSERT INTO combination_run_traces (
+      combination_run_id,
+      provider_type,
+      model,
+      action_prompt_family,
+      action_constraint,
+      category_constraint,
+      creative,
+      ponderificate,
+      input_terms_json,
+      search_query,
+      search_results_json,
+      prompt_text,
+      raw_response_text,
+      parsed_response_json,
+      legacy_recipe_trace_id,
+      created_at
+    )
+    SELECT
+      cr.id,
+      rgt.provider_type,
+      rgt.model,
+      rgt.action_prompt_family,
+      rgt.action_constraint,
+      rgt.category_constraint,
+      rgt.creative,
+      rgt.ponderificate,
+      rgt.input_terms_json,
+      rgt.search_query,
+      rgt.search_results_json,
+      rgt.prompt_text,
+      rgt.raw_response_text,
+      rgt.parsed_response_json,
+      rgt.id,
+      rgt.created_at
+    FROM recipe_generation_traces rgt
+    JOIN combination_runs cr ON cr.recipe_id = rgt.recipe_id
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM combination_run_traces crt
+      WHERE crt.legacy_recipe_trace_id = rgt.id
+    )
+  `);
+
+  db.run(`
+    INSERT INTO combination_run_feedback (
+      combination_run_id,
+      trace_id,
+      client_session_id,
+      sentiment,
+      expected_result_text,
+      comment_text,
+      legacy_recipe_feedback_id,
+      created_at,
+      updated_at
+    )
+    SELECT
+      cr.id,
+      crt.id,
+      rf.client_session_id,
+      rf.sentiment,
+      rf.expected_result_text,
+      rf.comment_text,
+      rf.id,
+      rf.created_at,
+      rf.updated_at
+    FROM recipe_feedback rf
+    JOIN combination_runs cr ON cr.recipe_id = rf.recipe_id
+    LEFT JOIN combination_run_traces crt ON crt.legacy_recipe_trace_id = rf.trace_id
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM combination_run_feedback crf
+      WHERE crf.legacy_recipe_feedback_id = rf.id
+    )
+  `);
 }
 
 function seedBaseElements(db: Database): void {

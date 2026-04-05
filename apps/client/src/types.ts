@@ -166,6 +166,45 @@ export interface RecentRecipe {
   updatedAt: string;
 }
 
+export interface RecipeFeedback {
+  sentiment: "up" | "down";
+  expectedResultText: string | null;
+  commentText: string | null;
+  updatedAt: string;
+}
+
+export interface RecipeFeedbackListEntry {
+  feedback: RecipeFeedback & {
+    id?: number;
+  };
+  runInputKey: string;
+  runSummaryLine: string | null;
+  resultElementName: string | null;
+  trace: {
+    id: number;
+    providerType: string;
+    model: string;
+    actionPromptFamily: string | null;
+    actionConstraint: string | null;
+    categoryConstraint: string | null;
+    creative: boolean;
+    ponderificate: boolean;
+    inputTerms: string[];
+    searchQuery: string | null;
+    searchResults: Array<{
+      position: number;
+      title: string;
+      url: string;
+      snippet: string | null;
+      source: string | null;
+    }> | null;
+    promptText: string;
+    rawResponseText: string;
+    parsedResponseJson: unknown;
+    createdAt: string;
+  } | null;
+}
+
 export interface WorkspaceItem {
   nodeId: string;
   itemId: number;

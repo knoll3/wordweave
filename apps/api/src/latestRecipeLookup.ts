@@ -1,4 +1,8 @@
 import type { Database } from "./db";
+import {
+  getCombinationRunFeedbackForSession,
+  getFirstCombinationRunForElement,
+} from "./feedback";
 
 export type LatestRecipeInput = {
   id: number | null;
@@ -14,10 +18,17 @@ export type LatestRecipeCatalyst = {
 };
 
 export type LatestRecipeContext = {
+  combinationRunId: number | null;
   recipeId: number | null;
   summaryLine: string | null;
   catalyst: LatestRecipeCatalyst | null;
   inputs: LatestRecipeInput[];
+  feedback: {
+    sentiment: "up" | "down";
+    expectedResultText: string | null;
+    commentText: string | null;
+    updatedAt: string;
+  } | null;
 };
 
 type ElementRow = {
@@ -25,12 +36,6 @@ type ElementRow = {
   name: string;
   normalized_name: string;
   icon: string | null;
-};
-
-type RecipeRow = {
-  id: number;
-  input_key: string;
-  input_display_json: string;
 };
 
 const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
@@ -106,9 +111,7 @@ function getCatalystFromInputKey(inputKey: string): LatestRecipeCatalyst | null 
 }
 
 function loadElementsByNormalizedName(db: Database) {
-  const stmt = db.prepare(
-    "SELECT id, name, normalized_name, icon FROM elements"
-  );
+  const stmt = db.prepare("SELECT id, name, normalized_name, icon FROM elements");
   const byNormalizedName = new Map<string, ElementRow>();
 
   while (stmt.step()) {
@@ -120,37 +123,12 @@ function loadElementsByNormalizedName(db: Database) {
   return byNormalizedName;
 }
 
-function loadFirstRecipeForElement(db: Database, elementId: number): RecipeRow | null {
-  const stmt = db.prepare(
-    `
-    SELECT id, input_key, input_display_json
-    FROM recipes
-    WHERE result_element_id = ?
-    ORDER BY id ASC
-    LIMIT 1
-    `
-  );
-  const row = stmt.getAsObject([elementId]) as Record<string, unknown>;
-  stmt.free();
-
-  if (row.id == null) {
-    return null;
-  }
-
-  return {
-    id: Number(row.id),
-    input_key: String(row.input_key),
-    input_display_json: String(row.input_display_json),
-  };
-}
-
 export function getLatestRecipeContext(
   db: Database,
-  elementId: number
+  elementId: number,
+  clientSessionId?: string | null
 ): LatestRecipeContext | null {
-  const elementStmt = db.prepare(
-    "SELECT id, name FROM elements WHERE id = ?"
-  );
+  const elementStmt = db.prepare("SELECT id, name FROM elements WHERE id = ?");
   const elementRow = elementStmt.getAsObject([elementId]) as Record<string, unknown>;
   elementStmt.free();
 
@@ -158,18 +136,20 @@ export function getLatestRecipeContext(
     return null;
   }
 
-  const recipe = loadFirstRecipeForElement(db, elementId);
-  if (!recipe) {
+  const firstRun = getFirstCombinationRunForElement(db, elementId);
+  if (!firstRun) {
     return {
+      combinationRunId: null,
       recipeId: null,
       summaryLine: null,
       catalyst: null,
       inputs: [],
+      feedback: null,
     };
   }
 
   const elementsByNormalizedName = loadElementsByNormalizedName(db);
-  const parsedInputs = JSON.parse(recipe.input_display_json) as Array<{
+  const parsedInputs = JSON.parse(firstRun.inputDisplayJson) as Array<{
     name: string;
     normalized: string;
   }>;
@@ -184,18 +164,31 @@ export function getLatestRecipeContext(
     };
   });
 
-  const catalyst = getCatalystFromInputKey(recipe.input_key);
+  const catalyst = getCatalystFromInputKey(firstRun.inputKey);
+  const feedback =
+    clientSessionId && clientSessionId.trim().length > 0
+      ? getCombinationRunFeedbackForSession(db, firstRun.id, clientSessionId.trim())
+      : null;
   const summaryParts = catalyst
     ? [catalyst.name, ...inputs.map((input) => input.name)]
     : inputs.map((input) => input.name);
 
   return {
-    recipeId: recipe.id,
+    combinationRunId: firstRun.id,
+    recipeId: firstRun.recipeId,
     summaryLine:
       summaryParts.length > 0
         ? `${summaryParts.join(" + ")} -> ${String(elementRow.name)}`
         : null,
     catalyst,
     inputs,
+    feedback: feedback
+      ? {
+          sentiment: feedback.sentiment,
+          expectedResultText: feedback.expectedResultText,
+          commentText: feedback.commentText,
+          updatedAt: feedback.updatedAt,
+        }
+      : null,
   };
 }
