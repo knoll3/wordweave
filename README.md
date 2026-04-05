@@ -1,7 +1,5 @@
 ## Wordweave Prototype
 
-Local-first Infinite Craft–style prototype with:
-
 - React + Vite client
 - Pixi-powered crafting graph
 - Express + SQLite (via `sql.js`) API
@@ -41,7 +39,6 @@ At the repo root:
    ```
 
 2. Edit `.env` and set:
-
    - **`OPENAI_API_KEY`** – your OpenAI API key
    - **`API_PORT`** (optional, default `4000`)
    - **`CLIENT_PORT`** (optional, default `5173`)
