@@ -353,6 +353,7 @@ function GraphView({
     }
     updateViewportCenter();
     refreshSelectionOverlay();
+    refreshRemoteSelectionOverlay();
     refreshPonderOverlay();
   };
 
@@ -488,6 +489,8 @@ function GraphView({
       : ponderingNodeIdsRef.current;
 
   const isNodeCoveredByOverlay = (nodeId: string) => getCurrentOverlayNodeIds().includes(nodeId);
+  const isNodeReservedByRemoteSelection = (nodeId: string) =>
+    remoteSelectedNodeIdsRef.current.includes(nodeId);
 
   const cancelActiveDrag = () => {
     const dragState = dragStateRef.current;
@@ -1157,6 +1160,9 @@ function GraphView({
       if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
         return;
       }
+      if (isNodeReservedByRemoteSelection(workspaceItem.nodeId)) {
+        return;
+      }
       if (selectionModeRef.current) {
         return;
       }
@@ -1372,10 +1378,7 @@ function GraphView({
         view = createItemView(workspaceItem, item);
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
-        if (
-          addedNodeIds.includes(workspaceItem.nodeId) &&
-          workspaceItem.arrivalHighlightMode
-        ) {
+        if (workspaceItem.arrivalHighlightMode) {
           view.arrivalTintProgress = 1;
           view.arrivalHighlightStartedAt = Date.now();
           view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
@@ -1638,6 +1641,9 @@ function GraphView({
         const selectedIds = workspaceItemsRef.current
           .filter((item) => {
             if (isNodeCoveredByOverlay(item.nodeId)) {
+              return false;
+            }
+            if (isNodeReservedByRemoteSelection(item.nodeId)) {
               return false;
             }
             const view = itemViewsRef.current.get(item.nodeId);
@@ -2190,6 +2196,26 @@ function GraphView({
   }, [remoteSelectedNodeIds, workspaceItems]);
 
   useEffect(() => {
+    const remoteReservedNodeIds = new Set(remoteSelectedNodeIds);
+    if (remoteReservedNodeIds.size === 0) {
+      return;
+    }
+
+    const nextSelectedNodeIds = selectedNodeIds.filter(
+      (nodeId) => !remoteReservedNodeIds.has(nodeId)
+    );
+    if (nextSelectedNodeIds.length === selectedNodeIds.length) {
+      return;
+    }
+    if (nextSelectedNodeIds.length >= 2) {
+      setSelectedNodeIds(nextSelectedNodeIds);
+      setSelectionLayout(null);
+      return;
+    }
+    clearSelection();
+  }, [remoteSelectedNodeIds, selectedNodeIds]);
+
+  useEffect(() => {
     onSelectionStateChangeRef.current?.(selectedNodeIds, selectionLayout);
   }, [selectedNodeIds, selectionLayout]);
 
@@ -2245,7 +2271,14 @@ function GraphView({
     const stillCombining = [selectionLayout.placeholderNodeId, ...selectionLayout.nodeIds].some(
       (nodeId) => (combiningNodeIds ?? []).includes(nodeId)
     );
-    if (!stillCombining && workspaceItems.some((item) => item.nodeId === selectionLayout.placeholderNodeId)) {
+    const placeholderItem = workspaceItems.find(
+      (item) => item.nodeId === selectionLayout.placeholderNodeId
+    );
+    if (
+      !stillCombining &&
+      placeholderItem &&
+      placeholderItem.itemId !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID
+    ) {
       clearSelection();
     }
   }, [combiningNodeIds, selectionLayout, workspaceItems]);

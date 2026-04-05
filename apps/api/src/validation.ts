@@ -93,6 +93,9 @@ export const boardItemInputSchema = z.object({
 });
 
 export const createBoardItemRequestSchema = boardItemInputSchema;
+export const createBoardItemWithIdRequestSchema = boardItemInputSchema.extend({
+  nodeId: z.string().min(1).max(128).optional(),
+});
 
 export const updateBoardItemRequestSchema = z.object({
   itemId: z.number().int().optional(),
@@ -124,7 +127,22 @@ export const attachBoardModifierRequestSchema = z.object({
 
 export const combineBoardRequestSchema = z.object({
   consumedNodeIds: z.array(z.string().min(1).max(128)).min(1),
+  placeholderNodeId: z.string().min(1).max(128).optional(),
   producedItems: z.array(boardItemInputSchema).min(1).max(8),
+  questSync: z.object({
+    newlyCompletedQuestNames: z.array(z.string().min(1).max(128)).max(100),
+    completedQuestSets: z.array(
+      z.object({
+        id: z.string().min(1).max(128),
+        title: z.string().min(1).max(128),
+        topic: z.string().min(1).max(128),
+        questCount: z.number().int().nonnegative(),
+        earnedPoints: z.number().int().nonnegative(),
+      })
+    ).max(20).optional(),
+    totalPoints: z.number().int().nonnegative().optional(),
+    celebrationProducedItemIndex: z.number().int().min(0).nullable().optional(),
+  }).optional(),
 });
 
 export const deleteBoardItemsRequestSchema = z.object({

@@ -6,6 +6,7 @@ import type {
   SharedBoardPatch,
   SharedRoomSnapshot,
 } from "../liveBoardTypes";
+import type { PlayerQuestStats, QuestRecord, QuestSetCompletion } from "../types";
 
 let socket: Socket | null = null;
 
@@ -92,4 +93,29 @@ export function publishBoardSelectionState(payload: {
   layout?: unknown | null;
 }) {
   getLiveBoardSocket().emit("board:selection", payload);
+}
+
+export function subscribeToQuestSync(
+  listener: (payload: { quests: QuestRecord[]; stats: PlayerQuestStats }) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("quests:sync", listener);
+  return () => {
+    current.off("quests:sync", listener);
+  };
+}
+
+export function subscribeToQuestCelebration(
+  listener: (payload: {
+    newlyCompletedQuestNames: string[];
+    completedQuestSets?: QuestSetCompletion[];
+    totalPoints?: number;
+    celebrationNodeId?: string | null;
+  }) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("quests:celebration", listener);
+  return () => {
+    current.off("quests:celebration", listener);
+  };
 }

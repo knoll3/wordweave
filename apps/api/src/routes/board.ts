@@ -13,12 +13,13 @@ import {
   updateBoardItemMetadata,
 } from "../boardState";
 import { getDb, persistDatabase } from "../db";
-import { emitBoardPatch, emitRoomSnapshot } from "../liveBoardEvents";
+import { emitBoardPatch, emitQuestCelebration, emitQuestSync, emitRoomSnapshot } from "../liveBoardEvents";
 import { getElementById } from "../models";
+import { getPlayerQuestStats, listQuests } from "../questState";
 import {
   attachBoardModifierRequestSchema,
   combineBoardRequestSchema,
-  createBoardItemRequestSchema,
+  createBoardItemWithIdRequestSchema,
   deleteBoardItemsRequestSchema,
   moveBoardItemsRequestSchema,
   updateBoardItemRequestSchema,
@@ -37,7 +38,7 @@ router.get("/", async (_req, res) => {
 });
 
 router.post("/items", async (req, res) => {
-  const parsed = createBoardItemRequestSchema.safeParse(req.body);
+  const parsed = createBoardItemWithIdRequestSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: "Invalid board item request" });
   }
@@ -46,7 +47,7 @@ router.post("/items", async (req, res) => {
     const db = await getDb();
     const item = insertBoardItem(db, {
       roomId: DEFAULT_ROOM_ID,
-      nodeId: randomUUID(),
+      nodeId: parsed.data.nodeId?.trim() || randomUUID(),
       item: {
         ...parsed.data,
         arrivalHighlightMode: parsed.data.arrivalHighlightMode ?? undefined,
@@ -326,30 +327,95 @@ router.post("/combine", async (req, res) => {
     if (existing.length !== parsed.data.consumedNodeIds.length) {
       return res.status(409).json({ error: "One or more board items are no longer available" });
     }
+    const created = [];
+    const placeholderNodeId = parsed.data.placeholderNodeId?.trim() || null;
+    const consumedNodeIds = [...parsed.data.consumedNodeIds];
 
-    deleteBoardItems(db, parsed.data.consumedNodeIds);
-    const created = parsed.data.producedItems.map((item) =>
-      insertBoardItem(db, {
-        roomId: DEFAULT_ROOM_ID,
-        nodeId: randomUUID(),
-        item: {
-          ...item,
-          arrivalHighlightMode: item.arrivalHighlightMode ?? undefined,
-        },
-      })
-    );
+    if (placeholderNodeId) {
+      const placeholder = getBoardItemById(db, placeholderNodeId);
+      if (!placeholder) {
+        return res.status(409).json({ error: "Pending result item is no longer available" });
+      }
+      const firstProduced = parsed.data.producedItems[0];
+      if (!firstProduced) {
+        return res.status(400).json({ error: "No produced items were provided" });
+      }
+      const updatedPlaceholder = updateBoardItemMetadata(db, {
+        nodeId: placeholderNodeId,
+        itemId: firstProduced.itemId,
+        isNewDiscovery: firstProduced.isNewDiscovery ?? false,
+        arrivalHighlightMode: firstProduced.arrivalHighlightMode ?? null,
+        categoryConstraintName: firstProduced.categoryConstraintName ?? null,
+        categoryConstraintNormalizedName: firstProduced.categoryConstraintNormalizedName ?? null,
+        actionConstraintName: firstProduced.actionConstraintName ?? null,
+        actionConstraintNormalizedName: firstProduced.actionConstraintNormalizedName ?? null,
+      });
+      if (!updatedPlaceholder) {
+        return res.status(409).json({ error: "Pending result item could not be updated" });
+      }
+      created.push(updatedPlaceholder);
+      for (const item of parsed.data.producedItems.slice(1)) {
+        created.push(
+          insertBoardItem(db, {
+            roomId: DEFAULT_ROOM_ID,
+            nodeId: randomUUID(),
+            item: {
+              ...item,
+              arrivalHighlightMode: item.arrivalHighlightMode ?? undefined,
+            },
+          })
+        );
+      }
+    } else {
+      for (const item of parsed.data.producedItems) {
+        created.push(
+          insertBoardItem(db, {
+            roomId: DEFAULT_ROOM_ID,
+            nodeId: randomUUID(),
+            item: {
+              ...item,
+              arrivalHighlightMode: item.arrivalHighlightMode ?? undefined,
+            },
+          })
+        );
+      }
+    }
     persistDatabase(db);
 
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: created,
-      deletedNodeIds: parsed.data.consumedNodeIds,
+      deletedNodeIds: [],
     });
+
+    if (parsed.data.questSync) {
+      const quests = listQuests(db);
+      const stats = getPlayerQuestStats(db);
+      emitQuestSync({
+        roomId: DEFAULT_ROOM_ID,
+        quests,
+        stats,
+      });
+      const celebrationIndex =
+        parsed.data.questSync.celebrationProducedItemIndex == null
+          ? null
+          : parsed.data.questSync.celebrationProducedItemIndex;
+      emitQuestCelebration({
+        roomId: DEFAULT_ROOM_ID,
+        newlyCompletedQuestNames: parsed.data.questSync.newlyCompletedQuestNames,
+        completedQuestSets: parsed.data.questSync.completedQuestSets,
+        totalPoints: parsed.data.questSync.totalPoints,
+        celebrationNodeId:
+          celebrationIndex != null && celebrationIndex >= 0
+            ? created[celebrationIndex]?.nodeId ?? null
+            : null,
+      });
+    }
 
     return res.json({
       ok: true,
       created,
-      deletedNodeIds: parsed.data.consumedNodeIds,
+      deletedNodeIds: [],
     });
   } catch (err) {
     console.error("Error in POST /board/combine", err);

@@ -23,6 +23,7 @@ export interface SharedBoardPatch {
 }
 
 export interface SharedBoardCreateItemInput {
+  nodeId?: string;
   itemId: number;
   position: { x: number; y: number };
   isNewDiscovery?: boolean;
@@ -35,7 +36,20 @@ export interface SharedBoardCreateItemInput {
 
 export interface SharedBoardCombineInput {
   consumedNodeIds: string[];
+  placeholderNodeId?: string;
   producedItems: SharedBoardCreateItemInput[];
+  questSync?: {
+    newlyCompletedQuestNames: string[];
+    completedQuestSets?: Array<{
+      id: string;
+      title: string;
+      topic: string;
+      questCount: number;
+      earnedPoints: number;
+    }>;
+    totalPoints?: number;
+    celebrationProducedItemIndex?: number | null;
+  };
 }
 
 export interface SharedBoardDragClaim {

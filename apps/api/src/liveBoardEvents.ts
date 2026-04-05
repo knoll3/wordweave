@@ -1,5 +1,6 @@
 import type { Server as SocketIOServer } from "socket.io";
 import type { SharedBoardItem, SharedBoardPatch, SharedRoomSnapshot } from "./liveBoardTypes";
+import type { PlayerQuestStats, QuestRecord, CompletedQuestSet } from "./questState";
 
 let io: SocketIOServer | null = null;
 
@@ -37,4 +38,25 @@ export function emitBoardPatch(params: {
     return;
   }
   channel.emit("board:patch", patch);
+}
+
+export function emitQuestSync(params: {
+  roomId: string;
+  quests: QuestRecord[];
+  stats: PlayerQuestStats;
+}) {
+  io?.to(getLiveBoardRoomChannel(params.roomId)).emit("quests:sync", {
+    quests: params.quests,
+    stats: params.stats,
+  });
+}
+
+export function emitQuestCelebration(params: {
+  roomId: string;
+  newlyCompletedQuestNames: string[];
+  completedQuestSets?: CompletedQuestSet[];
+  totalPoints?: number;
+  celebrationNodeId?: string | null;
+}) {
+  io?.to(getLiveBoardRoomChannel(params.roomId)).emit("quests:celebration", params);
 }

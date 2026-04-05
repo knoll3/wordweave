@@ -59,6 +59,8 @@ import {
   sendBoardDragMove,
   subscribeToBoardPatch,
   subscribeToBoardSelection,
+  subscribeToQuestCelebration,
+  subscribeToQuestSync,
   subscribeToRoomSnapshot,
 } from "./lib/liveBoardSocket";
 import {
@@ -522,12 +524,42 @@ const App: React.FC = () => {
       setRemoteSelectedNodeIds(payload.nodeIds);
       setRemoteSelectionLayout((payload.layout as SelectionCombineLayout | null) ?? null);
     });
+    const unsubscribeQuestSync = subscribeToQuestSync((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setQuests(payload.quests);
+      applyQuestStats(payload.stats);
+    });
+    const unsubscribeQuestCelebration = subscribeToQuestCelebration((payload) => {
+      if (cancelled) {
+        return;
+      }
+      if (payload.totalPoints != null) {
+        applyQuestStats({
+          totalPoints: payload.totalPoints,
+        });
+      }
+      if (payload.newlyCompletedQuestNames.length > 0) {
+        applyNewlyCompletedQuests(
+          payload.newlyCompletedQuestNames,
+          payload.celebrationNodeId ?? null
+        );
+      }
+      if (payload.completedQuestSets && payload.completedQuestSets.length > 0) {
+        const latestCompletedSet =
+          payload.completedQuestSets[payload.completedQuestSets.length - 1];
+        showQuestSetCelebration(latestCompletedSet, payload.totalPoints ?? questStats.totalPoints);
+      }
+    });
 
     return () => {
       cancelled = true;
       unsubscribeSnapshot();
       unsubscribePatch();
       unsubscribeSelection();
+      unsubscribeQuestSync();
+      unsubscribeQuestCelebration();
     };
   }, []);
 
@@ -1418,7 +1450,28 @@ const App: React.FC = () => {
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
-      operationCombiningIds = uniqueNodeIds;
+      const center =
+        options?.resultCenter ??
+        (() => {
+          const centerSum = selectedNodes.reduce(
+            (acc, node) => ({
+              x: acc.x + node.position.x,
+              y: acc.y + node.position.y,
+            }),
+            { x: 0, y: 0 }
+          );
+          return {
+            x: centerSum.x / selectedNodes.length,
+            y: centerSum.y / selectedNodes.length,
+          };
+        })();
+      const placeholderPosition = selectionLayout?.placeholderPosition ?? center;
+      const pendingPlaceholder = await createBoardItem({
+        nodeId: selectionLayout?.placeholderNodeId,
+        itemId: COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+        position: placeholderPosition,
+      });
+      operationCombiningIds = [...uniqueNodeIds, pendingPlaceholder.nodeId];
 
       setCombiningNodeIds((prev) =>
         Array.from(new Set([...prev, ...operationCombiningIds]))
@@ -1488,35 +1541,16 @@ const App: React.FC = () => {
         });
       }
 
-      const center =
-        options?.resultCenter ??
-        (() => {
-          const centerSum = selectedNodes.reduce(
-            (acc, node) => ({
-              x: acc.x + node.position.x,
-              y: acc.y + node.position.y,
-            }),
-            { x: 0, y: 0 }
-          );
-          return {
-            x: centerSum.x / selectedNodes.length,
-            y: centerSum.y / selectedNodes.length,
-          };
-        })();
       const spawnOffset = producedItemsWithDiscovery.length > 1 ? 56 : 0;
       const producedBoardItems = producedItemsWithDiscovery.map((produced, index) => ({
         itemId: produced.item.id,
         position: {
-          x: center.x + index * 112 - spawnOffset,
-          y: center.y,
+          x: placeholderPosition.x + index * 112 - spawnOffset,
+          y: placeholderPosition.y,
         },
         isNewDiscovery: produced.isNewDiscovery,
         arrivalHighlightMode: "combine" as const,
       }));
-      const boardMutation = await combineBoardItems({
-        consumedNodeIds: uniqueNodeIds,
-        producedItems: producedBoardItems,
-      });
       const celebrationMatchedItemName =
         completedQuestMatches.find((match) =>
           producedItemsWithDiscovery.some(
@@ -1537,20 +1571,23 @@ const App: React.FC = () => {
                 (produced) => produced.item.id === newestDiscoveredItem.id
               )
             : -1;
-      const resolvedCelebrationNodeId =
-        celebrationItemIndex >= 0
-          ? boardMutation.created[celebrationItemIndex]?.nodeId ?? null
-          : null;
-      applyNewlyCompletedQuests(newlyCompletedQuestNames, resolvedCelebrationNodeId);
-      if (recipe.totalPoints != null) {
-        applyQuestStats({
-          totalPoints: recipe.totalPoints,
-        });
-      }
-      if (recipe.completedQuestSets && recipe.completedQuestSets.length > 0) {
-        const latestCompletedSet = recipe.completedQuestSets[recipe.completedQuestSets.length - 1];
-        showQuestSetCelebration(latestCompletedSet, recipe.totalPoints ?? questStats.totalPoints);
-      }
+      await combineBoardItems({
+        consumedNodeIds: uniqueNodeIds,
+        placeholderNodeId: pendingPlaceholder.nodeId,
+        producedItems: producedBoardItems,
+        questSync:
+          newlyCompletedQuestNames.length > 0 ||
+          (recipe.completedQuestSets && recipe.completedQuestSets.length > 0) ||
+          recipe.totalPoints != null
+            ? {
+                newlyCompletedQuestNames,
+                completedQuestSets: recipe.completedQuestSets,
+                totalPoints: recipe.totalPoints,
+                celebrationProducedItemIndex:
+                  celebrationItemIndex >= 0 ? celebrationItemIndex : null,
+              }
+            : undefined,
+      });
       if (
         newlyCompletedQuestNames.length > 0 ||
         (recipe.completedQuestSets && recipe.completedQuestSets.length > 0)
@@ -1579,6 +1616,10 @@ const App: React.FC = () => {
       }
       return true;
     } catch (err) {
+      if (operationCombiningIds.length > uniqueNodeIds.length) {
+        const placeholderNodeId = operationCombiningIds[operationCombiningIds.length - 1];
+        void deleteBoardItems([placeholderNodeId]).catch(() => {});
+      }
       showError(
         err instanceof Error && err.message
           ? err.message

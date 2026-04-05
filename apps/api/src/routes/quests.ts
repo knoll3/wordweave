@@ -18,6 +18,8 @@ import {
   updateQuestStatus,
 } from "../questState";
 import { getOrCreateReferenceByName } from "../referenceLookup";
+import { emitQuestSync } from "../liveBoardEvents";
+import { DEFAULT_ROOM_ID } from "../boardState";
 
 const router = express.Router();
 function createQuestSetId() {
@@ -128,7 +130,13 @@ router.post("/import-legacy", async (req, res) => {
       log: false,
     });
     persistDatabase(db);
-    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
+    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    emitQuestSync({
+      roomId: DEFAULT_ROOM_ID,
+      quests: response.quests,
+      stats: response.stats,
+    });
+    return res.json(response);
   } catch (err) {
     console.error("[api][quests] failed to import legacy quests", err);
     return res.status(500).json({
@@ -373,6 +381,11 @@ router.post("/generate/accept", async (req, res) => {
       setId,
     });
     const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    emitQuestSync({
+      roomId: DEFAULT_ROOM_ID,
+      quests: response.quests,
+      stats: response.stats,
+    });
     res.json(response);
     void backfillQuestTargetVariants(acceptedTargets.map((target) => target.name));
     return;
@@ -394,7 +407,13 @@ router.post("/status", async (req, res) => {
     const db = await getDb();
     updateQuestStatus(db, parsed.data);
     persistDatabase(db);
-    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
+    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    emitQuestSync({
+      roomId: DEFAULT_ROOM_ID,
+      quests: response.quests,
+      stats: response.stats,
+    });
+    return res.json(response);
   } catch (err) {
     console.error("[api][quests] failed to update quest status", err);
     return res.status(500).json({
