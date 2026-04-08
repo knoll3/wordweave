@@ -39,6 +39,21 @@ function formatQuestSetTitle(topic: string) {
     .join(" ");
 }
 
+function loadDiscoveredNormalizedNames(db: Awaited<ReturnType<typeof getDb>>) {
+  const discoveredSet = new Set<string>();
+  const discoveredStmt = db.prepare(`
+    SELECT e.normalized_name
+    FROM discoveries d
+    JOIN elements e ON e.id = d.element_id
+  `);
+  while (discoveredStmt.step()) {
+    const row = discoveredStmt.getAsObject() as Record<string, unknown>;
+    discoveredSet.add(normalizeQuestName(String(row.normalized_name ?? "")));
+  }
+  discoveredStmt.free();
+  return discoveredSet;
+}
+
 async function backfillQuestTargetVariants(targetNames: string[]) {
   const uniqueTargetNames = Array.from(
     new Set(targetNames.map((name) => name.trim()).filter(Boolean))
@@ -196,13 +211,7 @@ router.post("/generate", async (req, res) => {
       sessionExcludedTargets.map((target) => normalizeQuestName(target))
     );
 
-    const discoveredSet = new Set<string>();
-    const discoveredStmt = db.prepare("SELECT normalized_name FROM elements");
-    while (discoveredStmt.step()) {
-      const row = discoveredStmt.getAsObject() as Record<string, unknown>;
-      discoveredSet.add(normalizeQuestName(String(row.normalized_name ?? "")));
-    }
-    discoveredStmt.free();
+    const discoveredSet = loadDiscoveredNormalizedNames(db);
 
     const seen = new Set<string>(sessionExcludedSet);
     const generated = await generateQuestTargets({
@@ -295,13 +304,7 @@ router.post("/generate/accept", async (req, res) => {
       existingQuests.map((quest) => normalizeQuestName(quest.name))
     );
 
-    const discoveredSet = new Set<string>();
-    const discoveredStmt = db.prepare("SELECT normalized_name FROM elements");
-    while (discoveredStmt.step()) {
-      const row = discoveredStmt.getAsObject() as Record<string, unknown>;
-      discoveredSet.add(normalizeQuestName(String(row.normalized_name ?? "")));
-    }
-    discoveredStmt.free();
+    const discoveredSet = loadDiscoveredNormalizedNames(db);
 
     const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
       db,
