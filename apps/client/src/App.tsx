@@ -1,5 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { SharedBoardPatch, SharedRoomSnapshot } from "./liveBoardTypes";
+import type {
+  SharedBoardActivityMode,
+  SharedBoardPatch,
+  SharedRoomSnapshot,
+} from "./liveBoardTypes";
 import {
   ScrollText,
   Tags,
@@ -54,9 +58,11 @@ import {
 import {
   claimBoardDrag,
   endBoardDrag,
+  publishBoardActivityState,
   publishBoardSelectionState,
   sendBoardGroupMove,
   sendBoardDragMove,
+  subscribeToBoardActivity,
   subscribeToBoardPatch,
   subscribeToBoardSelection,
   subscribeToQuestCelebration,
@@ -109,6 +115,11 @@ type QuestSetCelebrationState = QuestSetCompletion & {
 
 type ActionUnlockModalState = {
   unlockedWords: AutoUnlockedActionWord[];
+};
+
+type DragAbortSignal = {
+  nodeId: string;
+  nonce: number;
 };
 
 type VirtualKeyboardApi = {
@@ -198,6 +209,13 @@ const App: React.FC = () => {
   const [remoteSelectionLayout, setRemoteSelectionLayout] = useState<SelectionCombineLayout | null>(
     null
   );
+  const [remoteActivityNodeIds, setRemoteActivityNodeIds] = useState<string[]>([]);
+  const [remoteActivityLayout, setRemoteActivityLayout] = useState<SelectionCombineLayout | null>(
+    null
+  );
+  const [remoteActivityMode, setRemoteActivityMode] = useState<SharedBoardActivityMode | null>(
+    null
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
@@ -253,6 +271,8 @@ const App: React.FC = () => {
   const activeDragNodeIdRef = useRef<string | null>(null);
   const dragSequenceRef = useRef(0);
   const lastDragSentAtRef = useRef(0);
+  const dragAbortNonceRef = useRef(0);
+  const [dragAbortSignal, setDragAbortSignal] = useState<DragAbortSignal | null>(null);
   const isAndroidDevice =
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   const isRestoringWorkspace = false;
@@ -538,6 +558,14 @@ const App: React.FC = () => {
       setRemoteSelectedNodeIds(payload.nodeIds);
       setRemoteSelectionLayout((payload.layout as SelectionCombineLayout | null) ?? null);
     });
+    const unsubscribeActivity = subscribeToBoardActivity((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setRemoteActivityNodeIds(payload.nodeIds);
+      setRemoteActivityLayout((payload.layout as SelectionCombineLayout | null) ?? null);
+      setRemoteActivityMode(payload.mode ?? null);
+    });
     const unsubscribeQuestSync = subscribeToQuestSync((payload) => {
       if (cancelled) {
         return;
@@ -572,6 +600,7 @@ const App: React.FC = () => {
       unsubscribeSnapshot();
       unsubscribePatch();
       unsubscribeSelection();
+      unsubscribeActivity();
       unsubscribeQuestSync();
       unsubscribeQuestCelebration();
     };
@@ -1319,6 +1348,11 @@ const App: React.FC = () => {
         return;
       }
       activeDragNodeIdRef.current = null;
+      dragAbortNonceRef.current += 1;
+      setDragAbortSignal({
+        nodeId,
+        nonce: dragAbortNonceRef.current,
+      });
       if (result.position) {
         setWorkspaceItems((prev) =>
           prev.map((item) =>
@@ -1380,6 +1414,18 @@ const App: React.FC = () => {
     publishBoardSelectionState({
       nodeIds,
       layout: layout ?? null,
+    });
+  }
+
+  function publishSharedActivity(
+    nodeIds: string[],
+    mode: SharedBoardActivityMode | null,
+    layout?: SelectionCombineLayout | null
+  ) {
+    publishBoardActivityState({
+      nodeIds,
+      layout: layout ?? null,
+      mode,
     });
   }
 
@@ -1514,6 +1560,9 @@ const App: React.FC = () => {
     const combineMode = options?.mode ?? "direct";
     const usesPendingPlaceholder = combineMode === "selection";
     let pendingPlaceholderNodeId: string | null = null;
+    let publishedActivityNodeIds = uniqueNodeIds;
+    const activityMode: SharedBoardActivityMode =
+      usesWebSearch ? "searching" : ponderificateCatalyst ? "pondering" : "combining";
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
@@ -1542,6 +1591,7 @@ const App: React.FC = () => {
         pendingPlaceholderNodeId = pendingPlaceholder.nodeId;
         operationCombiningIds = [...uniqueNodeIds, pendingPlaceholder.nodeId];
       }
+      publishedActivityNodeIds = operationCombiningIds;
 
       setCombiningNodeIds((prev) =>
         Array.from(new Set([...prev, ...operationCombiningIds]))
@@ -1556,6 +1606,11 @@ const App: React.FC = () => {
           Array.from(new Set([...prev, ...operationCombiningIds]))
         );
       }
+      publishSharedActivity(
+        publishedActivityNodeIds,
+        activityMode,
+        usesPendingPlaceholder ? selectionLayout : null
+      );
       const recipe = await combineElements(inputNames, {
         creative: Boolean(creativeCatalyst),
         ponderificate: Boolean(ponderificateCatalyst),
@@ -1697,6 +1752,7 @@ const App: React.FC = () => {
       );
       return false;
     } finally {
+      publishSharedActivity([], null, null);
       setCombiningNodeIds((prev) =>
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
@@ -1727,6 +1783,11 @@ const App: React.FC = () => {
       selectionLayout,
     });
   }
+
+  const visibleCombiningNodeIds = useMemo(
+    () => Array.from(new Set([...combiningNodeIds, ...remoteActivityNodeIds])),
+    [combiningNodeIds, remoteActivityNodeIds]
+  );
 
   return (
     <>
@@ -1961,9 +2022,13 @@ const App: React.FC = () => {
                   onDragWorkspaceGroup={dragSharedWorkspaceGroup}
                   remoteSelectedNodeIds={remoteSelectedNodeIds}
                   remoteSelectionLayout={remoteSelectionLayout}
+                  remoteActivityNodeIds={remoteActivityNodeIds}
+                  remoteActivityLayout={remoteActivityLayout}
+                  remoteActivityMode={remoteActivityMode}
+                  dragAbortSignal={dragAbortSignal}
                   onSelectionStateChange={publishSharedSelection}
                   onViewportCenterChange={handleViewportCenterChange}
-                  combiningNodeIds={combiningNodeIds}
+                  combiningNodeIds={visibleCombiningNodeIds}
                   ponderingNodeIds={ponderingNodeIds}
                   webSearchingNodeIds={webSearchingNodeIds}
                   onClearActionModifier={clearActionModifier}

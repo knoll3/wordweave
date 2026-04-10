@@ -1,5 +1,6 @@
 import { io, type Socket } from "socket.io-client";
 import type {
+  SharedBoardActivity,
   SharedBoardDragClaim,
   SharedBoardDragMove,
   SharedBoardDragResult,
@@ -93,6 +94,20 @@ export function publishBoardSelectionState(payload: {
   layout?: unknown | null;
 }) {
   getLiveBoardSocket().emit("board:selection", payload);
+}
+
+export function subscribeToBoardActivity(
+  listener: (payload: SharedBoardActivity) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:activity", listener);
+  return () => {
+    current.off("board:activity", listener);
+  };
+}
+
+export function publishBoardActivityState(payload: SharedBoardActivity) {
+  getLiveBoardSocket().emit("board:activity", payload);
 }
 
 export function subscribeToQuestSync(

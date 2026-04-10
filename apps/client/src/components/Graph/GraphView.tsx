@@ -9,6 +9,7 @@ import {
   Texture,
   TilingSprite,
 } from "pixi.js";
+import type { SharedBoardActivityMode } from "../../liveBoardTypes";
 import {
   ACTION_MODIFIER_ITEM,
   ACTION_MODIFIER_ITEM_ID,
@@ -86,6 +87,10 @@ interface Props {
   ) => void;
   remoteSelectedNodeIds?: string[];
   remoteSelectionLayout?: SelectionCombineLayout | null;
+  remoteActivityNodeIds?: string[];
+  remoteActivityLayout?: SelectionCombineLayout | null;
+  remoteActivityMode?: SharedBoardActivityMode | null;
+  dragAbortSignal?: { nodeId: string; nonce: number } | null;
   onSelectionStateChange?: (
     nodeIds: string[],
     layout?: SelectionCombineLayout | null
@@ -170,6 +175,10 @@ function GraphView({
   onDragWorkspaceGroup,
   remoteSelectedNodeIds = [],
   remoteSelectionLayout = null,
+  remoteActivityNodeIds = [],
+  remoteActivityLayout = null,
+  remoteActivityMode = null,
+  dragAbortSignal = null,
   onSelectionStateChange,
   onViewportCenterChange,
   combiningNodeIds,
@@ -226,6 +235,9 @@ function GraphView({
   const onDragWorkspaceGroupRef = useRef(onDragWorkspaceGroup);
   const remoteSelectedNodeIdsRef = useRef<string[]>(remoteSelectedNodeIds);
   const remoteSelectionLayoutRef = useRef<SelectionCombineLayout | null>(remoteSelectionLayout);
+  const remoteActivityNodeIdsRef = useRef<string[]>(remoteActivityNodeIds);
+  const remoteActivityLayoutRef = useRef<SelectionCombineLayout | null>(remoteActivityLayout);
+  const remoteActivityModeRef = useRef<SharedBoardActivityMode | null>(remoteActivityMode);
   const onSelectionStateChangeRef = useRef(onSelectionStateChange);
   const onAttachCategoryModifierRef = useRef(onAttachCategoryModifier);
   const onAttachActionModifierRef = useRef(onAttachActionModifier);
@@ -258,6 +270,12 @@ function GraphView({
     height: number;
   } | null>(null);
   const [remoteSelectionOverlayRect, setRemoteSelectionOverlayRect] = useState<{
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const [remoteActivityOverlayRect, setRemoteActivityOverlayRect] = useState<{
     left: number;
     top: number;
     width: number;
@@ -315,6 +333,9 @@ function GraphView({
   onDragWorkspaceGroupRef.current = onDragWorkspaceGroup;
   remoteSelectedNodeIdsRef.current = remoteSelectedNodeIds;
   remoteSelectionLayoutRef.current = remoteSelectionLayout;
+  remoteActivityNodeIdsRef.current = remoteActivityNodeIds;
+  remoteActivityLayoutRef.current = remoteActivityLayout;
+  remoteActivityModeRef.current = remoteActivityMode;
   onSelectionStateChangeRef.current = onSelectionStateChange;
   onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onAttachActionModifierRef.current = onAttachActionModifier;
@@ -354,6 +375,7 @@ function GraphView({
     updateViewportCenter();
     refreshSelectionOverlay();
     refreshRemoteSelectionOverlay();
+    refreshRemoteActivityOverlay();
     refreshPonderOverlay();
   };
 
@@ -491,6 +513,10 @@ function GraphView({
   const isNodeCoveredByOverlay = (nodeId: string) => getCurrentOverlayNodeIds().includes(nodeId);
   const isNodeReservedByRemoteSelection = (nodeId: string) =>
     remoteSelectedNodeIdsRef.current.includes(nodeId);
+  const isNodeReservedByRemoteActivity = (nodeId: string) =>
+    remoteActivityModeRef.current != null &&
+    (remoteActivityNodeIdsRef.current.includes(nodeId) ||
+      remoteActivityLayoutRef.current?.placeholderNodeId === nodeId);
 
   const cancelActiveDrag = () => {
     const dragState = dragStateRef.current;
@@ -597,13 +623,17 @@ function GraphView({
     layout?: SelectionCombineLayout | null,
     options?: { preferLayoutPositions?: boolean }
   ) => {
+    const requestedNodeIds = new Set(nodeIds);
+    const layoutNodeIds = new Set(layout?.nodeIds ?? []);
     const relevantLayout =
       layout &&
-      layout.nodeIds.length === nodeIds.length &&
-      layout.nodeIds.every((nodeId) => nodeIds.includes(nodeId))
+      layout.nodeIds.every((nodeId) => requestedNodeIds.has(nodeId)) &&
+      nodeIds.every(
+        (nodeId) => layoutNodeIds.has(nodeId) || nodeId === layout.placeholderNodeId
+      )
         ? layout
         : null;
-    const involvedNodeIds = new Set(nodeIds);
+    const involvedNodeIds = new Set(relevantLayout ? relevantLayout.nodeIds : nodeIds);
     if (relevantLayout) {
       involvedNodeIds.add(relevantLayout.placeholderNodeId);
     }
@@ -623,7 +653,7 @@ function GraphView({
         const width =
           relevantLayout?.placeholderNodeId === nodeId
             ? Math.max(
-                ...nodeIds.map(
+                ...relevantLayout.nodeIds.map(
                   (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
                 ),
                 PLACEHOLDER_WIDTH
@@ -685,6 +715,26 @@ function GraphView({
       return;
     }
     setRemoteSelectionOverlayRect(worldRectToScreenRect(worldBounds));
+  };
+
+  const refreshRemoteActivityOverlay = () => {
+    if (
+      remoteActivityModeRef.current == null ||
+      remoteActivityNodeIdsRef.current.length === 0
+    ) {
+      setRemoteActivityOverlayRect(null);
+      return;
+    }
+    const worldBounds = getSelectionWorldBounds(
+      remoteActivityNodeIdsRef.current,
+      remoteActivityLayoutRef.current,
+      { preferLayoutPositions: true }
+    );
+    if (!worldBounds) {
+      setRemoteActivityOverlayRect(null);
+      return;
+    }
+    setRemoteActivityOverlayRect(worldRectToScreenRect(worldBounds));
   };
 
   const refreshPonderOverlay = () => {
@@ -921,6 +971,13 @@ function GraphView({
       if (nodeId === draggedNodeId) {
         return;
       }
+      if (
+        isNodeCoveredByOverlay(nodeId) ||
+        isNodeReservedByRemoteSelection(nodeId) ||
+        isNodeReservedByRemoteActivity(nodeId)
+      ) {
+        return;
+      }
       const overlaps = rectanglesOverlap(draggedBounds, {
         ...getViewTopLeftPosition(view),
         width: view.width,
@@ -1065,7 +1122,10 @@ function GraphView({
       actionBadge.cursor = "pointer";
       actionBadge.on("pointerdown", (event) => {
         event.stopPropagation();
-        if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+        if (
+          isNodeCoveredByOverlay(workspaceItem.nodeId) ||
+          isNodeReservedByRemoteActivity(workspaceItem.nodeId)
+        ) {
           return;
         }
         onClearActionModifierRef.current(workspaceItem.nodeId);
@@ -1096,7 +1156,10 @@ function GraphView({
       categoryBadge.cursor = "pointer";
       categoryBadge.on("pointerdown", (event) => {
         event.stopPropagation();
-        if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+        if (
+          isNodeCoveredByOverlay(workspaceItem.nodeId) ||
+          isNodeReservedByRemoteActivity(workspaceItem.nodeId)
+        ) {
           return;
         }
         onClearCategoryModifierRef.current(workspaceItem.nodeId);
@@ -1161,6 +1224,9 @@ function GraphView({
         return;
       }
       if (isNodeReservedByRemoteSelection(workspaceItem.nodeId)) {
+        return;
+      }
+      if (isNodeReservedByRemoteActivity(workspaceItem.nodeId)) {
         return;
       }
       if (selectionModeRef.current) {
@@ -1647,6 +1713,9 @@ function GraphView({
             if (isNodeReservedByRemoteSelection(item.nodeId)) {
               return false;
             }
+            if (isNodeReservedByRemoteActivity(item.nodeId)) {
+              return false;
+            }
             const view = itemViewsRef.current.get(item.nodeId);
             if (!view) return false;
             const position = getViewTopLeftPosition(view);
@@ -1908,6 +1977,7 @@ function GraphView({
       app.ticker.add(() => {
         let shouldRefreshSelectionOverlay = false;
         let shouldRefreshRemoteSelectionOverlay = false;
+        let shouldRefreshRemoteActivityOverlay = false;
         const now = Date.now();
         itemViewsRef.current.forEach((view) => {
           const positionStepX = Math.max(
@@ -1933,6 +2003,14 @@ function GraphView({
             (nextX !== view.container.x || nextY !== view.container.y)
           ) {
             shouldRefreshRemoteSelectionOverlay = true;
+          }
+          if (
+            remoteActivityModeRef.current &&
+            (remoteActivityNodeIdsRef.current.includes(view.nodeId) ||
+              remoteActivityLayoutRef.current?.placeholderNodeId === view.nodeId) &&
+            (nextX !== view.container.x || nextY !== view.container.y)
+          ) {
+            shouldRefreshRemoteActivityOverlay = true;
           }
           view.container.x = nextX;
           view.container.y = nextY;
@@ -2109,6 +2187,9 @@ function GraphView({
         if (shouldRefreshRemoteSelectionOverlay) {
           refreshRemoteSelectionOverlay();
         }
+        if (shouldRefreshRemoteActivityOverlay) {
+          refreshRemoteActivityOverlay();
+        }
       });
 
       app.stage.on("pointerdown", handleStagePointerDown);
@@ -2195,6 +2276,56 @@ function GraphView({
   useEffect(() => {
     refreshRemoteSelectionOverlay();
   }, [remoteSelectedNodeIds, workspaceItems]);
+
+  useEffect(() => {
+    refreshRemoteActivityOverlay();
+  }, [remoteActivityNodeIds, remoteActivityLayout, remoteActivityMode, workspaceItems]);
+
+  useEffect(() => {
+    if (remoteActivityMode == null || remoteActivityNodeIds.length === 0) {
+      return;
+    }
+    const remoteActiveNodeIds = new Set(remoteActivityNodeIds);
+    if (
+      dragStateRef.current?.draggedNodeIds.some((nodeId) =>
+        remoteActiveNodeIds.has(nodeId)
+      )
+    ) {
+      cancelActiveDrag();
+    }
+
+    const nextSelectedNodeIds = selectedNodeIds.filter(
+      (nodeId) => !remoteActiveNodeIds.has(nodeId)
+    );
+    if (nextSelectedNodeIds.length === selectedNodeIds.length) {
+      return;
+    }
+    if (nextSelectedNodeIds.length >= 2) {
+      setSelectedNodeIds(nextSelectedNodeIds);
+      setSelectionLayout(null);
+      return;
+    }
+    clearSelection();
+  }, [remoteActivityNodeIds, remoteActivityMode, selectedNodeIds]);
+
+  useEffect(() => {
+    if (!dragAbortSignal) {
+      return;
+    }
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.nodeId !== dragAbortSignal.nodeId) {
+      return;
+    }
+    const view = itemViewsRef.current.get(dragAbortSignal.nodeId);
+    const workspaceItem = workspaceItemsRef.current.find(
+      (item) => item.nodeId === dragAbortSignal.nodeId
+    );
+    if (view && workspaceItem) {
+      setViewTopLeftPosition(view, workspaceItem.position);
+      setViewTargetTopLeftPosition(view, workspaceItem.position);
+    }
+    cancelActiveDrag();
+  }, [dragAbortSignal]);
 
   useEffect(() => {
     const remoteReservedNodeIds = new Set(remoteSelectedNodeIds);
@@ -2313,6 +2444,18 @@ function GraphView({
   const overlayCopy = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
     ? "Searching the web for better results."
     : "Thinking harder for a better result.";
+  const remoteOverlayTitle =
+    remoteActivityMode === "searching"
+      ? "Searching"
+      : remoteActivityMode === "pondering"
+        ? "Ponderificating"
+        : "Combining";
+  const remoteOverlayCopy =
+    remoteActivityMode === "searching"
+      ? "Searching the web for better results."
+      : remoteActivityMode === "pondering"
+        ? "Thinking harder for a better result."
+        : "Another player is combining these items.";
   return (
     <div ref={hostRef} className="graph-pixi-host">
       {isRestoringWorkspace ? (
@@ -2383,6 +2526,29 @@ function GraphView({
             </div>
             <div className="graph-ponder-overlay-title">{overlayTitle}</div>
             <div className="graph-ponder-overlay-copy">{overlayCopy}</div>
+          </div>
+        </div>
+      ) : null}
+      {remoteActivityOverlayRect &&
+      (remoteActivityMode === "searching" || remoteActivityMode === "pondering") ? (
+        <div
+          className="graph-ponder-overlay"
+          style={{
+            left: remoteActivityOverlayRect.left,
+            top: remoteActivityOverlayRect.top,
+            width: remoteActivityOverlayRect.width,
+            height: remoteActivityOverlayRect.height,
+          }}
+        >
+          <div className="graph-ponder-overlay-sheen" aria-hidden="true" />
+          <div className="graph-ponder-overlay-content" role="status" aria-live="polite">
+            <div className="graph-ponder-overlay-loader" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </div>
+            <div className="graph-ponder-overlay-title">{remoteOverlayTitle}</div>
+            <div className="graph-ponder-overlay-copy">{remoteOverlayCopy}</div>
           </div>
         </div>
       ) : null}

@@ -1,6 +1,11 @@
 import type { Server as HttpServer } from "http";
 import { Server } from "socket.io";
-import type { SharedBoardDragClaim, SharedBoardDragMove, SharedBoardDragResult } from "./liveBoardTypes";
+import type {
+  SharedBoardActivity,
+  SharedBoardDragClaim,
+  SharedBoardDragMove,
+  SharedBoardDragResult,
+} from "./liveBoardTypes";
 import { DEFAULT_ROOM_ID, getBoardItemById, getRoomSnapshot, updateBoardItemPosition } from "./boardState";
 import { getDb, persistDatabase } from "./db";
 import { emitBoardPatch, getLiveBoardRoomChannel, setLiveBoardIo } from "./liveBoardEvents";
@@ -158,6 +163,23 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
         });
     });
 
+    socket.on("board:activity", (payload: SharedBoardActivity) => {
+      io.to(getLiveBoardRoomChannel(roomId))
+        .except(socket.id)
+        .emit("board:activity", {
+          nodeIds: Array.isArray(payload?.nodeIds)
+            ? payload.nodeIds.filter((nodeId) => typeof nodeId === "string" && nodeId.trim())
+            : [],
+          layout: payload?.layout ?? null,
+          mode:
+            payload?.mode === "combining" ||
+            payload?.mode === "pondering" ||
+            payload?.mode === "searching"
+              ? payload.mode
+              : null,
+        } satisfies SharedBoardActivity);
+    });
+
     socket.on(
       "board:group-move",
       async (payload: { items: Array<{ nodeId: string; position: { x: number; y: number } }> }) => {
@@ -197,6 +219,9 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
       io.to(getLiveBoardRoomChannel(roomId))
         .except(socket.id)
         .emit("board:selection", { nodeIds: [], layout: null });
+      io.to(getLiveBoardRoomChannel(roomId))
+        .except(socket.id)
+        .emit("board:activity", { nodeIds: [], layout: null, mode: null } satisfies SharedBoardActivity);
     });
   });
 

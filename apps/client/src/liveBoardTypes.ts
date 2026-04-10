@@ -22,6 +22,22 @@ export interface SharedBoardPatch {
   deletedNodeIds: string[];
 }
 
+export type SharedBoardActivityMode = "combining" | "pondering" | "searching";
+
+export interface SharedBoardActivity {
+  nodeIds: string[];
+  layout?: {
+    nodeIds: string[];
+    nodePositions: Array<{
+      nodeId: string;
+      position: { x: number; y: number };
+    }>;
+    placeholderNodeId: string;
+    placeholderPosition: { x: number; y: number };
+  } | null;
+  mode?: SharedBoardActivityMode | null;
+}
+
 export interface SharedBoardCreateItemInput {
   nodeId?: string;
   itemId: number;
