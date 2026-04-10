@@ -60,9 +60,9 @@ const CATALYST_BY_MODE_KEY: Record<string, LatestRecipeCatalyst> = {
     icon: "↔️",
   },
   pop: {
-    name: "Pop Culture",
-    normalizedName: "pop culture",
-    icon: "🎬",
+    name: "Web Search",
+    normalizedName: "web search",
+    icon: "🔎",
   },
   evolve: {
     name: "Evolve",

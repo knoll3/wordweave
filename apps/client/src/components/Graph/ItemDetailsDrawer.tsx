@@ -9,7 +9,6 @@ import {
   EVOLVE_CATALYST_ITEM_ID,
   OPPOSITE_CATALYST_ITEM_ID,
   POP_CULTURE_CATALYST_ITEM_ID,
-  PONDERIFICATE_CATALYST_ITEM_ID,
   ROOT_CATALYST_ITEM_ID,
   SPLIT_CATALYST_ITEM_ID,
   SYNONYM_CATALYST_ITEM_ID,
@@ -69,8 +68,9 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
     example: "Example: Evolve Catalyst + Tadpole -> Frog.",
   },
   [POP_CULTURE_CATALYST_ITEM_ID]: {
-    description: "Runs the pop culture prompt family as a direct catalyst item.",
-    example: "Example: Pop Culture Catalyst + Wizard + Scar -> Harry Potter.",
+    description:
+      "Runs a web-backed search path that uses the clue items to find one specific recognizable reference.",
+    example: "Example: Web Search + Wizard + Scar -> Harry Potter.",
   },
   [COMPOUND_CATALYST_ITEM_ID]: {
     description: "Runs the compound prompt family as a direct catalyst item.",
@@ -83,11 +83,6 @@ const CATALYST_GUIDES: Record<number, CatalystGuide> = {
   [COMMON_CATALYST_ITEM_ID]: {
     description: "Runs the common prompt family as a direct catalyst item.",
     example: "Example: Common Catalyst + Cat + Monkey -> Mammal.",
-  },
-  [PONDERIFICATE_CATALYST_ITEM_ID]: {
-    description:
-      "Adds a slower, deeper clue-solving overlay on top of any normal combine or catalyst path. It pushes the model to consider multiple pop-culture-style answers, rate them, and then prefer a quest-target match when one of the returned options fits an active quest.",
-    example: "Example: Ponderificate + Pop Culture + Wizard + Scar -> Harry Potter.",
   },
 };
 

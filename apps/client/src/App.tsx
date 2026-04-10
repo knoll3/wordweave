@@ -14,7 +14,6 @@ import {
   CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM_ID,
-  PONDERIFICATE_CATALYST_ITEM_ID,
 } from "./types";
 import type {
   AutoUnlockedActionWord,
@@ -203,7 +202,6 @@ const App: React.FC = () => {
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
   const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
-  const [ponderingNodeIds, setPonderingNodeIds] = useState<string[]>([]);
   const [webSearchingNodeIds, setWebSearchingNodeIds] = useState<string[]>([]);
   const [remoteSelectedNodeIds, setRemoteSelectedNodeIds] = useState<string[]>([]);
   const [remoteSelectionLayout, setRemoteSelectionLayout] = useState<SelectionCombineLayout | null>(
@@ -1034,16 +1032,6 @@ const App: React.FC = () => {
       onClick: () => addItemToWorkspace(ACTION_MODIFIER_ITEM_ID),
     });
 
-    actions.push({
-      key: "ponderificate",
-      title: "Ponderificate",
-      badgeLabel: "deep",
-      icon: "🫧",
-      tint: "rgba(125, 211, 252, 0.24)",
-      iconTint: "#e0f2fe",
-      onClick: () => addItemToWorkspace(PONDERIFICATE_CATALYST_ITEM_ID),
-    });
-
     for (const catalyst of ACTION_CATALYSTS) {
       if (!unlockedCatalystFamilyKeys.has(catalyst.familyKey)) {
         continue;
@@ -1456,8 +1444,6 @@ const App: React.FC = () => {
     if (selectedItems.length < 2) return false;
 
     const creativeCatalyst = selectedItems.find((item) => item.id === CREATIVE_ITEM_ID) ?? null;
-    const ponderificateCatalyst =
-      selectedItems.find((item) => item.id === PONDERIFICATE_CATALYST_ITEM_ID) ?? null;
     const actionCatalysts = selectedItems
       .map((item) => ACTION_CATALYST_BY_ID.get(item.id) ?? null)
       .filter((entry): entry is NonNullable<(typeof ACTION_CATALYSTS)[number]> => entry != null);
@@ -1518,16 +1504,6 @@ const App: React.FC = () => {
       .filter((item): item is Item => !!item);
     const catalystLabel = creativeCatalyst
       ? "Creative Spark"
-      : ponderificateCatalyst
-        ? actionCatalyst
-          ? `Ponderificate + ${actionCatalyst.actionConstraint}`
-          : categoryAnchor && actionAnchor
-            ? "Ponderificate + Category + Action"
-            : categoryAnchor
-              ? "Ponderificate + Category"
-              : actionAnchor
-                ? "Ponderificate + Action"
-                : "Ponderificate"
       : actionCatalyst
         ? actionCatalyst.actionConstraint
       : categoryAnchor && actionAnchor
@@ -1562,7 +1538,7 @@ const App: React.FC = () => {
     let pendingPlaceholderNodeId: string | null = null;
     let publishedActivityNodeIds = uniqueNodeIds;
     const activityMode: SharedBoardActivityMode =
-      usesWebSearch ? "searching" : ponderificateCatalyst ? "pondering" : "combining";
+      usesWebSearch ? "searching" : "combining";
 
     try {
       const selectionLayout = options?.selectionLayout ?? null;
@@ -1596,11 +1572,6 @@ const App: React.FC = () => {
       setCombiningNodeIds((prev) =>
         Array.from(new Set([...prev, ...operationCombiningIds]))
       );
-      if (ponderificateCatalyst) {
-        setPonderingNodeIds((prev) =>
-          Array.from(new Set([...prev, ...operationCombiningIds]))
-        );
-      }
       if (usesWebSearch) {
         setWebSearchingNodeIds((prev) =>
           Array.from(new Set([...prev, ...operationCombiningIds]))
@@ -1613,7 +1584,7 @@ const App: React.FC = () => {
       );
       const recipe = await combineElements(inputNames, {
         creative: Boolean(creativeCatalyst),
-        ponderificate: Boolean(ponderificateCatalyst),
+        ponderificate: false,
         categoryConstraint: categoryAnchor?.categoryConstraintName ?? undefined,
         actionConstraint: effectiveActionConstraint ?? undefined,
         model: selectedModel,
@@ -1754,9 +1725,6 @@ const App: React.FC = () => {
     } finally {
       publishSharedActivity([], null, null);
       setCombiningNodeIds((prev) =>
-        prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
-      );
-      setPonderingNodeIds((prev) =>
         prev.filter((nodeId) => !operationCombiningIds.includes(nodeId))
       );
       setWebSearchingNodeIds((prev) =>
@@ -2029,7 +1997,6 @@ const App: React.FC = () => {
                   onSelectionStateChange={publishSharedSelection}
                   onViewportCenterChange={handleViewportCenterChange}
                   combiningNodeIds={visibleCombiningNodeIds}
-                  ponderingNodeIds={ponderingNodeIds}
                   webSearchingNodeIds={webSearchingNodeIds}
                   onClearActionModifier={clearActionModifier}
                   onClearCategoryModifier={clearCategoryModifier}

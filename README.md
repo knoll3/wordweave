@@ -4,7 +4,7 @@
 - Pixi-powered crafting graph
 - Express + SQLite (via `sql.js`) API
 - OpenAI-powered multi-input crafting using `gpt-5-mini`
-- Local SearXNG search for Pop Culture retrieval in development
+- Local SearXNG search for Web Search catalyst retrieval in development
 
 ### Tech Stack
 

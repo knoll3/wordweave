@@ -287,7 +287,7 @@ function GraphView({
     width: number;
     height: number;
   } | null>(null);
-  const [ponderOverlayRect, setPonderOverlayRect] = useState<{
+  const [activityOverlayRect, setActivityOverlayRect] = useState<{
     left: number;
     top: number;
     width: number;
@@ -376,7 +376,7 @@ function GraphView({
     refreshSelectionOverlay();
     refreshRemoteSelectionOverlay();
     refreshRemoteActivityOverlay();
-    refreshPonderOverlay();
+    refreshActivityOverlay();
   };
 
   const frameWorkspaceItems = (
@@ -739,13 +739,13 @@ function GraphView({
     setRemoteActivityOverlayRect(worldRectToScreenRect(worldBounds));
   };
 
-  const refreshPonderOverlay = () => {
+  const refreshActivityOverlay = () => {
     if (!activeOverlayWorldBoundsRef.current) {
-      setPonderOverlayRect(null);
+      setActivityOverlayRect(null);
       return;
     }
 
-    setPonderOverlayRect(worldRectToScreenRect(activeOverlayWorldBoundsRef.current));
+    setActivityOverlayRect(worldRectToScreenRect(activeOverlayWorldBoundsRef.current));
   };
 
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
@@ -1486,7 +1486,7 @@ function GraphView({
     previousCombiningNodeIdsRef.current = [...combiningNodeIdsRef.current];
     refreshSelectionOverlay();
     refreshRemoteSelectionOverlay();
-    refreshPonderOverlay();
+    refreshActivityOverlay();
   };
 
   useEffect(() => {
@@ -2377,14 +2377,14 @@ function GraphView({
   }, [selectedNodeIds, selectionLayout]);
 
   useEffect(() => {
-    refreshPonderOverlay();
+    refreshActivityOverlay();
   }, [activeOverlayWorldBounds]);
 
   useEffect(() => {
     const currentOverlayNodeIds = getCurrentOverlayNodeIds();
     if (currentOverlayNodeIds.length === 0) {
       setActiveOverlayWorldBounds(null);
-      setPonderOverlayRect(null);
+      setActivityOverlayRect(null);
       return;
     }
 
@@ -2459,10 +2459,10 @@ function GraphView({
     selectionLayout?.nodeIds.some((nodeId) => (ponderingNodeIds ?? []).includes(nodeId)) ?? false;
   const isSelectionWebSearching =
     selectionLayout?.nodeIds.some((nodeId) => (webSearchingNodeIds ?? []).includes(nodeId)) ?? false;
-  const activePonderOverlayRect =
+  const activeActivityOverlayRect =
     (isSelectionWebSearching || isSelectionPondering) && selectionOverlayRect
       ? selectionOverlayRect
-      : ponderOverlayRect;
+      : activityOverlayRect;
   const overlayTitle = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
     ? "Searching"
     : "Ponderificating";
@@ -2532,32 +2532,32 @@ function GraphView({
           }}
         />
       ) : null}
-      {activePonderOverlayRect ? (
+      {activeActivityOverlayRect ? (
         <div
-          className="graph-ponder-overlay"
+          className="graph-activity-overlay"
           style={{
-            left: activePonderOverlayRect.left,
-            top: activePonderOverlayRect.top,
-            width: activePonderOverlayRect.width,
-            height: activePonderOverlayRect.height,
+            left: activeActivityOverlayRect.left,
+            top: activeActivityOverlayRect.top,
+            width: activeActivityOverlayRect.width,
+            height: activeActivityOverlayRect.height,
           }}
         >
-          <div className="graph-ponder-overlay-sheen" aria-hidden="true" />
-          <div className="graph-ponder-overlay-content" role="status" aria-live="polite">
-            <div className="graph-ponder-overlay-loader" aria-hidden="true">
+          <div className="graph-activity-overlay-sheen" aria-hidden="true" />
+          <div className="graph-activity-overlay-content" role="status" aria-live="polite">
+            <div className="graph-activity-overlay-loader" aria-hidden="true">
               <span />
               <span />
               <span />
             </div>
-            <div className="graph-ponder-overlay-title">{overlayTitle}</div>
-            <div className="graph-ponder-overlay-copy">{overlayCopy}</div>
+            <div className="graph-activity-overlay-title">{overlayTitle}</div>
+            <div className="graph-activity-overlay-copy">{overlayCopy}</div>
           </div>
         </div>
       ) : null}
       {remoteActivityOverlayRect &&
       (remoteActivityMode === "searching" || remoteActivityMode === "pondering") ? (
         <div
-          className="graph-ponder-overlay"
+          className="graph-activity-overlay"
           style={{
             left: remoteActivityOverlayRect.left,
             top: remoteActivityOverlayRect.top,
@@ -2565,15 +2565,15 @@ function GraphView({
             height: remoteActivityOverlayRect.height,
           }}
         >
-          <div className="graph-ponder-overlay-sheen" aria-hidden="true" />
-          <div className="graph-ponder-overlay-content" role="status" aria-live="polite">
-            <div className="graph-ponder-overlay-loader" aria-hidden="true">
+          <div className="graph-activity-overlay-sheen" aria-hidden="true" />
+          <div className="graph-activity-overlay-content" role="status" aria-live="polite">
+            <div className="graph-activity-overlay-loader" aria-hidden="true">
               <span />
               <span />
               <span />
             </div>
-            <div className="graph-ponder-overlay-title">{remoteOverlayTitle}</div>
-            <div className="graph-ponder-overlay-copy">{remoteOverlayCopy}</div>
+            <div className="graph-activity-overlay-title">{remoteOverlayTitle}</div>
+            <div className="graph-activity-overlay-copy">{remoteOverlayCopy}</div>
           </div>
         </div>
       ) : null}

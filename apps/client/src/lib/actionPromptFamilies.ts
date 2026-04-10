@@ -138,9 +138,12 @@ export const ACTION_PROMPT_FAMILY_REFERENCES: ActionPromptFamilyReference[] = [
   },
   {
     key: "pop_culture",
-    title: "Pop Culture",
-    description: "Turn the clues into one specific recognizable pop culture reference.",
+    title: "Web Search",
+    description: "Search the web from the clues to find one specific recognizable reference.",
     triggerWords: [
+      "web search",
+      "search",
+      "web",
       "pop culture",
       "movie",
       "music",

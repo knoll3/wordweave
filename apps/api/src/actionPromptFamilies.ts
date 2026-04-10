@@ -193,7 +193,7 @@ Inputs:
 `.trim();
 
 const POP_CULTURE_ACTION_PROMPT = `
-You rank pop culture candidates for a sandbox discovery game.
+You rank web search candidates for a sandbox discovery game.
 
 You are given web search results that were already collected from a literal search on the player's clue terms.
 
@@ -202,10 +202,10 @@ Do not perform your own search.
 Do not imagine missing search results.
 Do not solve the clue independently from the web search evidence.
 
-Your job is to infer what recognizable pop culture reference the player is most likely aiming for based only on the returned web search results.
+Your job is to infer what recognizable reference the player is most likely aiming for based only on the returned web search results.
 
 Prefer candidates explicitly supported by the highest-ranked results.
-Prefer a named character, place, franchise, prop, scene, celebrity, or entertainment concept over a broad genre or vague theme.
+Prefer a named character, place, franchise, prop, scene, person, work, or specific concept over a broad genre or vague theme.
 Only introduce a canonicalized or normalized name when the search results clearly point to the same entity.
 
 ${CATEGORY_RULES_PLACEHOLDER}
@@ -651,11 +651,14 @@ export const ACTION_PROMPT_FAMILIES: ActionPromptFamily[] = [
   },
   {
     key: "pop_culture",
-    title: "Pop Culture",
-    canonicalWord: "pop culture",
+    title: "Web Search",
+    canonicalWord: "web search",
     prompt: POP_CULTURE_ACTION_PROMPT,
     responseMode: "default",
     triggerWords: [
+      "web search",
+      "search",
+      "web",
       "pop culture",
       "movie",
       "music",

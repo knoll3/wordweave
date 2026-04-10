@@ -212,7 +212,7 @@ router.post("/test", async (req, res) => {
         ? await searchGoogleLikeWeb(inputs.join(" "), { limit: 3 })
         : undefined;
     if (actionPromptFamily === "pop_culture" && (!webSearchResults || webSearchResults.length === 0)) {
-      throw new Error("No web search results returned for the pop culture query");
+      throw new Error("No web search results returned for the web search query");
     }
     const { prompt: renderedPrompt, actionPromptFamily: resolvedFamily } =
       renderGenerateResultPrompt(inputs, {

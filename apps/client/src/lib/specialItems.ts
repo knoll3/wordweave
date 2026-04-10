@@ -16,8 +16,6 @@ import {
   OPPOSITE_CATALYST_ITEM_ID,
   POP_CULTURE_CATALYST_ITEM,
   POP_CULTURE_CATALYST_ITEM_ID,
-  PONDERIFICATE_CATALYST_ITEM,
-  PONDERIFICATE_CATALYST_ITEM_ID,
   ROOT_CATALYST_ITEM,
   ROOT_CATALYST_ITEM_ID,
   SPLIT_CATALYST_ITEM,
@@ -39,7 +37,6 @@ export const SPECIAL_ITEMS = [
   COMPOUND_CATALYST_ITEM,
   ROOT_CATALYST_ITEM,
   COMMON_CATALYST_ITEM,
-  PONDERIFICATE_CATALYST_ITEM,
 ] as const;
 
 export const SPECIAL_ITEM_BY_ID = new Map(
@@ -78,7 +75,7 @@ export const ACTION_CATALYSTS = [
   {
     item: POP_CULTURE_CATALYST_ITEM,
     familyKey: "pop_culture",
-    actionConstraint: "Pop Culture",
+    actionConstraint: "Web Search",
     tint: "rgba(244, 114, 182, 0.24)",
     iconTint: "#fbcfe8",
   },
@@ -119,7 +116,6 @@ export const RECIPE_CATALYST_ITEM_IDS = new Set<number>([
   COMPOUND_CATALYST_ITEM_ID,
   ROOT_CATALYST_ITEM_ID,
   COMMON_CATALYST_ITEM_ID,
-  PONDERIFICATE_CATALYST_ITEM_ID,
 ]);
 
 export const NON_INGREDIENT_ITEM_IDS = new Set<number>([
