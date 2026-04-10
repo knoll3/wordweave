@@ -511,6 +511,8 @@ function GraphView({
       : ponderingNodeIdsRef.current;
 
   const isNodeCoveredByOverlay = (nodeId: string) => getCurrentOverlayNodeIds().includes(nodeId);
+  const isNodeReservedByLocalActivity = (nodeId: string) =>
+    combiningNodeIdsRef.current.includes(nodeId);
   const isNodeReservedByRemoteSelection = (nodeId: string) =>
     remoteSelectedNodeIdsRef.current.includes(nodeId);
   const isNodeReservedByRemoteActivity = (nodeId: string) =>
@@ -973,6 +975,7 @@ function GraphView({
       }
       if (
         isNodeCoveredByOverlay(nodeId) ||
+        isNodeReservedByLocalActivity(nodeId) ||
         isNodeReservedByRemoteSelection(nodeId) ||
         isNodeReservedByRemoteActivity(nodeId)
       ) {
@@ -1124,6 +1127,7 @@ function GraphView({
         event.stopPropagation();
         if (
           isNodeCoveredByOverlay(workspaceItem.nodeId) ||
+          isNodeReservedByLocalActivity(workspaceItem.nodeId) ||
           isNodeReservedByRemoteActivity(workspaceItem.nodeId)
         ) {
           return;
@@ -1158,6 +1162,7 @@ function GraphView({
         event.stopPropagation();
         if (
           isNodeCoveredByOverlay(workspaceItem.nodeId) ||
+          isNodeReservedByLocalActivity(workspaceItem.nodeId) ||
           isNodeReservedByRemoteActivity(workspaceItem.nodeId)
         ) {
           return;
@@ -1221,6 +1226,9 @@ function GraphView({
         }
       }
       if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
+        return;
+      }
+      if (isNodeReservedByLocalActivity(workspaceItem.nodeId)) {
         return;
       }
       if (isNodeReservedByRemoteSelection(workspaceItem.nodeId)) {
@@ -1708,6 +1716,9 @@ function GraphView({
         const selectedIds = workspaceItemsRef.current
           .filter((item) => {
             if (isNodeCoveredByOverlay(item.nodeId)) {
+              return false;
+            }
+            if (isNodeReservedByLocalActivity(item.nodeId)) {
               return false;
             }
             if (isNodeReservedByRemoteSelection(item.nodeId)) {
@@ -2280,6 +2291,20 @@ function GraphView({
   useEffect(() => {
     refreshRemoteActivityOverlay();
   }, [remoteActivityNodeIds, remoteActivityLayout, remoteActivityMode, workspaceItems]);
+
+  useEffect(() => {
+    if ((combiningNodeIds ?? []).length === 0) {
+      return;
+    }
+    const localActiveNodeIds = new Set(combiningNodeIds ?? []);
+    if (
+      dragStateRef.current?.draggedNodeIds.some((nodeId) =>
+        localActiveNodeIds.has(nodeId)
+      )
+    ) {
+      cancelActiveDrag();
+    }
+  }, [combiningNodeIds]);
 
   useEffect(() => {
     if (remoteActivityMode == null || remoteActivityNodeIds.length === 0) {
