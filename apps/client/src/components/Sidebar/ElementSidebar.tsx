@@ -17,6 +17,7 @@ interface Props {
   randomUnlocked?: boolean;
   canUndoWorkspace?: boolean;
   onUndoWorkspace?: () => void;
+  onSearchFocusChange?: (isFocused: boolean) => void;
 }
 
 const RANDOM_SPAWN_COUNT = 4;
@@ -135,6 +136,7 @@ const ElementSidebar: React.FC<Props> = ({
   randomUnlocked = false,
   canUndoWorkspace = false,
   onUndoWorkspace,
+  onSearchFocusChange,
 }) => {
   const [search, setSearch] = useState("");
   const [semanticItems, setSemanticItems] = useState<Item[]>([]);
@@ -586,7 +588,11 @@ const ElementSidebar: React.FC<Props> = ({
             </button>
           ) : null}
         </div>
-        <ElementSearch value={search} onChange={handleSearchChange} />
+        <ElementSearch
+          value={search}
+          onChange={handleSearchChange}
+          onFocusChange={onSearchFocusChange}
+        />
         {loadingItems ? (
           <div className="library-results">
             <div className="library-empty-state" role="status" aria-live="polite">

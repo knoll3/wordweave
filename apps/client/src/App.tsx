@@ -101,6 +101,7 @@ const TOAST_DURATION_MS = 3500;
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 const QUEST_REFERENCE_PREVIEW_LIMIT = 180;
 const PORTRAIT_TABLET_LAYOUT_QUERY = "(orientation: portrait)";
+const MOBILE_LAYOUT_QUERY = "(max-width: 600px)";
 
 type QuestCelebrationState = {
   kicker: string;
@@ -255,6 +256,13 @@ const App: React.FC = () => {
     }
     return window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY).matches;
   });
+  const [isMobileLayout, setIsMobileLayout] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
+  });
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const celebrationTimeoutRef = useRef<number | null>(null);
@@ -262,6 +270,13 @@ const App: React.FC = () => {
   const isRestoringWorkspaceRef = useRef(false);
   const hasHydratedSharedSnapshotRef = useRef(false);
   const itemsRef = useRef<Item[]>([]);
+  const isMobileLayoutRef = useRef(isMobileLayout);
+  const isSearchFocusedRef = useRef(isSearchFocused);
+  const androidKeyboardHeightRef = useRef(androidKeyboardHeight);
+  const keyboardWasOpenRef = useRef(false);
+  const maxVisualViewportHeightRef = useRef(
+    typeof window === "undefined" ? 0 : window.visualViewport?.height ?? window.innerHeight
+  );
   const viewportCenterRef = useRef<{
     x: number;
     y: number;
@@ -275,6 +290,9 @@ const App: React.FC = () => {
     typeof navigator !== "undefined" && /Android/i.test(navigator.userAgent);
   const isRestoringWorkspace = false;
   itemsRef.current = items;
+  isMobileLayoutRef.current = isMobileLayout;
+  isSearchFocusedRef.current = isSearchFocused;
+  androidKeyboardHeightRef.current = androidKeyboardHeight;
 
   function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
     return entries.map((item) => ({
@@ -355,6 +373,23 @@ const App: React.FC = () => {
       return prev.slice(0, -1);
     });
   }
+
+  function blurActiveInput() {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      ["INPUT", "TEXTAREA"].includes(activeElement.tagName)
+    ) {
+      activeElement.blur();
+    }
+  }
+
+  function clearMobileSearchFocus() {
+    keyboardWasOpenRef.current = false;
+    setIsSearchFocused(false);
+    blurActiveInput();
+  }
+
   useEffect(() => {
     const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
     if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
@@ -377,6 +412,74 @@ const App: React.FC = () => {
     mediaQuery.addEventListener("change", handleChange);
     return () => {
       mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
+    const handleChange = () => {
+      setIsMobileLayout(mediaQuery.matches);
+    };
+
+    handleChange();
+    mediaQuery.addEventListener("change", handleChange);
+    return () => {
+      mediaQuery.removeEventListener("change", handleChange);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== "visible") {
+        clearMobileSearchFocus();
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    window.addEventListener("pagehide", clearMobileSearchFocus);
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      window.removeEventListener("pagehide", clearMobileSearchFocus);
+    };
+  }, []);
+
+  useEffect(() => {
+    const handleViewportChange = () => {
+      const visualViewportHeight = window.visualViewport?.height ?? window.innerHeight;
+      maxVisualViewportHeightRef.current = Math.max(
+        maxVisualViewportHeightRef.current,
+        visualViewportHeight
+      );
+
+      if (!isMobileLayoutRef.current || !isSearchFocusedRef.current) {
+        keyboardWasOpenRef.current = false;
+        return;
+      }
+
+      const viewportHeightDrop = maxVisualViewportHeightRef.current - visualViewportHeight;
+      const viewportGap = Math.max(0, window.innerHeight - visualViewportHeight);
+      const keyboardLooksOpen =
+        androidKeyboardHeightRef.current > 0 ||
+        viewportHeightDrop > 80 ||
+        viewportGap > 80;
+
+      if (keyboardLooksOpen) {
+        keyboardWasOpenRef.current = true;
+        return;
+      }
+
+      if (keyboardWasOpenRef.current) {
+        clearMobileSearchFocus();
+      }
+    };
+
+    window.visualViewport?.addEventListener("resize", handleViewportChange);
+    window.visualViewport?.addEventListener("scroll", handleViewportChange);
+    window.addEventListener("resize", handleViewportChange);
+    return () => {
+      window.visualViewport?.removeEventListener("resize", handleViewportChange);
+      window.visualViewport?.removeEventListener("scroll", handleViewportChange);
+      window.removeEventListener("resize", handleViewportChange);
     };
   }, []);
 
@@ -1109,6 +1212,19 @@ const App: React.FC = () => {
     setItems((prev) =>
       prev.some((existing) => existing.id === item.id) ? prev : [...prev, item]
     );
+
+    if (isMobileLayout && isSearchFocused) {
+      clearMobileSearchFocus();
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          addItemToWorkspace(item.id, viewportCenterRef.current ?? undefined, {
+            arrivalHighlightMode: "library",
+          });
+        });
+      });
+      return;
+    }
+
     addItemToWorkspace(item.id, undefined, { arrivalHighlightMode: "library" });
   }
 
@@ -1909,7 +2025,9 @@ const App: React.FC = () => {
         </div>
       ) : null}
       <div
-        className="app-root"
+        className={`app-root${isMobileLayout ? " is-mobile" : ""}${
+          isMobileLayout && isSearchFocused ? " is-search-focused" : ""
+        }`}
         style={
           isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
             ? ({
@@ -1931,6 +2049,7 @@ const App: React.FC = () => {
             }}
             randomUnlocked={isFeatureUnlocked("random_tools")}
             canUndoWorkspace={false}
+            onSearchFocusChange={setIsSearchFocused}
           />
         </aside>
 
@@ -2005,6 +2124,7 @@ const App: React.FC = () => {
                   onCombineWorkspaceSelection={combineWorkspaceSelection}
                   onOpenItemDetails={openItemDetails}
                   catalystActions={catalystActions}
+                  closeCatalystMenuOnSelect={isMobileLayout}
                 />
               </div>
             </div>

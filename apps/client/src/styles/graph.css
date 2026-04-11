@@ -1179,3 +1179,138 @@
   text-transform: uppercase;
   color: rgba(226, 232, 240, 0.56);
 }
+
+.app-root.is-mobile .graph-quests-button-overlay {
+  top: 6px;
+  right: 6px;
+  gap: 4px;
+  max-width: 34px;
+}
+
+.app-root.is-mobile .graph-overlay-icon-button,
+.app-root.is-mobile .graph-quests-button-trigger {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 8px;
+}
+
+.app-root.is-mobile .graph-quests-button-trigger svg {
+  width: 15px;
+  height: 15px;
+}
+
+.app-root.is-mobile .graph-quest-target-chip-list {
+  display: none;
+}
+
+.app-root.is-mobile .graph-selection-button {
+  right: 50px;
+  bottom: 6px;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  border-radius: 8px;
+  font-size: 0.84rem;
+}
+
+.app-root.is-mobile .graph-selection-button > span {
+  font-size: 0.95rem;
+}
+
+.app-root.is-mobile .graph-catalyst-dock {
+  left: 6px;
+  bottom: 6px;
+  width: calc(100% - 12px);
+  max-width: none;
+  max-height: calc(100% - 12px);
+  padding: 8px;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.app-root.is-mobile .graph-catalyst-dock.is-collapsed {
+  width: max-content;
+  max-width: calc(100% - 48px);
+  padding: 0;
+  border-radius: 8px;
+}
+
+.app-root.is-mobile .graph-catalyst-dock-header {
+  height: auto;
+  min-height: 34px;
+  width: 100%;
+  padding: 6px 8px;
+  margin: -3px -3px 0;
+  justify-content: space-between;
+  border-radius: 10px;
+  gap: 8px;
+}
+
+.app-root.is-mobile .graph-catalyst-dock.is-collapsed .graph-catalyst-dock-header {
+  min-height: 34px;
+  height: 34px;
+  width: 34px;
+  padding: 0;
+  margin: 0;
+  justify-content: center;
+  border-radius: 8px;
+  gap: 0;
+}
+
+.app-root.is-mobile .graph-catalyst-dock-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+
+.app-root.is-mobile .graph-catalyst-dock-badge svg {
+  width: 15px;
+  height: 15px;
+}
+
+.app-root.is-mobile .graph-catalyst-dock.is-collapsed .graph-catalyst-dock-copy,
+.app-root.is-mobile .graph-catalyst-dock.is-collapsed .graph-catalyst-dock-header-end {
+  display: none;
+}
+
+.app-root.is-mobile .graph-catalyst-list-wrap {
+  margin-top: 6px;
+}
+
+.app-root.is-mobile .graph-catalyst-list {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  max-height: calc(100dvh - 300px);
+  padding-right: 2px;
+}
+
+.app-root.is-mobile .graph-catalyst-button {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  padding: 9px 10px;
+  border-radius: 12px;
+  justify-content: flex-start;
+  gap: 8px;
+}
+
+.app-root.is-mobile .graph-catalyst-button-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+}
+
+.app-root.is-mobile .graph-catalyst-button-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.app-root.is-mobile .graph-catalyst-button-copy {
+  display: flex;
+}
+
+.app-root.is-mobile .graph-catalyst-button-title {
+  font-size: 0.76rem;
+}

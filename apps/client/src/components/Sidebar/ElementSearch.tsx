@@ -3,9 +3,10 @@ import React, { useRef } from "react";
 interface Props {
   value: string;
   onChange: (value: string) => void;
+  onFocusChange?: (isFocused: boolean) => void;
 }
 
-const ElementSearch: React.FC<Props> = ({ value, onChange }) => {
+const ElementSearch: React.FC<Props> = ({ value, onChange, onFocusChange }) => {
   const inputRef = useRef<HTMLInputElement | null>(null);
 
   function selectAllText() {
@@ -21,7 +22,13 @@ const ElementSearch: React.FC<Props> = ({ value, onChange }) => {
       <input
         ref={inputRef}
         className="input search-input"
-        type="text"
+        type="search"
+        name="wordweave-search"
+        autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="none"
+        spellCheck={false}
+        inputMode="search"
         placeholder="Search items…"
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -32,7 +39,13 @@ const ElementSearch: React.FC<Props> = ({ value, onChange }) => {
             window.scrollTo(0, 0);
           }
         }}
-        onFocus={selectAllText}
+        onFocus={() => {
+          onFocusChange?.(true);
+          selectAllText();
+        }}
+        onBlur={() => {
+          window.setTimeout(() => onFocusChange?.(false), 120);
+        }}
         onClick={selectAllText}
       />
       {value ? (

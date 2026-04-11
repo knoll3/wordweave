@@ -433,6 +433,13 @@
   color: var(--text-main);
 }
 
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-decoration {
+  display: none;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
 .search-pending-spinner {
   width: 12px;
   height: 12px;
@@ -446,6 +453,96 @@
   to {
     transform: rotate(360deg);
   }
+}
+
+.app-root.is-mobile .sidebar {
+  padding: 6px;
+  gap: 6px;
+}
+
+.app-root.is-mobile {
+  padding: 0;
+  gap: 0;
+}
+
+.app-root.is-mobile .sidebar-header,
+.app-root.is-mobile .library-toolbar {
+  display: none;
+}
+
+.app-root.is-mobile .library-section {
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 6px;
+}
+
+.app-root.is-mobile .search-input-wrap {
+  gap: 6px;
+  position: relative;
+}
+
+.app-root.is-mobile .search-input {
+  min-height: 34px;
+  padding: 7px 10px;
+  font-size: 0.86rem;
+}
+
+.app-root.is-mobile .search-clear-button {
+  position: static;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border-left: 0;
+  background: rgba(148, 163, 184, 0.18);
+  font-size: 0.92rem;
+}
+
+.app-root.is-mobile .library-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.app-root.is-mobile .element-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-content: start;
+  gap: 6px;
+  overflow: visible;
+  padding-right: 0;
+}
+
+.app-root.is-mobile .element-list-status {
+  grid-column: 1 / -1;
+  min-height: 24px;
+  padding: 4px 2px;
+  font-size: 0.66rem;
+}
+
+.app-root.is-mobile .element-row {
+  min-width: 0;
+  gap: 6px;
+  padding: 6px 7px;
+  border-radius: 8px;
+  font-size: 0.76rem;
+  border: 1px solid rgba(148, 163, 184, 0.14);
+  background: rgba(15, 23, 42, 0.72);
+  touch-action: manipulation;
+}
+
+.app-root.is-mobile .element-icon {
+  min-width: 22px;
+  height: 22px;
+  padding: 0 4px;
+  font-size: 0.78rem;
+}
+
+.app-root.is-mobile .element-name {
+  min-width: 0;
+  line-height: 1.1;
 }
 
 .main-area {

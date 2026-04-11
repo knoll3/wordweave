@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import type { Item } from "../../types";
 
 interface Props {
@@ -20,6 +20,40 @@ const ElementList: React.FC<Props> = ({
   emptyState = null,
   listRef,
 }) => {
+  const suppressNextClickRef = useRef(false);
+  const suppressClickTimeoutRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (suppressClickTimeoutRef.current != null) {
+        window.clearTimeout(suppressClickTimeoutRef.current);
+      }
+    };
+  }, []);
+
+  function suppressNextClick() {
+    suppressNextClickRef.current = true;
+    if (suppressClickTimeoutRef.current != null) {
+      window.clearTimeout(suppressClickTimeoutRef.current);
+    }
+    suppressClickTimeoutRef.current = window.setTimeout(() => {
+      suppressNextClickRef.current = false;
+      suppressClickTimeoutRef.current = null;
+    }, 600);
+  }
+
+  function handleItemClick(item: Item) {
+    if (suppressNextClickRef.current) {
+      suppressNextClickRef.current = false;
+      if (suppressClickTimeoutRef.current != null) {
+        window.clearTimeout(suppressClickTimeoutRef.current);
+        suppressClickTimeoutRef.current = null;
+      }
+      return;
+    }
+    onAddToWorkspace(item);
+  }
+
   if (!items.length && !pendingLabel && !statusLabel) {
     return emptyState ? <>{emptyState}</> : <div className="sidebar-placeholder">{emptyLabel}</div>;
   }
@@ -40,7 +74,15 @@ const ElementList: React.FC<Props> = ({
               );
               event.dataTransfer.effectAllowed = "copy";
             }}
-            onClick={() => onAddToWorkspace(item)}
+            onPointerDown={(event) => {
+              if (event.pointerType === "mouse") {
+                return;
+              }
+              event.preventDefault();
+              suppressNextClick();
+              onAddToWorkspace(item);
+            }}
+            onClick={() => handleItemClick(item)}
           >
             <span className="element-icon">
               {item.icon || item.name.charAt(0).toUpperCase()}

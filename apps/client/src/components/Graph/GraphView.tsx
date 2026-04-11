@@ -110,6 +110,7 @@ interface Props {
   onCombineWorkspaceSelection: (selectionLayout: SelectionCombineLayout) => void;
   onOpenItemDetails: (item: Item) => void;
   catalystActions?: CatalystAction[];
+  closeCatalystMenuOnSelect?: boolean;
 }
 
 type CameraState = {
@@ -191,6 +192,7 @@ function GraphView({
   onCombineWorkspaceSelection,
   onOpenItemDetails,
   catalystActions = [],
+  closeCatalystMenuOnSelect = false,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
@@ -354,6 +356,7 @@ function GraphView({
     const app = appRef.current;
     const handleViewportCenterChange = onViewportCenterChangeRef.current;
     if (!app || !handleViewportCenterChange) return;
+    if (app.renderer.width < 40 || app.renderer.height < 40) return;
     const camera = cameraRef.current;
     handleViewportCenterChange({
       x: (app.renderer.width / 2 - camera.x) / camera.zoom,
@@ -455,6 +458,7 @@ function GraphView({
     const app = appRef.current;
     const host = hostRef.current;
     if (!app || !host) return;
+    if (host.clientWidth < 40 || host.clientHeight < 40) return;
     app.renderer.resize(Math.max(1, host.clientWidth), Math.max(1, host.clientHeight));
     drawBackground();
     drawGrid();
@@ -2490,15 +2494,12 @@ function GraphView({
             Bringing your saved items back onto the board.
           </div>
         </div>
-      ) : workspaceItems.length === 0 ? (
-        <div className="graph-placeholder">
-          Click items in the library to place them into the workspace.
-        </div>
       ) : null}
       <CatalystDock
         catalystActions={catalystActions}
         isOpen={isCatalystDockOpen}
         onToggle={() => setIsCatalystDockOpen((current) => !current)}
+        closeOnSelect={closeCatalystMenuOnSelect}
       />
       <button
         type="button"
@@ -2613,17 +2614,17 @@ function GraphView({
           }}
         />
       ) : null}
-      {workspaceItems.length > 0 ? (
-        <button
-          type="button"
-          className="button secondary graph-clear-button"
-          onClick={
-            selectedNodeIds.length > 0 ? clearSelectedWorkspaceItems : onClearWorkspace
-          }
-        >
-          {selectedNodeIds.length > 0 ? "Clear Selected" : "Clear"}
-        </button>
-      ) : null}
+      <button
+        type="button"
+        className="button secondary graph-clear-button"
+        aria-label={selectedNodeIds.length > 0 ? "Clear selected items" : "Clear workspace"}
+        title={selectedNodeIds.length > 0 ? "Clear selected" : "Clear"}
+        onClick={
+          selectedNodeIds.length > 0 ? clearSelectedWorkspaceItems : onClearWorkspace
+        }
+      >
+        {selectedNodeIds.length > 0 ? "Clear Selected" : "Clear"}
+      </button>
     </div>
   );
 }

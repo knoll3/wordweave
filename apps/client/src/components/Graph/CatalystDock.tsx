@@ -15,9 +15,15 @@ interface Props {
   catalystActions: CatalystAction[];
   isOpen: boolean;
   onToggle: () => void;
+  closeOnSelect?: boolean;
 }
 
-const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) => {
+const CatalystDock: React.FC<Props> = ({
+  catalystActions,
+  isOpen,
+  onToggle,
+  closeOnSelect = false,
+}) => {
   if (catalystActions.length === 0) {
     return null;
   }
@@ -57,8 +63,15 @@ const CatalystDock: React.FC<Props> = ({ catalystActions, isOpen, onToggle }) =>
               key={action.key}
               type="button"
               className="graph-catalyst-button"
-              onClick={action.onClick}
+              onClick={() => {
+                action.onClick();
+                if (closeOnSelect && isOpen) {
+                  onToggle();
+                }
+              }}
               style={{ ["--catalyst-tint" as string]: action.tint }}
+              aria-label={action.title}
+              title={action.title}
             >
               <span
                 className="graph-catalyst-button-icon"
