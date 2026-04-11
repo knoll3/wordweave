@@ -142,6 +142,7 @@ const QuestDetailsPanel: React.FC<Props> = ({
           </div>
         )}
       </section>
+      <div className="item-drawer-bottom-spacer" aria-hidden="true" />
     </aside>
   );
 };

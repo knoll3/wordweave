@@ -398,7 +398,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
         </section>
 
         <section className="item-drawer-section">
-          <div className="item-drawer-section-label">Latest recipe</div>
+          <div className="item-drawer-section-label">Recipe</div>
           {catalystGuide ? (
             <p className="item-drawer-empty">
               Catalysts are tools you combine with other items, not recipe results themselves.
@@ -518,6 +518,11 @@ const ItemDetailsDrawer: React.FC<Props> = ({
                         id={`feedback-${item.id}`}
                         className="item-drawer-feedback-input"
                         type="text"
+                        autoComplete="off"
+                        autoCorrect="off"
+                        autoCapitalize="none"
+                        spellCheck={false}
+                        inputMode="text"
                         maxLength={128}
                         placeholder="Optional expected result"
                         value={expectedResultInput}
@@ -553,6 +558,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
             </p>
           )}
         </section>
+        <div className="item-drawer-bottom-spacer" aria-hidden="true" />
     </aside>
   );
 };

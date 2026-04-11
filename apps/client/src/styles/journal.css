@@ -373,6 +373,7 @@
 }
 
 .app-root.is-mobile .journal-dock-shell {
+  height: 100%;
   border-radius: 12px;
 }
 
@@ -1011,6 +1012,105 @@
   padding: 18px 26px 24px;
   border-top: 1px solid rgba(148, 163, 184, 0.12);
   background: rgba(2, 6, 23, 0.92);
+}
+
+.app-root.is-mobile .quest-topic-overlay {
+  padding: 10px;
+}
+
+.app-root.is-mobile .quest-topic-panel {
+  width: 100%;
+  max-height: calc(100lvh - 20px);
+  border-radius: 18px;
+}
+
+.app-root.is-mobile .quest-topic-header {
+  padding: 14px 14px 10px;
+  gap: 12px;
+}
+
+.app-root.is-mobile .quest-topic-kicker {
+  font-size: 0.64rem;
+}
+
+.app-root.is-mobile .quest-topic-title {
+  margin-top: 4px;
+  font-size: 1.1rem;
+  line-height: 1.15;
+}
+
+.app-root.is-mobile .quest-topic-copy {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.app-root.is-mobile .quest-topic-body {
+  padding: 14px 14px 10px;
+  gap: 9px;
+}
+
+.app-root.is-mobile .quest-topic-label {
+  font-size: 0.68rem;
+}
+
+.app-root.is-mobile .quest-topic-input {
+  min-height: 42px;
+  padding: 9px 12px;
+  border-radius: 12px;
+  font-size: 16px;
+  line-height: 1.2;
+}
+
+.app-root.is-mobile .quest-topic-loading {
+  gap: 10px;
+  padding: 12px 12px 0;
+  border-radius: 14px;
+  max-height: min(250px, 34vh);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-root.is-mobile .quest-topic-loading-title {
+  font-size: 0.82rem;
+}
+
+.app-root.is-mobile .quest-topic-loading-copy {
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.app-root.is-mobile .quest-topic-results {
+  gap: 8px;
+  padding: 10px 10px 0;
+  border-radius: 14px;
+  max-height: min(250px, 34vh);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.app-root.is-mobile .quest-topic-results-head {
+  gap: 8px;
+}
+
+.app-root.is-mobile .quest-topic-results-label,
+.app-root.is-mobile .quest-topic-results-meta {
+  font-size: 0.66rem;
+}
+
+.app-root.is-mobile .quest-topic-chip-list {
+  gap: 6px;
+  padding-bottom: 10px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.app-root.is-mobile .quest-topic-chip {
+  font-size: 0.69rem;
+}
+
+.app-root.is-mobile .quest-topic-actions {
+  padding: 14px 14px 16px;
 }
 
 .quest-card.quest-card-target {

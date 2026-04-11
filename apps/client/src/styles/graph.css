@@ -455,6 +455,11 @@
   overflow: visible;
 }
 
+.item-drawer-bottom-spacer {
+  display: none;
+  height: 24px;
+}
+
 .item-drawer-header {
   display: flex;
   align-items: center;

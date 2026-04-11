@@ -970,13 +970,23 @@
   }
 
   .app-root.is-mobile .journal-dock {
-    top: 6px;
-    left: auto;
-    right: 6px;
-    bottom: 6px;
-    width: calc(100% - 12px);
+    position: fixed;
+    inset: 6px;
+    width: auto;
     max-width: none;
+    height: auto;
+    z-index: 40;
+    pointer-events: none;
   }
+
+  .app-root.is-mobile .journal-dock:not(.is-collapsed) {
+    pointer-events: auto;
+  }
+
+  .app-root.is-mobile .item-drawer-bottom-spacer {
+    display: block;
+  }
+
 }
 
 .app-root.is-mobile.is-search-focused {

@@ -221,6 +221,10 @@ const PromptsPage: React.FC = () => {
                     value={inputsText}
                     onChange={(event) => setInputsText(event.target.value)}
                     rows={7}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     placeholder={"One input per line"}
                   />
                 </label>
@@ -231,6 +235,10 @@ const PromptsPage: React.FC = () => {
                     value={batchPairsText}
                     onChange={(event) => setBatchPairsText(event.target.value)}
                     rows={7}
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
                     placeholder={"Left | Right"}
                   />
                 </label>
@@ -241,6 +249,11 @@ const PromptsPage: React.FC = () => {
                   <span className="prompts-field-label">Action Anchor</span>
                   <input
                     type="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    inputMode="text"
                     value={actionConstraint}
                     onChange={(event) => setActionConstraint(event.target.value)}
                     placeholder="split"
@@ -253,6 +266,11 @@ const PromptsPage: React.FC = () => {
                   <span className="prompts-field-label">Category Anchor</span>
                   <input
                     type="text"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    inputMode="text"
                     value={categoryConstraint}
                     onChange={(event) => setCategoryConstraint(event.target.value)}
                     placeholder="pokemon"

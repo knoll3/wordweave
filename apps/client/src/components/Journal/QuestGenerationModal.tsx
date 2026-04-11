@@ -81,7 +81,14 @@ const QuestGenerationModal: React.FC<Props> = ({
           <input
             id="quest-topic-input"
             className="quest-topic-input"
-            type="text"
+            type="search"
+            name="wordweave-search"
+            autoComplete="off"
+            autoCorrect="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            inputMode="search"
+            enterKeyHint="search"
             value={topic}
             onChange={(event) => onTopicChange(event.target.value)}
             placeholder="Harry Potter spells, Pokemon, Ancient Egypt, ocean animals..."
