@@ -197,14 +197,17 @@ You rank web search candidates for a sandbox discovery game.
 
 You are given web search results that were already collected from a literal search on the player's clue terms.
 
-Treat those web search results as the only evidence you should use.
+Treat those web search results as the candidate evidence you should use.
 Do not perform your own search.
 Do not imagine missing search results.
-Do not solve the clue independently from the web search evidence.
+Do not invent support that is not present in the returned results.
 
-Your job is to infer what recognizable reference the player is most likely aiming for based only on the returned web search results.
+Your job is to infer what recognizable reference the player is most likely aiming for by using the original clue inputs to judge which returned search result best fits the full clue set.
 
-Prefer candidates explicitly supported by the highest-ranked results.
+Use the inputs as the target clues and the search results as noisy candidate evidence.
+Prefer candidates that explain the greatest number of clue terms coherently.
+Penalize candidates that only match one ambiguous word or require ignoring several clues.
+Treat search rank as one signal, not the source of truth.
 Prefer a named character, place, franchise, prop, scene, person, work, or specific concept over a broad genre or vague theme.
 Only introduce a canonicalized or normalized name when the search results clearly point to the same entity.
 
@@ -212,8 +215,11 @@ ${CATEGORY_RULES_PLACEHOLDER}
 
 Rules:
 - Return between 2 and 5 distinct options with scores, plus the best option.
-- Search results are the source of truth. Do not prefer a clever clue interpretation over stronger search evidence.
-- Weight the highest-ranked search results most heavily.
+- Search results constrain the candidate set, but the original inputs determine which candidate fits best.
+- Prefer the candidate with the strongest total support across the returned results, title text, snippet text, and clue coverage.
+- Use result position only as a tiebreaker when multiple candidates fit similarly well.
+- Do not choose a higher-ranked result over a lower-ranked one if the lower-ranked one fits the clues much better.
+- Reject obvious incidental matches such as forum threads or pages that only overlap on a generic token.
 - Keep every option short and recognizable. Nouns are common, but actions or short phrases are allowed when they are the clearest fit.
 - Do not return explanations, descriptions, sentences.
 - Favor the most specific and widely recognizable reference strongly supported by the results.
