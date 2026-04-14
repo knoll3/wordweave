@@ -10,6 +10,7 @@ import {
 
 interface Props {
   items: Item[];
+  isMobileLayout?: boolean;
   totalQuestPoints?: number;
   questPointsHighlightKey?: number;
   onAddItemToWorkspace: (item: Item) => void;
@@ -18,6 +19,7 @@ interface Props {
   canUndoWorkspace?: boolean;
   onUndoWorkspace?: () => void;
   onSearchFocusChange?: (isFocused: boolean) => void;
+  onSearchQueryChange?: (query: string) => void;
 }
 
 const RANDOM_SPAWN_COUNT = 4;
@@ -129,6 +131,7 @@ function collectClusterIds(clusters: SemanticCluster[]): Set<string> {
 
 const ElementSidebar: React.FC<Props> = ({
   items,
+  isMobileLayout = false,
   totalQuestPoints = 0,
   questPointsHighlightKey = 0,
   onAddItemToWorkspace,
@@ -137,6 +140,7 @@ const ElementSidebar: React.FC<Props> = ({
   canUndoWorkspace = false,
   onUndoWorkspace,
   onSearchFocusChange,
+  onSearchQueryChange,
 }) => {
   const [search, setSearch] = useState("");
   const [semanticItems, setSemanticItems] = useState<Item[]>([]);
@@ -217,6 +221,10 @@ const ElementSidebar: React.FC<Props> = ({
       window.clearTimeout(timeoutId);
     };
   }, [correctedSearchQuery, search]);
+
+  useEffect(() => {
+    onSearchQueryChange?.(search);
+  }, [onSearchQueryChange, search]);
 
   async function loadLibraryItems() {
     const requestId = ++latestRequestIdRef.current;
@@ -335,6 +343,8 @@ const ElementSidebar: React.FC<Props> = ({
   }, [lexicalSearchItems, search, semanticItems]);
 
   const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
+  const shouldHideLibraryResultsOnMobile =
+    isMobileLayout && !loadingItems && !libraryLoadError && !search.trim();
 
   const searchStatusLabel = useMemo(() => {
     if (!search.trim()) {
@@ -593,66 +603,66 @@ const ElementSidebar: React.FC<Props> = ({
           onChange={handleSearchChange}
           onFocusChange={onSearchFocusChange}
         />
-        {loadingItems ? (
-          <div className="library-results">
-            <div className="library-empty-state" role="status" aria-live="polite">
-              <span className="search-pending-spinner library-loading-spinner" aria-hidden="true" />
-              <p className="library-empty-state-copy">Loading library</p>
+        {shouldHideLibraryResultsOnMobile ? null : loadingItems ? (
+            <div className="library-results">
+              <div className="library-empty-state" role="status" aria-live="polite">
+                <span className="search-pending-spinner library-loading-spinner" aria-hidden="true" />
+                <p className="library-empty-state-copy">Loading library</p>
+              </div>
             </div>
-          </div>
-        ) : libraryLoadError ? (
-          <div className="sidebar-placeholder">{libraryLoadError}</div>
-        ) : !search.trim() && browseMode === "tree" ? (
-          <div ref={elementListRef} className="library-results library-tree-results">
-            {clusters.length > 0 ? (
-              <>
-                <div className="library-tree" role="tree" aria-label="Clustered library">
-                  {clusters.map((cluster) => renderTreeCluster(cluster))}
+          ) : libraryLoadError ? (
+            <div className="sidebar-placeholder">{libraryLoadError}</div>
+          ) : !search.trim() && browseMode === "tree" ? (
+            <div ref={elementListRef} className="library-results library-tree-results">
+              {clusters.length > 0 ? (
+                <>
+                  <div className="library-tree" role="tree" aria-label="Clustered library">
+                    {clusters.map((cluster) => renderTreeCluster(cluster))}
+                  </div>
+                  {clustersLoading ? (
+                    <div className="library-cluster-status">
+                      <span className="search-pending-spinner" aria-hidden="true" />
+                      <span>Updating tree…</span>
+                    </div>
+                  ) : null}
+                </>
+              ) : clustersLoading ? (
+                <div className="library-cluster-status">
+                  <span className="search-pending-spinner" aria-hidden="true" />
+                  <span>Building clusters…</span>
                 </div>
-                {clustersLoading ? (
-                  <div className="library-cluster-status">
-                    <span className="search-pending-spinner" aria-hidden="true" />
-                    <span>Updating tree…</span>
-                  </div>
-                ) : null}
-              </>
-            ) : clustersLoading ? (
-              <div className="library-cluster-status">
-                <span className="search-pending-spinner" aria-hidden="true" />
-                <span>Building clusters…</span>
-              </div>
-            ) : (
-              <div className="sidebar-placeholder">
-                Not enough items are available to form semantic clusters yet.
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="library-results">
-            <ElementList
-              items={displayedItems}
-              onAddToWorkspace={onAddItemToWorkspace}
-              pendingLabel={isSearchAwaitingMore ? "Searching more results…" : null}
-              statusLabel={searchStatusLabel}
-              emptyLabel={
-                search.trim()
-                  ? "No matching items found."
-                  : "Search to show matching library items."
-              }
-              emptyState={
-                search.trim() ? null : (
-                  <div className="library-empty-state" role="status" aria-live="polite">
-                    <p className="library-empty-state-copy">
-                      {items.length.toLocaleString()} items loaded
-                    </p>
-                    <div className="library-empty-state-title">Search to browse the library</div>
-                  </div>
-                )
-              }
-              listRef={elementListRef}
-            />
-          </div>
-        )}
+              ) : (
+                <div className="sidebar-placeholder">
+                  Not enough items are available to form semantic clusters yet.
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="library-results">
+              <ElementList
+                items={displayedItems}
+                onAddToWorkspace={onAddItemToWorkspace}
+                pendingLabel={isSearchAwaitingMore ? "Searching more results…" : null}
+                statusLabel={searchStatusLabel}
+                emptyLabel={
+                  search.trim()
+                    ? "No matching items found."
+                    : "Search to show matching library items."
+                }
+                emptyState={
+                  search.trim() ? null : (
+                    <div className="library-empty-state" role="status" aria-live="polite">
+                      <p className="library-empty-state-copy">
+                        {items.length.toLocaleString()} items loaded
+                      </p>
+                      <div className="library-empty-state-title">Search to browse the library</div>
+                    </div>
+                  )
+                }
+                listRef={elementListRef}
+              />
+            </div>
+          )}
       </section>
     </>
   );

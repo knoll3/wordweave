@@ -262,6 +262,7 @@ const App: React.FC = () => {
     }
     return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
   });
+  const [librarySearchQuery, setLibrarySearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
@@ -2027,6 +2028,10 @@ const App: React.FC = () => {
       <div
         className={`app-root${isMobileLayout ? " is-mobile" : ""}${
           isMobileLayout && isSearchFocused ? " is-search-focused" : ""
+        }${
+          isMobileLayout && !isSearchFocused && !librarySearchQuery.trim()
+            ? " is-mobile-library-collapsed"
+            : ""
         }`}
         style={
           isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
@@ -2040,6 +2045,7 @@ const App: React.FC = () => {
         <aside className="sidebar">
           <ElementSidebar
             items={items}
+            isMobileLayout={isMobileLayout}
             totalQuestPoints={questStats.totalPoints}
             questPointsHighlightKey={questPointsHighlightKey}
             onAddItemToWorkspace={addLibraryItemToWorkspace}
@@ -2050,6 +2056,7 @@ const App: React.FC = () => {
             randomUnlocked={isFeatureUnlocked("random_tools")}
             canUndoWorkspace={false}
             onSearchFocusChange={setIsSearchFocused}
+            onSearchQueryChange={setLibrarySearchQuery}
           />
         </aside>
 

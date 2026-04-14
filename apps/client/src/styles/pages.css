@@ -969,6 +969,15 @@
     gap: 0;
   }
 
+  .app-root.is-mobile.is-mobile-library-collapsed {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  .app-root.is-mobile.is-mobile-library-collapsed .sidebar {
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
   .app-root.is-mobile .journal-dock {
     position: fixed;
     inset: 6px;
