@@ -1,5 +1,6 @@
 import { randomUUID } from "crypto";
 import express from "express";
+import { buildRoomSnapshotWithUndo, canUndoBoard, recordBoardHistory, undoBoardHistory } from "../boardHistory";
 import {
   DEFAULT_ROOM_ID,
   clearBoardItems,
@@ -31,7 +32,7 @@ const router = express.Router();
 router.get("/", async (_req, res) => {
   try {
     const db = await getDb();
-    return res.json(getRoomSnapshot(db, DEFAULT_ROOM_ID));
+    return res.json(buildRoomSnapshotWithUndo(db, DEFAULT_ROOM_ID));
   } catch (err) {
     console.error("Error in GET /board", err);
     return res.status(500).json({ error: "Failed to load board state" });
@@ -46,6 +47,7 @@ router.post("/items", async (req, res) => {
 
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     const item = insertBoardItem(db, {
       roomId: DEFAULT_ROOM_ID,
       nodeId: parsed.data.nodeId?.trim() || randomUUID(),
@@ -58,6 +60,7 @@ router.post("/items", async (req, res) => {
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: [item],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json(item);
   } catch (err) {
@@ -82,6 +85,7 @@ router.post("/items/:id/duplicate", async (req, res) => {
     if (!existing) {
       return res.status(404).json({ error: "Board item not found" });
     }
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     const item = insertBoardItem(db, {
       roomId: DEFAULT_ROOM_ID,
       nodeId: parsed.data.nodeId?.trim() || randomUUID(),
@@ -120,6 +124,7 @@ router.post("/items/:id/duplicate", async (req, res) => {
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: [item],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json(item);
   } catch (err) {
@@ -137,6 +142,7 @@ router.patch("/items/:id", async (req, res) => {
 
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     const updated = updateBoardItemMetadata(db, {
       nodeId,
       itemId: parsed.data.itemId,
@@ -171,6 +177,7 @@ router.patch("/items/:id", async (req, res) => {
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: [updated],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json(updated);
   } catch (err) {
@@ -187,6 +194,7 @@ router.post("/items/move", async (req, res) => {
 
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     const updated = parsed.data.items
       .map((item) =>
         updateBoardItemPosition(db, {
@@ -201,6 +209,7 @@ router.post("/items/move", async (req, res) => {
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       upserts: updated,
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json({ ok: true, items: updated });
   } catch (err) {
@@ -217,11 +226,13 @@ router.delete("/items/:id", async (req, res) => {
 
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     deleteBoardItem(db, nodeId);
     persistDatabase(db);
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       deletedNodeIds: [nodeId],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json({ ok: true });
   } catch (err) {
@@ -238,11 +249,13 @@ router.post("/items/delete", async (req, res) => {
 
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     deleteBoardItems(db, parsed.data.nodeIds);
     persistDatabase(db);
     emitBoardPatch({
       roomId: DEFAULT_ROOM_ID,
       deletedNodeIds: parsed.data.nodeIds,
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json({ ok: true });
   } catch (err) {
@@ -268,6 +281,7 @@ router.post("/attach-action", async (req, res) => {
       return res.status(400).json({ error: "Action modifier can only attach to normal items" });
     }
 
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     deleteBoardItem(db, parsed.data.sourceNodeId);
     const updated = updateBoardItemMetadata(db, {
       nodeId: parsed.data.targetNodeId,
@@ -280,6 +294,7 @@ router.post("/attach-action", async (req, res) => {
       roomId: DEFAULT_ROOM_ID,
       upserts: updated ? [updated] : [],
       deletedNodeIds: [parsed.data.sourceNodeId],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json({ ok: true, item: updated });
   } catch (err) {
@@ -305,6 +320,7 @@ router.post("/attach-category", async (req, res) => {
       return res.status(400).json({ error: "Category modifier can only attach to normal items" });
     }
 
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     deleteBoardItem(db, parsed.data.sourceNodeId);
     const updated = updateBoardItemMetadata(db, {
       nodeId: parsed.data.targetNodeId,
@@ -317,6 +333,7 @@ router.post("/attach-category", async (req, res) => {
       roomId: DEFAULT_ROOM_ID,
       upserts: updated ? [updated] : [],
       deletedNodeIds: [parsed.data.sourceNodeId],
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
     return res.json({ ok: true, item: updated });
   } catch (err) {
@@ -337,6 +354,7 @@ router.post("/combine", async (req, res) => {
     if (existing.length !== parsed.data.consumedNodeIds.length) {
       return res.status(409).json({ error: "One or more board items are no longer available" });
     }
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     const created = [];
     const placeholderNodeId = parsed.data.placeholderNodeId?.trim() || null;
     const consumedNodeIds = [...parsed.data.consumedNodeIds];
@@ -402,6 +420,7 @@ router.post("/combine", async (req, res) => {
       roomId: DEFAULT_ROOM_ID,
       upserts: created,
       deletedNodeIds,
+      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
     });
 
     if (parsed.data.questSync) {
@@ -442,13 +461,30 @@ router.post("/combine", async (req, res) => {
 router.post("/clear", async (_req, res) => {
   try {
     const db = await getDb();
+    recordBoardHistory(db, DEFAULT_ROOM_ID);
     clearBoardItems(db, DEFAULT_ROOM_ID);
     persistDatabase(db);
-    emitRoomSnapshot(getRoomSnapshot(db, DEFAULT_ROOM_ID));
+    emitRoomSnapshot(buildRoomSnapshotWithUndo(db, DEFAULT_ROOM_ID));
     return res.json({ ok: true });
   } catch (err) {
     console.error("Error in POST /board/clear", err);
     return res.status(500).json({ error: "Failed to clear board" });
+  }
+});
+
+router.post("/undo", async (_req, res) => {
+  try {
+    const db = await getDb();
+    const snapshot = undoBoardHistory(db, DEFAULT_ROOM_ID);
+    if (!snapshot) {
+      return res.status(409).json({ error: "Nothing to undo" });
+    }
+    persistDatabase(db);
+    emitRoomSnapshot(snapshot);
+    return res.json(snapshot);
+  } catch (err) {
+    console.error("Error in POST /board/undo", err);
+    return res.status(500).json({ error: "Failed to undo the last board action" });
   }
 });
 

@@ -7,6 +7,7 @@ import type {
 import {
   ScrollText,
   Tags,
+  Undo2,
   Zap,
 } from "lucide-react";
 import {
@@ -51,6 +52,7 @@ import {
   generateQuestDraft,
   importLegacyQuestState,
   moveBoardItems,
+  undoBoard,
   updateBoardItem,
   updateQuestStatus,
 } from "./lib/api";
@@ -201,7 +203,8 @@ const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [hasLoadedInitialLibrary, setHasLoadedInitialLibrary] = useState(false);
   const [workspaceItems, setWorkspaceItems] = useState<WorkspaceItem[]>([]);
-  const [workspaceUndoStack, setWorkspaceUndoStack] = useState<WorkspaceItem[][]>([]);
+  const [canUndoWorkspace, setCanUndoWorkspace] = useState(false);
+  const [isUndoingWorkspace, setIsUndoingWorkspace] = useState(false);
   const [combiningNodeIds, setCombiningNodeIds] = useState<string[]>([]);
   const [webSearchingNodeIds, setWebSearchingNodeIds] = useState<string[]>([]);
   const [remoteSelectedNodeIds, setRemoteSelectedNodeIds] = useState<string[]>([]);
@@ -268,7 +271,6 @@ const App: React.FC = () => {
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
-  const isRestoringWorkspaceRef = useRef(false);
   const hasHydratedSharedSnapshotRef = useRef(false);
   const itemsRef = useRef<Item[]>([]);
   const isMobileLayoutRef = useRef(isMobileLayout);
@@ -295,84 +297,28 @@ const App: React.FC = () => {
   isSearchFocusedRef.current = isSearchFocused;
   androidKeyboardHeightRef.current = androidKeyboardHeight;
 
-  function cloneWorkspaceSnapshot(entries: WorkspaceItem[]) {
-    return entries.map((item) => ({
-      ...item,
-      position: { ...item.position },
-    }));
-  }
-
-  function workspaceItemsEqual(left: WorkspaceItem[], right: WorkspaceItem[]) {
-    if (left === right) return true;
-    if (left.length !== right.length) return false;
-    return left.every((leftItem, index) => {
-      const rightItem = right[index];
-      return (
-        leftItem.nodeId === rightItem.nodeId &&
-        leftItem.itemId === rightItem.itemId &&
-        leftItem.position.x === rightItem.position.x &&
-        leftItem.position.y === rightItem.position.y &&
-        (leftItem.isNewDiscovery ?? false) === (rightItem.isNewDiscovery ?? false) &&
-        (leftItem.arrivalHighlightMode ?? null) ===
-          (rightItem.arrivalHighlightMode ?? null) &&
-        (leftItem.categoryConstraintName ?? null) ===
-          (rightItem.categoryConstraintName ?? null) &&
-        (leftItem.categoryConstraintNormalizedName ?? null) ===
-          (rightItem.categoryConstraintNormalizedName ?? null) &&
-        (leftItem.actionConstraintName ?? null) ===
-          (rightItem.actionConstraintName ?? null) &&
-        (leftItem.actionConstraintNormalizedName ?? null) ===
-          (rightItem.actionConstraintNormalizedName ?? null)
-      );
-    });
-  }
-
-  function pushWorkspaceUndoSnapshot(snapshot: WorkspaceItem[]) {
-    setWorkspaceUndoStack((prev) => {
-      const nextSnapshot = cloneWorkspaceSnapshot(snapshot);
-      const lastSnapshot = prev[prev.length - 1];
-      if (lastSnapshot && workspaceItemsEqual(lastSnapshot, nextSnapshot)) {
-        return prev;
-      }
-      const next = [...prev, nextSnapshot];
-      return next.length > 40 ? next.slice(next.length - 40) : next;
-    });
-  }
-
-  function updateWorkspaceItems(
-    update: React.SetStateAction<WorkspaceItem[]>,
-    options?: { recordHistory?: boolean }
-  ) {
-    const shouldRecordHistory =
-      options?.recordHistory ?? !isRestoringWorkspaceRef.current;
-    setWorkspaceItems((prev) => {
-      const next = typeof update === "function" ? update(prev) : update;
-      if (workspaceItemsEqual(prev, next)) {
-        return prev;
-      }
-      if (shouldRecordHistory) {
-        pushWorkspaceUndoSnapshot(prev);
-      }
-      return next;
-    });
-  }
-
-  function undoWorkspaceBoardAction() {
-    if (combiningNodeIds.length > 0) {
+  async function undoWorkspaceBoardAction() {
+    if (combiningNodeIds.length > 0 || isUndoingWorkspace) {
       return;
     }
-    setWorkspaceUndoStack((prev) => {
-      const snapshot = prev[prev.length - 1];
-      if (!snapshot) {
-        return prev;
+    setIsUndoingWorkspace(true);
+    try {
+      const snapshot = await undoBoard();
+      setCanUndoWorkspace(Boolean(snapshot.canUndo));
+      setWorkspaceItems(applyWorkspaceSnapshot(snapshot));
+      void refreshSharedItemsIfNeeded(applyWorkspaceSnapshot(snapshot));
+    } catch (err) {
+      if (err instanceof Error && err.message === "Nothing to undo") {
+        setCanUndoWorkspace(false);
+      } else {
+        showError(
+          err instanceof Error ? err.message : "Failed to undo the last board action.",
+          err
+        );
       }
-      isRestoringWorkspaceRef.current = true;
-      setWorkspaceItems(cloneWorkspaceSnapshot(snapshot));
-      window.requestAnimationFrame(() => {
-        isRestoringWorkspaceRef.current = false;
-      });
-      return prev.slice(0, -1);
-    });
+    } finally {
+      setIsUndoingWorkspace(false);
+    }
   }
 
   function blurActiveInput() {
@@ -625,6 +571,7 @@ const App: React.FC = () => {
             ? applyWorkspaceSnapshot(snapshot)
             : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
           hasHydratedSharedSnapshotRef.current = true;
+          setCanUndoWorkspace(Boolean(snapshot.canUndo));
           setWorkspaceItems(nextWorkspace);
           void refreshSharedItemsIfNeeded(nextWorkspace);
         }
@@ -640,6 +587,7 @@ const App: React.FC = () => {
         ? applyWorkspaceSnapshot(snapshot)
         : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
       hasHydratedSharedSnapshotRef.current = true;
+      setCanUndoWorkspace(Boolean(snapshot.canUndo));
       setWorkspaceItems(nextWorkspace);
       void refreshSharedItemsIfNeeded(nextWorkspace);
     });
@@ -649,6 +597,9 @@ const App: React.FC = () => {
       }
       setWorkspaceItems((prev) => {
         const nextWorkspace = applyWorkspacePatch(prev, patch);
+        if (patch.canUndo != null) {
+          setCanUndoWorkspace(Boolean(patch.canUndo));
+        }
         void refreshSharedItemsIfNeeded(nextWorkspace);
         return nextWorkspace;
       });
@@ -2054,7 +2005,8 @@ const App: React.FC = () => {
               setHasLoadedInitialLibrary(true);
             }}
             randomUnlocked={isFeatureUnlocked("random_tools")}
-            canUndoWorkspace={false}
+            canUndoWorkspace={canUndoWorkspace && !isUndoingWorkspace && combiningNodeIds.length === 0}
+            onUndoWorkspace={undoWorkspaceBoardAction}
             onSearchFocusChange={setIsSearchFocused}
             onSearchQueryChange={setLibrarySearchQuery}
           />
@@ -2069,6 +2021,24 @@ const App: React.FC = () => {
                 </div>
               )}
               <div className="graph-canvas">
+                {isMobileLayout ? (
+                  <div className="graph-undo-button-overlay">
+                    <button
+                      type="button"
+                      className="graph-overlay-icon-button graph-undo-button-trigger"
+                      onClick={() => void undoWorkspaceBoardAction()}
+                      disabled={
+                        !canUndoWorkspace ||
+                        isUndoingWorkspace ||
+                        combiningNodeIds.length > 0
+                      }
+                      aria-label="Undo last board action"
+                      title="Undo last board action"
+                    >
+                      <Undo2 size={15} strokeWidth={2} aria-hidden="true" />
+                    </button>
+                  </div>
+                ) : null}
                 {isPortraitTabletLayout ? (
                   <div className="graph-quests-button-overlay">
                     <button

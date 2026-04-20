@@ -20,12 +20,14 @@ export function emitBoardPatch(params: {
   roomId: string;
   upserts?: SharedBoardItem[];
   deletedNodeIds?: string[];
+  canUndo?: boolean;
   excludeSocketId?: string | null;
 }) {
   const patch: SharedBoardPatch = {
     roomId: params.roomId,
     upserts: params.upserts ?? [],
     deletedNodeIds: params.deletedNodeIds ?? [],
+    canUndo: params.canUndo,
   };
 
   if (!io) {

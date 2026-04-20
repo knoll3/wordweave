@@ -1,12 +1,14 @@
 import type { Server as HttpServer } from "http";
 import { Server } from "socket.io";
+import { buildRoomSnapshotWithUndo, canUndoBoard, recordBoardHistory } from "./boardHistory";
 import type {
   SharedBoardActivity,
   SharedBoardDragClaim,
   SharedBoardDragMove,
   SharedBoardDragResult,
+  SharedBoardItem,
 } from "./liveBoardTypes";
-import { DEFAULT_ROOM_ID, getBoardItemById, getRoomSnapshot, updateBoardItemPosition } from "./boardState";
+import { DEFAULT_ROOM_ID, getBoardItemById, updateBoardItemPosition } from "./boardState";
 import { getDb, persistDatabase } from "./db";
 import { emitBoardPatch, getLiveBoardRoomChannel, setLiveBoardIo } from "./liveBoardEvents";
 
@@ -52,7 +54,7 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
 
     void (async () => {
       const db = await getDb();
-      socket.emit("room:snapshot", getRoomSnapshot(db, roomId));
+      socket.emit("room:snapshot", buildRoomSnapshotWithUndo(db, roomId));
     })();
 
     socket.on("board:drag-claim", async (payload: SharedBoardDragClaim, callback?: (result: SharedBoardDragResult) => void) => {
@@ -104,18 +106,45 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
       dragLeases.set(nodeId, lease);
 
       const db = await getDb();
-      const updated = updateBoardItemPosition(db, {
-        nodeId,
-        x: payload.position.x,
-        y: payload.position.y,
-      });
-      persistDatabase(db);
-      if (!updated) {
+      const item = getBoardItemById(db, nodeId);
+      if (!item) {
         return;
       }
       emitBoardPatch({
         roomId,
-        upserts: [updated],
+        upserts: [
+          {
+            nodeId,
+            itemId: Number(item.item_id),
+            position: {
+              x: payload.position.x,
+              y: payload.position.y,
+            },
+            isNewDiscovery: Number(item.is_new_discovery ?? 0) === 1 || undefined,
+            arrivalHighlightMode:
+              item.arrival_highlight_mode == null
+                ? undefined
+                : (String(item.arrival_highlight_mode) as SharedBoardItem["arrivalHighlightMode"]),
+            categoryConstraintName:
+              item.category_constraint_name == null
+                ? null
+                : String(item.category_constraint_name),
+            categoryConstraintNormalizedName:
+              item.category_constraint_normalized_name == null
+                ? null
+                : String(item.category_constraint_normalized_name),
+            actionConstraintName:
+              item.action_constraint_name == null
+                ? null
+                : String(item.action_constraint_name),
+            actionConstraintNormalizedName:
+              item.action_constraint_normalized_name == null
+                ? null
+                : String(item.action_constraint_normalized_name),
+            revision: Number(item.revision ?? 0),
+          },
+        ],
+        canUndo: canUndoBoard(roomId),
         excludeSocketId: socket.id,
       });
     });
@@ -129,6 +158,7 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
 
       dragLeases.delete(nodeId);
       const db = await getDb();
+      recordBoardHistory(db, roomId);
       const updated = updateBoardItemPosition(db, {
         nodeId,
         x: payload.position.x,
@@ -144,6 +174,7 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
       emitBoardPatch({
         roomId,
         upserts: [updated],
+        canUndo: canUndoBoard(roomId),
       });
       callback?.({
         ok: true,
@@ -190,21 +221,51 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
 
         const db = await getDb();
         const updated = moves
-          .map((item) =>
-            updateBoardItemPosition(db, {
+          .map((item) => {
+            const current = getBoardItemById(db, String(item.nodeId));
+            if (!current) {
+              return null;
+            }
+            const previewItem: SharedBoardItem = {
               nodeId: String(item.nodeId),
-              x: Number(item.position.x),
-              y: Number(item.position.y),
-            })
-          )
-          .filter((item): item is NonNullable<typeof item> => item != null);
-        persistDatabase(db);
+              itemId: Number(current.item_id),
+              position: {
+                x: Number(item.position.x),
+                y: Number(item.position.y),
+              },
+              isNewDiscovery: Number(current.is_new_discovery ?? 0) === 1 ? true : undefined,
+              arrivalHighlightMode:
+                current.arrival_highlight_mode == null
+                  ? undefined
+                  : (String(current.arrival_highlight_mode) as SharedBoardItem["arrivalHighlightMode"]),
+              categoryConstraintName:
+                current.category_constraint_name == null
+                  ? null
+                  : String(current.category_constraint_name),
+              categoryConstraintNormalizedName:
+                current.category_constraint_normalized_name == null
+                  ? null
+                  : String(current.category_constraint_normalized_name),
+              actionConstraintName:
+                current.action_constraint_name == null
+                  ? null
+                  : String(current.action_constraint_name),
+              actionConstraintNormalizedName:
+                current.action_constraint_normalized_name == null
+                  ? null
+                  : String(current.action_constraint_normalized_name),
+              revision: Number(current.revision ?? 0),
+            };
+            return previewItem;
+          })
+          .filter((item): item is SharedBoardItem => item != null);
         if (updated.length === 0) {
           return;
         }
         emitBoardPatch({
           roomId,
           upserts: updated,
+          canUndo: canUndoBoard(roomId),
           excludeSocketId: socket.id,
         });
       }

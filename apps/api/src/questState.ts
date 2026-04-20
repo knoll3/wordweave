@@ -244,9 +244,36 @@ function buildQuestLexicalForms(value: string) {
   const baseTokens = tokenizeQuestLexicalBase(value);
   const normalizedTokens = baseTokens.map(normalizeQuestLexicalToken);
   return {
+    baseTokens,
+    normalizedTokens,
     canonicalKey: baseTokens.join(""),
     normalizedKey: normalizedTokens.join(""),
   };
+}
+
+function containsQuestTokenSequence(candidateTokens: string[], questTokens: string[]) {
+  if (candidateTokens.length === 0 || questTokens.length === 0) {
+    return false;
+  }
+
+  if (questTokens.length === 1) {
+    return candidateTokens.includes(questTokens[0]);
+  }
+
+  for (let startIndex = 0; startIndex <= candidateTokens.length - questTokens.length; startIndex += 1) {
+    let matches = true;
+    for (let offset = 0; offset < questTokens.length; offset += 1) {
+      if (candidateTokens[startIndex + offset] !== questTokens[offset]) {
+        matches = false;
+        break;
+      }
+    }
+    if (matches) {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 function findProgrammaticQuestMatch(
@@ -274,6 +301,18 @@ function findProgrammaticQuestMatch(
           completionMethod: "normalized" as const,
         };
       }
+      if (
+        containsQuestTokenSequence(candidateForms.baseTokens, questForm.baseTokens) ||
+        containsQuestTokenSequence(
+          candidateForms.normalizedTokens,
+          questForm.normalizedTokens
+        )
+      ) {
+        return {
+          matchedItemName: row.name,
+          completionMethod: "normalized" as const,
+        };
+      }
     }
   }
   return null;
@@ -292,6 +331,12 @@ function findProgrammaticQuestNameOverlap(
     if (
       candidateForms.normalizedKey &&
       candidateForms.normalizedKey === targetForms.normalizedKey
+    ) {
+      return candidateName;
+    }
+    if (
+      containsQuestTokenSequence(candidateForms.baseTokens, targetForms.baseTokens) ||
+      containsQuestTokenSequence(candidateForms.normalizedTokens, targetForms.normalizedTokens)
     ) {
       return candidateName;
     }

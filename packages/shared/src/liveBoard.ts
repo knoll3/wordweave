@@ -16,12 +16,14 @@ export interface SharedBoardItem {
 export interface SharedRoomSnapshot {
   roomId: SharedRoomId;
   boardItems: SharedBoardItem[];
+  canUndo?: boolean;
 }
 
 export interface SharedBoardPatch {
   roomId: SharedRoomId;
   upserts: SharedBoardItem[];
   deletedNodeIds: string[];
+  canUndo?: boolean;
 }
 
 export interface SharedBoardCreateItemInput {

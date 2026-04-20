@@ -14,12 +14,14 @@ export interface SharedBoardItem {
 export interface SharedRoomSnapshot {
   roomId: string;
   boardItems: SharedBoardItem[];
+  canUndo?: boolean;
 }
 
 export interface SharedBoardPatch {
   roomId: string;
   upserts: SharedBoardItem[];
   deletedNodeIds: string[];
+  canUndo?: boolean;
 }
 
 export type SharedBoardActivityMode = "combining" | "pondering" | "searching";

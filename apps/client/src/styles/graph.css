@@ -34,6 +34,14 @@
   max-width: min(188px, calc(100% - 24px));
 }
 
+.graph-undo-button-overlay {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 11;
+  display: inline-flex;
+}
+
 .graph-quest-target-chip-list {
   display: inline-flex;
   flex-direction: column;
@@ -1190,6 +1198,11 @@
   right: 6px;
   gap: 4px;
   max-width: 34px;
+}
+
+.app-root.is-mobile .graph-undo-button-overlay {
+  top: 6px;
+  left: 6px;
 }
 
 .app-root.is-mobile .graph-overlay-icon-button,

@@ -255,6 +255,13 @@ export async function clearBoardItems(): Promise<{ ok: boolean }> {
   return handleResponse<{ ok: boolean }>(res);
 }
 
+export async function undoBoard(): Promise<SharedRoomSnapshot> {
+  const res = await fetch(`${API_BASE}/board/undo`, {
+    method: "POST",
+  });
+  return handleResponse<SharedRoomSnapshot>(res);
+}
+
 export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {
   const res = await fetch(`${API_BASE}/elements/unlocks`);
   return handleResponse<FeatureUnlockStatus[]>(res);
