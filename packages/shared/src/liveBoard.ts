@@ -26,6 +26,11 @@ export interface SharedBoardPatch {
   canUndo?: boolean;
 }
 
+export interface SharedPlayerViewportCenter {
+  playerId: string;
+  center: { x: number; y: number };
+}
+
 export interface SharedBoardCreateItemInput {
   itemId: number;
   position: { x: number; y: number };

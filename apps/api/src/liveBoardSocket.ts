@@ -7,6 +7,7 @@ import type {
   SharedBoardDragMove,
   SharedBoardDragResult,
   SharedBoardItem,
+  SharedPlayerViewportCenter,
 } from "./liveBoardTypes";
 import { DEFAULT_ROOM_ID, getBoardItemById, updateBoardItemPosition } from "./boardState";
 import { getDb, persistDatabase } from "./db";
@@ -21,6 +22,16 @@ type DragLease = {
 };
 
 const dragLeases = new Map<string, DragLease>();
+const roomViewportCenters = new Map<string, Map<string, SharedPlayerViewportCenter>>();
+
+function getRoomViewportCenterMap(roomId: string) {
+  let current = roomViewportCenters.get(roomId);
+  if (!current) {
+    current = new Map<string, SharedPlayerViewportCenter>();
+    roomViewportCenters.set(roomId, current);
+  }
+  return current;
+}
 
 function canUseLease(nodeId: string, socketId: string) {
   const lease = dragLeases.get(nodeId);
@@ -56,6 +67,9 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
       const db = await getDb();
       socket.emit("room:snapshot", buildRoomSnapshotWithUndo(db, roomId));
     })();
+    socket.emit("board:viewport-centers", {
+      players: [...getRoomViewportCenterMap(roomId).values()],
+    });
 
     socket.on("board:drag-claim", async (payload: SharedBoardDragClaim, callback?: (result: SharedBoardDragResult) => void) => {
       const nodeId = String(payload?.nodeId ?? "");
@@ -211,6 +225,24 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
         } satisfies SharedBoardActivity);
     });
 
+    socket.on("board:viewport-center", (payload: { center?: { x?: number; y?: number } | null }) => {
+      const center = payload?.center;
+      const x = Number(center?.x);
+      const y = Number(center?.y);
+      if (!Number.isFinite(x) || !Number.isFinite(y)) {
+        return;
+      }
+
+      const playerViewportCenter: SharedPlayerViewportCenter = {
+        playerId: socket.id,
+        center: { x, y },
+      };
+      getRoomViewportCenterMap(roomId).set(socket.id, playerViewportCenter);
+      io.to(getLiveBoardRoomChannel(roomId))
+        .except(socket.id)
+        .emit("board:viewport-center", playerViewportCenter);
+    });
+
     socket.on(
       "board:group-move",
       async (payload: { items: Array<{ nodeId: string; position: { x: number; y: number } }> }) => {
@@ -272,6 +304,11 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
     );
 
     socket.on("disconnect", () => {
+      const roomCenters = roomViewportCenters.get(roomId);
+      roomCenters?.delete(socket.id);
+      if ((roomCenters?.size ?? 0) === 0) {
+        roomViewportCenters.delete(roomId);
+      }
       for (const [nodeId, lease] of dragLeases.entries()) {
         if (lease.socketId === socket.id) {
           dragLeases.delete(nodeId);
@@ -283,6 +320,9 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
       io.to(getLiveBoardRoomChannel(roomId))
         .except(socket.id)
         .emit("board:activity", { nodeIds: [], layout: null, mode: null } satisfies SharedBoardActivity);
+      io.to(getLiveBoardRoomChannel(roomId))
+        .except(socket.id)
+        .emit("board:viewport-center-remove", { playerId: socket.id });
     });
   });
 

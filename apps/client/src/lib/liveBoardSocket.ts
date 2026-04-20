@@ -5,6 +5,7 @@ import type {
   SharedBoardDragMove,
   SharedBoardDragResult,
   SharedBoardPatch,
+  SharedPlayerViewportCenter,
   SharedRoomSnapshot,
 } from "../liveBoardTypes";
 import type { PlayerQuestStats, QuestRecord, QuestSetCompletion } from "../types";
@@ -108,6 +109,40 @@ export function subscribeToBoardActivity(
 
 export function publishBoardActivityState(payload: SharedBoardActivity) {
   getLiveBoardSocket().emit("board:activity", payload);
+}
+
+export function subscribeToViewportCentersSync(
+  listener: (payload: { players: SharedPlayerViewportCenter[] }) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:viewport-centers", listener);
+  return () => {
+    current.off("board:viewport-centers", listener);
+  };
+}
+
+export function subscribeToViewportCenter(
+  listener: (payload: SharedPlayerViewportCenter) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:viewport-center", listener);
+  return () => {
+    current.off("board:viewport-center", listener);
+  };
+}
+
+export function subscribeToViewportCenterRemoved(
+  listener: (payload: { playerId: string }) => void
+) {
+  const current = getLiveBoardSocket();
+  current.on("board:viewport-center-remove", listener);
+  return () => {
+    current.off("board:viewport-center-remove", listener);
+  };
+}
+
+export function publishViewportCenter(center: { x: number; y: number }) {
+  getLiveBoardSocket().emit("board:viewport-center", { center });
 }
 
 export function subscribeToQuestSync(

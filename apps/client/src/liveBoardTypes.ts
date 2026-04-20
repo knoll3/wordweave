@@ -40,6 +40,11 @@ export interface SharedBoardActivity {
   mode?: SharedBoardActivityMode | null;
 }
 
+export interface SharedPlayerViewportCenter {
+  playerId: string;
+  center: { x: number; y: number };
+}
+
 export interface SharedBoardCreateItemInput {
   nodeId?: string;
   itemId: number;

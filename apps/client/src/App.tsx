@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import type {
   SharedBoardActivityMode,
   SharedBoardPatch,
+  SharedPlayerViewportCenter,
   SharedRoomSnapshot,
 } from "./liveBoardTypes";
 import {
@@ -61,6 +62,7 @@ import {
   endBoardDrag,
   publishBoardActivityState,
   publishBoardSelectionState,
+  publishViewportCenter,
   sendBoardGroupMove,
   sendBoardDragMove,
   subscribeToBoardActivity,
@@ -69,6 +71,9 @@ import {
   subscribeToQuestCelebration,
   subscribeToQuestSync,
   subscribeToRoomSnapshot,
+  subscribeToViewportCenter,
+  subscribeToViewportCenterRemoved,
+  subscribeToViewportCentersSync,
 } from "./lib/liveBoardSocket";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
@@ -104,6 +109,8 @@ const QUEST_CELEBRATION_DURATION_MS = 2600;
 const QUEST_REFERENCE_PREVIEW_LIMIT = 180;
 const PORTRAIT_TABLET_LAYOUT_QUERY = "(orientation: portrait)";
 const MOBILE_LAYOUT_QUERY = "(max-width: 600px)";
+const VIEWPORT_CENTER_PUBLISH_INTERVAL_MS = 120;
+const VIEWPORT_CENTER_MIN_DELTA = 12;
 
 type QuestCelebrationState = {
   kicker: string;
@@ -218,6 +225,9 @@ const App: React.FC = () => {
   const [remoteActivityMode, setRemoteActivityMode] = useState<SharedBoardActivityMode | null>(
     null
   );
+  const [remoteViewportCenters, setRemoteViewportCenters] = useState<SharedPlayerViewportCenter[]>(
+    []
+  );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
@@ -284,6 +294,9 @@ const App: React.FC = () => {
     x: number;
     y: number;
   } | null>(null);
+  const lastPublishedViewportCenterRef = useRef<{ x: number; y: number } | null>(null);
+  const lastPublishedViewportAtRef = useRef(0);
+  const viewportCenterPublishTimeoutRef = useRef<number | null>(null);
   const activeDragNodeIdRef = useRef<string | null>(null);
   const dragSequenceRef = useRef(0);
   const lastDragSentAtRef = useRef(0);
@@ -335,6 +348,42 @@ const App: React.FC = () => {
     keyboardWasOpenRef.current = false;
     setIsSearchFocused(false);
     blurActiveInput();
+  }
+
+  function publishSharedViewportCenter(center: { x: number; y: number }) {
+    const now = Date.now();
+    const lastCenter = lastPublishedViewportCenterRef.current;
+    const distanceFromLast =
+      lastCenter == null
+        ? Number.POSITIVE_INFINITY
+        : Math.hypot(center.x - lastCenter.x, center.y - lastCenter.y);
+
+    const flushPublish = (nextCenter: { x: number; y: number }) => {
+      lastPublishedViewportCenterRef.current = nextCenter;
+      lastPublishedViewportAtRef.current = Date.now();
+      publishViewportCenter(nextCenter);
+    };
+
+    if (
+      lastCenter == null ||
+      distanceFromLast >= VIEWPORT_CENTER_MIN_DELTA ||
+      now - lastPublishedViewportAtRef.current >= VIEWPORT_CENTER_PUBLISH_INTERVAL_MS
+    ) {
+      if (viewportCenterPublishTimeoutRef.current != null) {
+        window.clearTimeout(viewportCenterPublishTimeoutRef.current);
+        viewportCenterPublishTimeoutRef.current = null;
+      }
+      flushPublish(center);
+      return;
+    }
+
+    if (viewportCenterPublishTimeoutRef.current != null) {
+      window.clearTimeout(viewportCenterPublishTimeoutRef.current);
+    }
+    viewportCenterPublishTimeoutRef.current = window.setTimeout(() => {
+      viewportCenterPublishTimeoutRef.current = null;
+      flushPublish(center);
+    }, VIEWPORT_CENTER_PUBLISH_INTERVAL_MS);
   }
 
   useEffect(() => {
@@ -626,6 +675,30 @@ const App: React.FC = () => {
       setQuests(payload.quests);
       applyQuestStats(payload.stats);
     });
+    const unsubscribeViewportCentersSync = subscribeToViewportCentersSync((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setRemoteViewportCenters(payload.players);
+    });
+    const unsubscribeViewportCenter = subscribeToViewportCenter((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setRemoteViewportCenters((current) => {
+        const next = current.filter((entry) => entry.playerId !== payload.playerId);
+        next.push(payload);
+        return next;
+      });
+    });
+    const unsubscribeViewportCenterRemoved = subscribeToViewportCenterRemoved((payload) => {
+      if (cancelled) {
+        return;
+      }
+      setRemoteViewportCenters((current) =>
+        current.filter((entry) => entry.playerId !== payload.playerId)
+      );
+    });
     const unsubscribeQuestCelebration = subscribeToQuestCelebration((payload) => {
       if (cancelled) {
         return;
@@ -655,9 +728,21 @@ const App: React.FC = () => {
       unsubscribeSelection();
       unsubscribeActivity();
       unsubscribeQuestSync();
+      unsubscribeViewportCentersSync();
+      unsubscribeViewportCenter();
+      unsubscribeViewportCenterRemoved();
       unsubscribeQuestCelebration();
     };
   }, []);
+
+  useEffect(
+    () => () => {
+      if (viewportCenterPublishTimeoutRef.current != null) {
+        window.clearTimeout(viewportCenterPublishTimeoutRef.current);
+      }
+    },
+    []
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1311,6 +1396,7 @@ const App: React.FC = () => {
 
   function handleViewportCenterChange(position: { x: number; y: number }) {
     viewportCenterRef.current = position;
+    publishSharedViewportCenter(position);
   }
 
   function moveSharedWorkspaceItems(
@@ -2089,6 +2175,7 @@ const App: React.FC = () => {
                   remoteActivityNodeIds={remoteActivityNodeIds}
                   remoteActivityLayout={remoteActivityLayout}
                   remoteActivityMode={remoteActivityMode}
+                  remoteViewportCenters={remoteViewportCenters}
                   dragAbortSignal={dragAbortSignal}
                   onSelectionStateChange={publishSharedSelection}
                   onViewportCenterChange={handleViewportCenterChange}

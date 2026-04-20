@@ -9,7 +9,10 @@ import {
   Texture,
   TilingSprite,
 } from "pixi.js";
-import type { SharedBoardActivityMode } from "../../liveBoardTypes";
+import type {
+  SharedBoardActivityMode,
+  SharedPlayerViewportCenter,
+} from "../../liveBoardTypes";
 import {
   ACTION_MODIFIER_ITEM,
   ACTION_MODIFIER_ITEM_ID,
@@ -90,6 +93,7 @@ interface Props {
   remoteActivityNodeIds?: string[];
   remoteActivityLayout?: SelectionCombineLayout | null;
   remoteActivityMode?: SharedBoardActivityMode | null;
+  remoteViewportCenters?: SharedPlayerViewportCenter[];
   dragAbortSignal?: { nodeId: string; nonce: number } | null;
   onSelectionStateChange?: (
     nodeIds: string[],
@@ -160,6 +164,15 @@ type TouchGestureState = {
   startCenterWorldY: number;
 };
 
+type ViewportSnapshot = {
+  width: number;
+  height: number;
+  cameraX: number;
+  cameraY: number;
+  zoom: number;
+  center: { x: number; y: number };
+};
+
 function GraphView({
   items,
   workspaceItems,
@@ -179,6 +192,7 @@ function GraphView({
   remoteActivityNodeIds = [],
   remoteActivityLayout = null,
   remoteActivityMode = null,
+  remoteViewportCenters = [],
   dragAbortSignal = null,
   onSelectionStateChange,
   onViewportCenterChange,
@@ -295,6 +309,7 @@ function GraphView({
     width: number;
     height: number;
   } | null>(null);
+  const [viewportSnapshot, setViewportSnapshot] = useState<ViewportSnapshot | null>(null);
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
@@ -355,12 +370,34 @@ function GraphView({
   const updateViewportCenter = () => {
     const app = appRef.current;
     const handleViewportCenterChange = onViewportCenterChangeRef.current;
-    if (!app || !handleViewportCenterChange) return;
+    if (!app) return;
     if (app.renderer.width < 40 || app.renderer.height < 40) return;
     const camera = cameraRef.current;
-    handleViewportCenterChange({
+    const nextCenter = {
       x: (app.renderer.width / 2 - camera.x) / camera.zoom,
       y: (app.renderer.height / 2 - camera.y) / camera.zoom,
+    };
+    handleViewportCenterChange?.(nextCenter);
+    setViewportSnapshot((current) => {
+      const nextSnapshot = {
+        width: app.renderer.width,
+        height: app.renderer.height,
+        cameraX: camera.x,
+        cameraY: camera.y,
+        zoom: camera.zoom,
+        center: nextCenter,
+      };
+      if (
+        current &&
+        current.width === nextSnapshot.width &&
+        current.height === nextSnapshot.height &&
+        Math.abs(current.cameraX - nextSnapshot.cameraX) < 0.5 &&
+        Math.abs(current.cameraY - nextSnapshot.cameraY) < 0.5 &&
+        Math.abs(current.zoom - nextSnapshot.zoom) < 0.001
+      ) {
+        return current;
+      }
+      return nextSnapshot;
     });
   };
 
@@ -2485,6 +2522,80 @@ function GraphView({
       : remoteActivityMode === "pondering"
         ? "Thinking harder for a better result."
         : "Another player is combining these items.";
+  const remoteViewportIndicators = useMemo(() => {
+    if (!viewportSnapshot || remoteViewportCenters.length === 0) {
+      return [];
+    }
+
+    const inset = 26;
+    const centerScreenX = viewportSnapshot.width / 2;
+    const centerScreenY = viewportSnapshot.height / 2;
+    const halfWidth = Math.max(1, centerScreenX - inset);
+    const halfHeight = Math.max(1, centerScreenY - inset);
+
+    const indicators = remoteViewportCenters
+      .map((entry) => {
+        const screenX = entry.center.x * viewportSnapshot.zoom + viewportSnapshot.cameraX;
+        const screenY = entry.center.y * viewportSnapshot.zoom + viewportSnapshot.cameraY;
+        if (
+          screenX >= 0 &&
+          screenX <= viewportSnapshot.width &&
+          screenY >= 0 &&
+          screenY <= viewportSnapshot.height
+        ) {
+          return null;
+        }
+
+        const deltaX = screenX - centerScreenX;
+        const deltaY = screenY - centerScreenY;
+        const absDeltaX = Math.abs(deltaX);
+        const absDeltaY = Math.abs(deltaY);
+        const scale =
+          absDeltaX === 0 && absDeltaY === 0
+            ? 0
+            : Math.min(
+                absDeltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / absDeltaX,
+                absDeltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / absDeltaY
+              );
+        const clampedScale = Number.isFinite(scale) ? scale : 0;
+        const angle = Math.atan2(deltaY, deltaX);
+        const edgeX = centerScreenX + deltaX * clampedScale;
+        const edgeY = centerScreenY + deltaY * clampedScale;
+        const colorSeed = [...entry.playerId].reduce(
+          (sum, char) => sum + char.charCodeAt(0),
+          0
+        );
+        return {
+          playerId: entry.playerId,
+          x: edgeX,
+          y: edgeY,
+          angle,
+          colorHue: colorSeed % 360,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => left!.angle - right!.angle) as Array<{
+      playerId: string;
+      x: number;
+      y: number;
+      angle: number;
+      colorHue: number;
+    }>;
+
+    return indicators.map((indicator, index) => {
+      const previous = indicators[index - 1];
+      const angleGap = previous == null ? Number.POSITIVE_INFINITY : indicator.angle - previous.angle;
+      const stackOffset = angleGap < 0.28 ? 18 : 0;
+      const tangentX = -Math.sin(indicator.angle);
+      const tangentY = Math.cos(indicator.angle);
+      return {
+        ...indicator,
+        x: indicator.x + tangentX * stackOffset,
+        y: indicator.y + tangentY * stackOffset,
+      };
+    });
+  }, [remoteViewportCenters, viewportSnapshot]);
+
   return (
     <div ref={hostRef} className="graph-pixi-host">
       {isRestoringWorkspace ? (
@@ -2614,6 +2725,26 @@ function GraphView({
           }}
         />
       ) : null}
+      {remoteViewportIndicators.map((indicator) => (
+        <div
+          key={indicator.playerId}
+          className="graph-remote-viewport-indicator"
+          style={
+            {
+              left: indicator.x,
+              top: indicator.y,
+              transform: `translate(-50%, -50%) rotate(${indicator.angle}rad)`,
+              ["--remote-player-hue" as string]: String(indicator.colorHue),
+            } as React.CSSProperties
+          }
+          aria-hidden="true"
+        >
+          <span className="graph-remote-viewport-indicator-pill">
+            <span className="graph-remote-viewport-indicator-dot" />
+            <span className="graph-remote-viewport-indicator-arrow">➜</span>
+          </span>
+        </div>
+      ))}
       <button
         type="button"
         className="button secondary graph-clear-button"
