@@ -24,6 +24,7 @@ interface Props {
 
 const RANDOM_SPAWN_COUNT = 4;
 const MAX_VISIBLE_SEARCH_RESULTS = 100;
+const MAX_ITEMS_TO_SHOW_WITHOUT_SEARCH = 250;
 
 function tokenize(value: string) {
   return value
@@ -322,6 +323,10 @@ const ElementSidebar: React.FC<Props> = ({
         }
       }
       return [...deduped.values()].slice(0, MAX_VISIBLE_SEARCH_RESULTS);
+    }
+
+    if (items.length < MAX_ITEMS_TO_SHOW_WITHOUT_SEARCH) {
+      return sortBy === "name" ? [...items].sort(compareItemsByName) : items;
     }
 
     return [];
@@ -650,7 +655,7 @@ const ElementSidebar: React.FC<Props> = ({
                     : "Search to show matching library items."
                 }
                 emptyState={
-                  search.trim() ? null : (
+                  search.trim() || items.length < MAX_ITEMS_TO_SHOW_WITHOUT_SEARCH ? null : (
                     <div className="library-empty-state" role="status" aria-live="polite">
                       <p className="library-empty-state-copy">
                         {items.length.toLocaleString()} items loaded
