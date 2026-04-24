@@ -224,7 +224,7 @@ function GraphView({
       refreshActivityOverlay();
     },
   });
-  const { itemViewsRef } = useGraphItems();
+  const { itemViewsRef, getItemViewAtWorldPosition } = useGraphItems({ worldRef });
   const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
     nodeId: string;
@@ -753,30 +753,6 @@ function GraphView({
     );
     setSelectedNodeIds(nextLayout.nodeIds);
     setSelectionLayout(nextLayout);
-  };
-
-  const getItemViewAtWorldPosition = (position: { x: number; y: number }) => {
-    const world = worldRef.current;
-    if (!world) return null;
-
-    const candidates = Array.from(itemViewsRef.current.values())
-      .map((view) => ({
-        view,
-        zIndex: world.getChildIndex(view.container),
-      }))
-      .sort((left, right) => right.zIndex - left.zIndex);
-
-    return (
-      candidates.find(({ view }) => {
-        const topLeft = getViewTopLeftPosition(view);
-        return (
-          position.x >= topLeft.x &&
-          position.x <= topLeft.x + view.width &&
-          position.y >= topLeft.y &&
-          position.y <= topLeft.y + CARD_HEIGHT
-        );
-      })?.view ?? null
-    );
   };
 
   const canAttachModifierToView = (view: ItemView) =>
