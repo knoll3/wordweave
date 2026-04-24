@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import AdminPage from "./pages/AdminPage";
 import CachePage from "./pages/CachePage";
 import ClustersPage from "./pages/ClustersPage";
 import FeedbackPage from "./pages/FeedbackPage";
@@ -14,7 +15,9 @@ import "./styles/pages.css";
 
 const pathname = window.location.pathname;
 const Page =
-  pathname === "/cache"
+  pathname === "/admin"
+    ? AdminPage
+    : pathname === "/cache"
     ? CachePage
     : pathname === "/clusters"
       ? ClustersPage

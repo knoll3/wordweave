@@ -17,6 +17,7 @@ export {
   WORD_COMBINE_PROMPT,
 } from "./openaiPrompts/specialPrompts";
 export {
+  QUEST_TARGETS_EASY_PROMPT,
   QUEST_TARGETS_PROMPT,
   QUEST_TARGET_VARIANTS_PROMPT,
 } from "./openaiPrompts/questPrompts";

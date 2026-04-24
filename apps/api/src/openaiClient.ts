@@ -12,6 +12,7 @@ import {
   ACTION_CATEGORY_PROMPT,
   BASE_PROMPT,
   CATEGORY_PROMPT,
+  QUEST_TARGETS_EASY_PROMPT,
   QUEST_TARGETS_PROMPT,
   QUEST_TARGET_VARIANTS_PROMPT,
   CREATIVE_PROMPT,
@@ -244,6 +245,24 @@ export function renderQuestTargetsPrompt(params: {
   topic: string;
 }) {
   return QUEST_TARGETS_PROMPT
+    .replace(/{{TARGET_COUNT}}/g, String(params.count))
+    .replace(/{{QUEST_TOPIC}}/g, params.topic)
+    .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets))
+    .replace(/{{COMPLETED_TARGETS_ARRAY}}/g, JSON.stringify(params.completedTargets))
+    .replace(
+      /{{SESSION_EXCLUDED_TARGETS_ARRAY}}/g,
+      JSON.stringify(params.sessionExcludedTargets)
+    );
+}
+
+export function renderEasyQuestTargetsPrompt(params: {
+  count: number;
+  recentTargets: string[];
+  completedTargets: string[];
+  sessionExcludedTargets: string[];
+  topic: string;
+}) {
+  return QUEST_TARGETS_EASY_PROMPT
     .replace(/{{TARGET_COUNT}}/g, String(params.count))
     .replace(/{{QUEST_TOPIC}}/g, params.topic)
     .replace(/{{RECENT_TARGETS_ARRAY}}/g, JSON.stringify(params.recentTargets))
@@ -497,17 +516,21 @@ export async function generateQuestTargets(params: {
   completedTargets: string[];
   sessionExcludedTargets: string[];
   topic: string;
+  preferEasyTargets?: boolean;
 }) {
   const openai = getOpenAI();
   const model: OpenAiModel = "gpt-5.4";
   const reasoningEffort = "low";
-  const prompt = renderQuestTargetsPrompt(params);
+  const prompt = params.preferEasyTargets
+    ? renderEasyQuestTargetsPrompt(params)
+    : renderQuestTargetsPrompt(params);
 
   console.log("[openai][challenge-targets] sending request", {
     model,
     reasoningEffort,
     count: params.count,
     topic: params.topic,
+    preferEasyTargets: params.preferEasyTargets ?? false,
     recentCount: params.recentTargets.length,
     completedCount: params.completedTargets.length,
     sessionExcludedCount: params.sessionExcludedTargets.length,

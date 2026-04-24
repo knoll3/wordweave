@@ -361,6 +361,7 @@ export interface QuestGenerationDraft {
   topic: string;
   targets: QuestGenerationDraftTarget[];
   recommendedCount: number;
+  usesEasyTargets?: boolean;
 }
 
 export interface QuestGenerationDraftResponse {

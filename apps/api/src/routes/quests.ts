@@ -54,6 +54,8 @@ function loadDiscoveredNormalizedNames(db: Awaited<ReturnType<typeof getDb>>) {
   return discoveredSet;
 }
 
+const EASY_QUEST_LIBRARY_THRESHOLD = 250;
+
 async function backfillQuestTargetVariants(targetNames: string[]) {
   const uniqueTargetNames = Array.from(
     new Set(targetNames.map((name) => name.trim()).filter(Boolean))
@@ -212,6 +214,7 @@ router.post("/generate", async (req, res) => {
     );
 
     const discoveredSet = loadDiscoveredNormalizedNames(db);
+    const preferEasyTargets = discoveredSet.size < EASY_QUEST_LIBRARY_THRESHOLD;
 
     const seen = new Set<string>(sessionExcludedSet);
     const generated = await generateQuestTargets({
@@ -220,6 +223,7 @@ router.post("/generate", async (req, res) => {
       recentTargets,
       completedTargets,
       sessionExcludedTargets,
+      preferEasyTargets,
     });
     const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
       db,
@@ -269,6 +273,7 @@ router.post("/generate", async (req, res) => {
         topic,
         targets: acceptedTargets,
         recommendedCount: Math.min(count, acceptedTargets.length),
+        usesEasyTargets: preferEasyTargets,
       },
     });
   } catch (err) {

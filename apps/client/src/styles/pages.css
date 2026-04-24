@@ -604,6 +604,40 @@
   gap: 8px;
 }
 
+.admin-panel {
+  max-width: 640px;
+  border-radius: var(--radius-lg);
+  border: 1px solid rgba(248, 113, 113, 0.3);
+  background: rgba(15, 23, 42, 0.86);
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.admin-panel-copy {
+  color: var(--text-soft);
+  line-height: 1.5;
+}
+
+.admin-page-notice {
+  border-radius: var(--radius-md);
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.admin-page-notice.is-success {
+  border: 1px solid rgba(74, 222, 128, 0.35);
+  background: rgba(20, 83, 45, 0.32);
+  color: #dcfce7;
+}
+
+.admin-page-notice.is-error {
+  border: 1px solid rgba(248, 113, 113, 0.35);
+  background: rgba(127, 29, 29, 0.28);
+  color: #fee2e2;
+}
+
 .confirm-overlay {
   position: fixed;
   inset: 0;

@@ -884,6 +884,20 @@
   color: #94a3b8;
 }
 
+.quest-topic-mode-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: 999px;
+  border: 1px solid rgba(125, 211, 252, 0.18);
+  background: rgba(14, 116, 144, 0.18);
+  color: #bae6fd;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 .quest-topic-results-actions {
   display: inline-flex;
   align-items: center;

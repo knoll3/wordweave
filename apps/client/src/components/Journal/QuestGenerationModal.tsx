@@ -145,6 +145,14 @@ const QuestGenerationModal: React.FC<Props> = ({
                     · {selectedTargetNames.length} selected
                   </span>
                 </div>
+                {draft.usesEasyTargets ? (
+                  <div
+                    className="quest-topic-mode-badge"
+                    aria-label="Starter-friendly quest targets"
+                  >
+                    Starter-friendly set
+                  </div>
+                ) : null}
                 <div className="quest-topic-results-actions">
                   <button
                     type="button"
