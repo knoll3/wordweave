@@ -191,10 +191,6 @@ function GraphView({
       refreshActivityOverlay();
     },
   });
-  const lastItemClickRef = useRef<{
-    nodeId: string;
-    time: number;
-  } | null>(null);
   const pendingDrawerOpenRef = useRef<number | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -507,9 +503,11 @@ function GraphView({
   const {
     dragStateRef,
     hoverTargetNodeIdRef,
+    clearLastItemClick,
     cancelActiveDrag,
     handleDragPointerMove,
     handleDragPointerUp,
+    handleReleasedClick,
   } = useGraphDrag({
     worldRef,
     getItemViews: () => itemViewsRef.current,
@@ -618,7 +616,7 @@ function GraphView({
         (event.target === appRef.current?.stage || event.target === backgroundRef.current)
       ) {
         clearPendingDrawerOpen();
-        lastItemClickRef.current = null;
+        clearLastItemClick();
         const now = Date.now();
         const lastBackgroundTap = lastBackgroundTapRef.current;
         if (
@@ -647,7 +645,7 @@ function GraphView({
         return;
       }
       clearPendingDrawerOpen();
-      lastItemClickRef.current = null;
+      clearLastItemClick();
       panStateRef.current = {
         pointerId: event.pointerId,
         startClientX: event.nativeEvent.clientX,
@@ -740,47 +738,16 @@ function GraphView({
         event.clientY
       );
       if (releaseResult) {
-        if (
-          releaseResult.kind === "group" ||
-          releaseResult.kind === "deleted" ||
-          releaseResult.kind === "modifier-attached" ||
-          releaseResult.kind === "combined"
-        ) {
-          lastItemClickRef.current = null;
-          return;
-        }
-        if (releaseResult.kind === "released") {
-          const isClickRelease = releaseResult.movedDistance <= CLICK_MOVE_THRESHOLD;
-          if (isClickRelease) {
-            const now = Date.now();
-            const lastClick = lastItemClickRef.current;
-            if (
-              lastClick &&
-              lastClick.nodeId === releaseResult.nodeId &&
-              now - lastClick.time <= DOUBLE_CLICK_MS
-            ) {
-              clearPendingDrawerOpen();
-              duplicateWorkspaceItem(releaseResult.nodeId);
-              lastItemClickRef.current = null;
-            } else {
-              const clickedItem = itemByIdRef.current.get(releaseResult.itemId);
-              if (
-                clickedItem &&
-                clickedItem.id !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID
-              ) {
-                scheduleDrawerOpen(clickedItem);
-              }
-              lastItemClickRef.current = {
-                nodeId: releaseResult.nodeId,
-                time: now,
-              };
-            }
-          } else {
-            lastItemClickRef.current = null;
-          }
-          return;
-        }
-        lastItemClickRef.current = null;
+        handleReleasedClick({
+          releaseResult,
+          clickMoveThreshold: CLICK_MOVE_THRESHOLD,
+          doubleClickMs: DOUBLE_CLICK_MS,
+          clearPendingDrawerOpen,
+          duplicateWorkspaceItem,
+          getItemById: (itemId) => itemByIdRef.current.get(itemId),
+          scheduleDrawerOpen,
+          canOpenItem: (item) => item.id !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+        });
         return;
       }
 
@@ -819,7 +786,7 @@ function GraphView({
         return;
       }
       clearPendingDrawerOpen();
-      lastItemClickRef.current = null;
+      clearLastItemClick();
       cancelSelectionDrag();
       clearSelection();
       setIsSelectionMode(true);
@@ -1090,7 +1057,7 @@ function GraphView({
       dragStateRef.current = null;
       hoverTargetNodeIdRef.current = null;
       panStateRef.current = null;
-      lastItemClickRef.current = null;
+      clearLastItemClick();
       cancelSelectionDrag();
       activeTouchPointsRef.current.clear();
       touchGestureStateRef.current = null;

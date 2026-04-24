@@ -5,6 +5,7 @@ import {
   ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
 } from "../../../types";
+import type { Item } from "../../../types";
 import { rectanglesOverlap } from "../graphGeometry";
 import {
   CARD_HEIGHT,
@@ -104,6 +105,10 @@ export function useGraphDrag({
 }) {
   const dragStateRef = useRef<GraphDragState | null>(null);
   const hoverTargetNodeIdRef = useRef<string | null>(null);
+  const lastItemClickRef = useRef<{
+    nodeId: string;
+    time: number;
+  } | null>(null);
 
   const clearHoverTarget = () => {
     const hoverTargetNodeId = hoverTargetNodeIdRef.current;
@@ -334,13 +339,91 @@ export function useGraphDrag({
     };
   };
 
+  const clearLastItemClick = () => {
+    lastItemClickRef.current = null;
+  };
+
+  const handleReleasedClick = ({
+    releaseResult,
+    clickMoveThreshold,
+    doubleClickMs,
+    clearPendingDrawerOpen,
+    duplicateWorkspaceItem,
+    getItemById,
+    scheduleDrawerOpen,
+    canOpenItem,
+  }: {
+    releaseResult:
+      | { kind: "group" }
+      | { kind: "deleted" }
+      | { kind: "modifier-attached" }
+      | { kind: "combined" }
+      | { kind: "missing-view" }
+      | {
+          kind: "released";
+          nodeId: string;
+          itemId: number;
+          nextPosition: { x: number; y: number };
+          movedDistance: number;
+        };
+    clickMoveThreshold: number;
+    doubleClickMs: number;
+    clearPendingDrawerOpen: () => void;
+    duplicateWorkspaceItem: (nodeId: string) => void;
+    getItemById: (itemId: number) => Item | undefined;
+    scheduleDrawerOpen: (item: Item) => void;
+    canOpenItem: (item: Item) => boolean;
+  }) => {
+    if (
+      releaseResult.kind === "group" ||
+      releaseResult.kind === "deleted" ||
+      releaseResult.kind === "modifier-attached" ||
+      releaseResult.kind === "combined" ||
+      releaseResult.kind === "missing-view"
+    ) {
+      clearLastItemClick();
+      return true;
+    }
+
+    const isClickRelease = releaseResult.movedDistance <= clickMoveThreshold;
+    if (!isClickRelease) {
+      clearLastItemClick();
+      return true;
+    }
+
+    const now = Date.now();
+    const lastClick = lastItemClickRef.current;
+    if (
+      lastClick &&
+      lastClick.nodeId === releaseResult.nodeId &&
+      now - lastClick.time <= doubleClickMs
+    ) {
+      clearPendingDrawerOpen();
+      duplicateWorkspaceItem(releaseResult.nodeId);
+      clearLastItemClick();
+      return true;
+    }
+
+    const clickedItem = getItemById(releaseResult.itemId);
+    if (clickedItem && canOpenItem(clickedItem)) {
+      scheduleDrawerOpen(clickedItem);
+    }
+    lastItemClickRef.current = {
+      nodeId: releaseResult.nodeId,
+      time: now,
+    };
+    return true;
+  };
+
   return {
     dragStateRef,
     hoverTargetNodeIdRef,
+    clearLastItemClick,
     clearHoverTarget,
     cancelActiveDrag,
     updateHoverTarget,
     handleDragPointerMove,
     handleDragPointerUp,
+    handleReleasedClick,
   };
 }
