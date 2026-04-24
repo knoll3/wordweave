@@ -31,7 +31,6 @@ import {
   CARD_HEIGHT,
   CELEBRATION_PROGRESS_STEP,
   CELEBRATION_TINT_FADE_STEP,
-  CELEBRATION_TINT_HOLD_FRAMES,
   CLICK_MOVE_THRESHOLD,
   COMBINING_CONTENT_ALPHA,
   COMBINE_SCALE_STEP,
@@ -227,6 +226,8 @@ function GraphView({
     getItemViewAtWorldPosition,
     applyViewState,
     setViewContentAlpha,
+    triggerCelebration,
+    triggerArrivalHighlight,
   } = useGraphItems({ worldRef });
   const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
@@ -509,23 +510,6 @@ function GraphView({
       window.clearTimeout(pendingDrawerOpenRef.current);
       pendingDrawerOpenRef.current = null;
     }
-  };
-
-  const triggerCelebration = (view: ItemView) => {
-    if (!view.celebration) {
-      return;
-    }
-    view.celebrationProgress = 1;
-    view.celebrationTintProgress = 1;
-    view.celebrationTintHoldFrames = CELEBRATION_TINT_HOLD_FRAMES;
-    view.celebration.visible = true;
-    view.celebration.alpha = 1;
-    view.celebration.scale.set(0.82);
-    if (view.celebrationParticles) {
-      view.celebrationParticles.visible = true;
-      view.celebrationParticles.alpha = 1;
-    }
-    applyViewState(view, "highlight", 1.13);
   };
 
   const scheduleDrawerOpen = (item: Item) => {
@@ -994,9 +978,7 @@ function GraphView({
         view.targetContentAlpha = currentAlpha;
         view.container.alpha = currentAlpha;
         if (workspaceItem.arrivalHighlightMode && !isInitialSceneHydration) {
-          view.arrivalTintProgress = 1;
-          view.arrivalHighlightStartedAt = Date.now();
-          view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
+          triggerArrivalHighlight(view, ARRIVAL_HIGHLIGHT_MAX_MS);
         } else {
           view.arrivalTintProgress = currentArrivalTintProgress;
           view.arrivalHighlightUntil = currentArrivalHighlightUntil;
@@ -1010,9 +992,7 @@ function GraphView({
         existingViews.set(workspaceItem.nodeId, view);
         world.addChild(view.container);
         if (workspaceItem.arrivalHighlightMode && !isInitialSceneHydration) {
-          view.arrivalTintProgress = 1;
-          view.arrivalHighlightStartedAt = Date.now();
-          view.arrivalHighlightUntil = Date.now() + ARRIVAL_HIGHLIGHT_MAX_MS;
+          triggerArrivalHighlight(view, ARRIVAL_HIGHLIGHT_MAX_MS);
         }
         if (removedCombiningNodeIds.length > 0 && addedNodeIds.includes(workspaceItem.nodeId)) {
           view.container.scale.set(SPAWN_SCALE);

@@ -3,6 +3,7 @@ import type { RefObject } from "react";
 import type { Container } from "pixi.js";
 import {
   CARD_HEIGHT,
+  CELEBRATION_TINT_HOLD_FRAMES,
   COMBINE_SCALE_STEP,
   HOVER_SCALE_STEP,
   drawItemCard,
@@ -66,10 +67,36 @@ export function useGraphItems({
     view.targetContentAlpha = alpha;
   };
 
+  const triggerCelebration = (view: ItemView) => {
+    if (!view.celebration) {
+      return;
+    }
+    view.celebrationProgress = 1;
+    view.celebrationTintProgress = 1;
+    view.celebrationTintHoldFrames = CELEBRATION_TINT_HOLD_FRAMES;
+    view.celebration.visible = true;
+    view.celebration.alpha = 1;
+    view.celebration.scale.set(0.82);
+    if (view.celebrationParticles) {
+      view.celebrationParticles.visible = true;
+      view.celebrationParticles.alpha = 1;
+    }
+    applyViewState(view, "highlight", 1.13);
+  };
+
+  const triggerArrivalHighlight = (view: ItemView, maxDurationMs: number) => {
+    const now = Date.now();
+    view.arrivalTintProgress = 1;
+    view.arrivalHighlightStartedAt = now;
+    view.arrivalHighlightUntil = now + maxDurationMs;
+  };
+
   return {
     itemViewsRef,
     getItemViewAtWorldPosition,
     applyViewState,
     setViewContentAlpha,
+    triggerCelebration,
+    triggerArrivalHighlight,
   };
 }
