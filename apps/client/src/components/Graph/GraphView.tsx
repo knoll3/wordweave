@@ -24,6 +24,7 @@ import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
 import { createItemView as createGraphItemView } from "./createItemView";
 import { useGraphCamera } from "./hooks/useGraphCamera";
+import { useGraphItems } from "./hooks/useGraphItems";
 import { usePixiApp } from "./hooks/usePixiApp";
 import {
   ARRIVAL_TINT_FADE_STEP,
@@ -223,7 +224,7 @@ function GraphView({
       refreshActivityOverlay();
     },
   });
-  const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
+  const { itemViewsRef } = useGraphItems();
   const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
     nodeId: string;
