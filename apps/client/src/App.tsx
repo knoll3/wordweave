@@ -27,10 +27,10 @@ import type {
   WorkspaceItem,
 } from "./types";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
+import AppLayout from "./components/AppLayout";
+import AppRightPanel from "./components/AppRightPanel";
 import GraphView from "./components/Graph/GraphView";
 import type { CatalystAction } from "./components/Graph/CatalystDock";
-import JournalDock from "./components/Journal/JournalDock";
-import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useLiveBoardSubscriptions } from "./hooks/useLiveBoardSubscriptions";
 import { useMobileKeyboardWorkarounds } from "./hooks/useMobileKeyboardWorkarounds";
 import { useQuestReferences } from "./hooks/useQuestReferences";
@@ -1399,15 +1399,15 @@ const App: React.FC = () => {
           </div>
         </div>
       ) : null}
-      <div
-        className={`app-root${isMobileLayout ? " is-mobile" : ""}${
+      <AppLayout
+        rootClassName={`app-root${isMobileLayout ? " is-mobile" : ""}${
           isMobileLayout && isSearchFocused ? " is-search-focused" : ""
         }${
           isMobileLayout && !isSearchFocused && !librarySearchQuery.trim()
             ? " is-mobile-library-collapsed"
             : ""
         }`}
-        style={
+        rootStyle={
           isAndroidDevice && isPortraitTabletLayout && androidViewportHeight != null
             ? ({
                 ["--app-viewport-height" as string]: `${androidViewportHeight}px`,
@@ -1415,8 +1415,7 @@ const App: React.FC = () => {
               } as React.CSSProperties)
             : undefined
         }
-      >
-        <aside className="sidebar">
+        sidebar={
           <ElementSidebar
             items={items}
             isMobileLayout={isMobileLayout}
@@ -1433,159 +1432,155 @@ const App: React.FC = () => {
             onSearchFocusChange={setIsSearchFocused}
             onSearchQueryChange={setLibrarySearchQuery}
           />
-        </aside>
-
-        <main className="main-area">
-          <section className="workspace-layout">
-            <div className="graph-wrapper">
-              {isPortraitTabletLayout ? null : (
-                <div className="graph-header">
-                  <h2 className="section-title">Crafting workspace</h2>
-                </div>
-              )}
-              <div className="graph-canvas">
-                {isMobileLayout ? (
-                  <div className="graph-undo-button-overlay">
-                    <button
-                      type="button"
-                      className="graph-overlay-icon-button graph-undo-button-trigger"
-                      onClick={() => void undoWorkspaceBoardAction()}
-                      disabled={
-                        !canUndoWorkspace ||
-                        isUndoingWorkspace ||
-                        combiningNodeIds.length > 0
-                      }
-                      aria-label="Undo last board action"
-                      title="Undo last board action"
-                    >
-                      <Undo2 size={15} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                  </div>
-                ) : null}
-                {isPortraitTabletLayout ? (
-                  <div className="graph-quests-button-overlay">
-                    <button
-                      type="button"
-                      className="graph-overlay-icon-button graph-quests-button-trigger"
-                      onClick={() => openJournal()}
-                      aria-label="Open quests"
-                      title="Open quests"
-                    >
-                      <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
-                    </button>
-                    {visibleTrackedQuests.length > 0 ? (
-                      <div className="graph-quest-target-chip-list">
-                        {visibleTrackedQuests.map((quest) => (
-                          <button
-                            key={quest.name}
-                            type="button"
-                            className="graph-quest-target-chip"
-                            onClick={() => openJournal()}
-                            title={quest.name}
-                          >
-                            <span className="graph-quest-target-chip-marker" aria-hidden="true">
-                              ◎
-                            </span>
-                            <span className="graph-quest-target-chip-label">{quest.name}</span>
-                          </button>
-                        ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
-                <GraphView
-                  items={items}
-                  workspaceItems={workspaceItems}
-                  isRestoringWorkspace={isRestoringWorkspace}
-                  celebratedNodeId={celebratedQuestNodeId}
-                  onAttachActionModifier={attachActionModifier}
-                  onAttachCategoryModifier={attachCategoryModifier}
-                  onMoveWorkspaceItems={moveSharedWorkspaceItems}
-                  onDeleteWorkspaceItems={deleteSharedWorkspaceItems}
-                  onDuplicateWorkspaceItem={duplicateSharedWorkspaceItem}
-                  onClaimWorkspaceDrag={claimSharedWorkspaceDrag}
-                  onDragWorkspaceItem={dragSharedWorkspaceItem}
-                  onReleaseWorkspaceDrag={releaseSharedWorkspaceDrag}
-                  onDragWorkspaceGroup={dragSharedWorkspaceGroup}
-                  remoteSelectedNodeIds={remoteSelectedNodeIds}
-                  remoteSelectionLayout={remoteSelectionLayout}
-                  remoteActivityNodeIds={remoteActivityNodeIds}
-                  remoteActivityLayout={remoteActivityLayout}
-                  remoteActivityMode={remoteActivityMode}
-                  remoteViewportCenters={remoteViewportCenters}
-                  dragAbortSignal={dragAbortSignal}
-                  onSelectionStateChange={publishSharedSelection}
-                  onViewportCenterChange={handleViewportCenterChange}
-                  combiningNodeIds={visibleCombiningNodeIds}
-                  webSearchingNodeIds={webSearchingNodeIds}
-                  onClearActionModifier={clearActionModifier}
-                  onClearCategoryModifier={clearCategoryModifier}
-                  onClearWorkspace={clearWorkspaceItems}
-                  onCombineWorkspaceItems={combineWorkspaceItems}
-                  onCombineWorkspaceSelection={combineWorkspaceSelection}
-                  onOpenItemDetails={openItemDetails}
-                  catalystActions={catalystActions}
-                  closeCatalystMenuOnSelect={isMobileLayout}
-                />
+        }
+        workspace={
+          <div className="graph-wrapper">
+            {isPortraitTabletLayout ? null : (
+              <div className="graph-header">
+                <h2 className="section-title">Crafting workspace</h2>
               </div>
-            </div>
-              <JournalDock
-                dockRef={journalDockRef}
-                isOpen={isJournalOpen}
-                isTransient={isPortraitTabletLayout}
-                mode={rightPanelMode}
-                questReferences={questReferences}
-                referencePreviewLimit={QUEST_REFERENCE_PREVIEW_LIMIT}
-                quests={visibleQuests}
-                trackedQuestNames={trackedQuestNames}
-                completedQuestNames={completedQuestNames}
-                isGeneratingQuests={isGeneratingQuests}
-                selectedQuest={selectedQuest}
-                selectedQuestItem={selectedQuestItem}
-                item={drawerItem}
+            )}
+            <div className="graph-canvas">
+              {isMobileLayout ? (
+                <div className="graph-undo-button-overlay">
+                  <button
+                    type="button"
+                    className="graph-overlay-icon-button graph-undo-button-trigger"
+                    onClick={() => void undoWorkspaceBoardAction()}
+                    disabled={
+                      !canUndoWorkspace ||
+                      isUndoingWorkspace ||
+                      combiningNodeIds.length > 0
+                    }
+                    aria-label="Undo last board action"
+                    title="Undo last board action"
+                  >
+                    <Undo2 size={15} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : null}
+              {isPortraitTabletLayout ? (
+                <div className="graph-quests-button-overlay">
+                  <button
+                    type="button"
+                    className="graph-overlay-icon-button graph-quests-button-trigger"
+                    onClick={() => openJournal()}
+                    aria-label="Open quests"
+                    title="Open quests"
+                  >
+                    <ScrollText size={15} strokeWidth={2} aria-hidden="true" />
+                  </button>
+                  {visibleTrackedQuests.length > 0 ? (
+                    <div className="graph-quest-target-chip-list">
+                      {visibleTrackedQuests.map((quest) => (
+                        <button
+                          key={quest.name}
+                          type="button"
+                          className="graph-quest-target-chip"
+                          onClick={() => openJournal()}
+                          title={quest.name}
+                        >
+                          <span className="graph-quest-target-chip-marker" aria-hidden="true">
+                            ◎
+                          </span>
+                          <span className="graph-quest-target-chip-label">{quest.name}</span>
+                        </button>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+              <GraphView
                 items={items}
-                itemsById={itemById}
-                canGoBack={drawerHistory.length > 0}
-                onBack={goBackInItemDetails}
-                onAddItemToWorkspace={addLibraryItemToWorkspace}
-                onAddItemToWorkspaceAsActionAnchor={addLibraryItemToWorkspaceAsActionAnchor}
-                onCloseItem={closeItemDetails}
-                onCloseQuest={() => {
-                  setRightPanelMode("journal");
-                  setSelectedQuestName(null);
-                }}
-                onBackToJournal={openJournal}
-                onSelectItem={openItemDetails}
-                onCollapse={() => setIsJournalOpen(false)}
-                onStartQuestDraftSession={openQuestGenerationModal}
-                onSelectQuest={openQuestDetails}
-                onTrackQuest={trackQuest}
-                onUntrackQuest={untrackQuest}
-                onRequestAbandonQuest={setPendingAbandonedQuestName}
-                pendingQuestAction={pendingQuestAction}
-                truncateReference={truncateReferencePreview}
+                workspaceItems={workspaceItems}
+                isRestoringWorkspace={isRestoringWorkspace}
+                celebratedNodeId={celebratedQuestNodeId}
+                onAttachActionModifier={attachActionModifier}
+                onAttachCategoryModifier={attachCategoryModifier}
+                onMoveWorkspaceItems={moveSharedWorkspaceItems}
+                onDeleteWorkspaceItems={deleteSharedWorkspaceItems}
+                onDuplicateWorkspaceItem={duplicateSharedWorkspaceItem}
+                onClaimWorkspaceDrag={claimSharedWorkspaceDrag}
+                onDragWorkspaceItem={dragSharedWorkspaceItem}
+                onReleaseWorkspaceDrag={releaseSharedWorkspaceDrag}
+                onDragWorkspaceGroup={dragSharedWorkspaceGroup}
+                remoteSelectedNodeIds={remoteSelectedNodeIds}
+                remoteSelectionLayout={remoteSelectionLayout}
+                remoteActivityNodeIds={remoteActivityNodeIds}
+                remoteActivityLayout={remoteActivityLayout}
+                remoteActivityMode={remoteActivityMode}
+                remoteViewportCenters={remoteViewportCenters}
+                dragAbortSignal={dragAbortSignal}
+                onSelectionStateChange={publishSharedSelection}
+                onViewportCenterChange={handleViewportCenterChange}
+                combiningNodeIds={visibleCombiningNodeIds}
+                webSearchingNodeIds={webSearchingNodeIds}
+                onClearActionModifier={clearActionModifier}
+                onClearCategoryModifier={clearCategoryModifier}
+                onClearWorkspace={clearWorkspaceItems}
+                onCombineWorkspaceItems={combineWorkspaceItems}
+                onCombineWorkspaceSelection={combineWorkspaceSelection}
+                onOpenItemDetails={openItemDetails}
+                catalystActions={catalystActions}
+                closeCatalystMenuOnSelect={isMobileLayout}
               />
-              <QuestGenerationModal
-                isOpen={isQuestModalOpen}
-                isLoading={isGeneratingQuests}
-                topic={questTopicInput}
-                draft={questDraft}
-                selectedTargetNames={selectedQuestDraftTargets}
-                onTopicChange={updateQuestTopicInput}
-                onClose={closeQuestGenerationModal}
-                onSubmit={() => {
-                  void submitQuestGenerationTopic();
-                }}
-                onToggleTarget={toggleQuestDraftTarget}
-                onSelectAll={selectAllQuestDraftTargets}
-                onDeselectAll={clearQuestDraftSelection}
-                onAccept={() => {
-                  void acceptQuestGenerationDraft();
-                }}
-              />
-          </section>
-        </main>
-      </div>
+            </div>
+          </div>
+        }
+        rightPanel={
+          <AppRightPanel
+            dockRef={journalDockRef}
+            isOpen={isJournalOpen}
+            isTransient={isPortraitTabletLayout}
+            mode={rightPanelMode}
+            questReferences={questReferences}
+            referencePreviewLimit={QUEST_REFERENCE_PREVIEW_LIMIT}
+            quests={visibleQuests}
+            trackedQuestNames={trackedQuestNames}
+            completedQuestNames={completedQuestNames}
+            isGeneratingQuests={isGeneratingQuests}
+            selectedQuest={selectedQuest}
+            selectedQuestItem={selectedQuestItem}
+            item={drawerItem}
+            items={items}
+            itemsById={itemById}
+            canGoBack={drawerHistory.length > 0}
+            onBack={goBackInItemDetails}
+            onAddItemToWorkspace={addLibraryItemToWorkspace}
+            onAddItemToWorkspaceAsActionAnchor={addLibraryItemToWorkspaceAsActionAnchor}
+            onCloseItem={closeItemDetails}
+            onCloseQuest={() => {
+              setRightPanelMode("journal");
+              setSelectedQuestName(null);
+            }}
+            onBackToJournal={openJournal}
+            onSelectItem={openItemDetails}
+            onCollapse={() => setIsJournalOpen(false)}
+            onStartQuestDraftSession={openQuestGenerationModal}
+            onSelectQuest={openQuestDetails}
+            onTrackQuest={trackQuest}
+            onUntrackQuest={untrackQuest}
+            onRequestAbandonQuest={setPendingAbandonedQuestName}
+            pendingQuestAction={pendingQuestAction}
+            truncateReference={truncateReferencePreview}
+            isQuestModalOpen={isQuestModalOpen}
+            questTopicInput={questTopicInput}
+            questDraft={questDraft}
+            selectedQuestDraftTargets={selectedQuestDraftTargets}
+            onTopicChange={updateQuestTopicInput}
+            onCloseQuestModal={closeQuestGenerationModal}
+            onSubmitQuestTopic={() => {
+              void submitQuestGenerationTopic();
+            }}
+            onToggleQuestTarget={toggleQuestDraftTarget}
+            onSelectAllQuestTargets={selectAllQuestDraftTargets}
+            onDeselectAllQuestTargets={clearQuestDraftSelection}
+            onAcceptQuestDraft={() => {
+              void acceptQuestGenerationDraft();
+            }}
+          />
+        }
+      />
     </>
   );
 };
