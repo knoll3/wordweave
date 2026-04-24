@@ -25,6 +25,7 @@ import { SPECIAL_ITEMS } from "../../lib/specialItems";
 import type { CatalystAction } from "./CatalystDock";
 import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
+import { useGraphCamera } from "./hooks/useGraphCamera";
 import { usePixiApp } from "./hooks/usePixiApp";
 import {
   ARRIVAL_TINT_FADE_STEP,
@@ -122,12 +123,6 @@ interface Props {
   closeCatalystMenuOnSelect?: boolean;
 }
 
-type CameraState = {
-  x: number;
-  y: number;
-  zoom: number;
-};
-
 type DragState = {
   nodeId: string;
   pointerId: number;
@@ -167,15 +162,6 @@ type TouchGestureState = {
   startZoom: number;
   startCenterWorldX: number;
   startCenterWorldY: number;
-};
-
-type ViewportSnapshot = {
-  width: number;
-  height: number;
-  cameraX: number;
-  cameraY: number;
-  zoom: number;
-  center: { x: number; y: number };
 };
 
 function GraphView({
@@ -224,8 +210,26 @@ function GraphView({
     initializePixiApp,
     cleanupPixiApp,
   } = usePixiApp();
+  const {
+    cameraRef,
+    viewportSnapshot,
+    applyCamera,
+    pixiPointerToWorld,
+    screenPointToWorld,
+    worldRectToScreenRect,
+  } = useGraphCamera({
+    appRef,
+    viewportRef,
+    gridRef,
+    onViewportCenterChange,
+    onCameraApplied: () => {
+      refreshSelectionOverlay();
+      refreshRemoteSelectionOverlay();
+      refreshRemoteActivityOverlay();
+      refreshActivityOverlay();
+    },
+  });
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
-  const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });
   const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
     nodeId: string;
@@ -264,7 +268,6 @@ function GraphView({
   const onSelectionStateChangeRef = useRef(onSelectionStateChange);
   const onAttachCategoryModifierRef = useRef(onAttachCategoryModifier);
   const onAttachActionModifierRef = useRef(onAttachActionModifier);
-  const onViewportCenterChangeRef = useRef(onViewportCenterChange);
   const onCombineWorkspaceItemsRef = useRef(onCombineWorkspaceItems);
   const onCombineWorkspaceSelectionRef = useRef(onCombineWorkspaceSelection);
   const onClearCategoryModifierRef = useRef(onClearCategoryModifier);
@@ -316,7 +319,6 @@ function GraphView({
     width: number;
     height: number;
   } | null>(null);
-  const [viewportSnapshot, setViewportSnapshot] = useState<ViewportSnapshot | null>(null);
   const selectionModeRef = useRef(false);
   const selectedNodeIdsRef = useRef<string[]>([]);
   const selectionLayoutRef = useRef<SelectionCombineLayout | null>(null);
@@ -363,7 +365,6 @@ function GraphView({
   onSelectionStateChangeRef.current = onSelectionStateChange;
   onAttachCategoryModifierRef.current = onAttachCategoryModifier;
   onAttachActionModifierRef.current = onAttachActionModifier;
-  onViewportCenterChangeRef.current = onViewportCenterChange;
   onCombineWorkspaceItemsRef.current = onCombineWorkspaceItems;
   onCombineWorkspaceSelectionRef.current = onCombineWorkspaceSelection;
   onClearCategoryModifierRef.current = onClearCategoryModifier;
@@ -373,58 +374,6 @@ function GraphView({
   selectedNodeIdsRef.current = selectedNodeIds;
   selectionLayoutRef.current = selectionLayout;
   activeOverlayWorldBoundsRef.current = activeOverlayWorldBounds;
-
-  const updateViewportCenter = () => {
-    const app = appRef.current;
-    const handleViewportCenterChange = onViewportCenterChangeRef.current;
-    if (!app) return;
-    if (app.renderer.width < 40 || app.renderer.height < 40) return;
-    const camera = cameraRef.current;
-    const nextCenter = {
-      x: (app.renderer.width / 2 - camera.x) / camera.zoom,
-      y: (app.renderer.height / 2 - camera.y) / camera.zoom,
-    };
-    handleViewportCenterChange?.(nextCenter);
-    setViewportSnapshot((current) => {
-      const nextSnapshot = {
-        width: app.renderer.width,
-        height: app.renderer.height,
-        cameraX: camera.x,
-        cameraY: camera.y,
-        zoom: camera.zoom,
-        center: nextCenter,
-      };
-      if (
-        current &&
-        current.width === nextSnapshot.width &&
-        current.height === nextSnapshot.height &&
-        Math.abs(current.cameraX - nextSnapshot.cameraX) < 0.5 &&
-        Math.abs(current.cameraY - nextSnapshot.cameraY) < 0.5 &&
-        Math.abs(current.zoom - nextSnapshot.zoom) < 0.001
-      ) {
-        return current;
-      }
-      return nextSnapshot;
-    });
-  };
-
-  const applyCamera = () => {
-    const viewport = viewportRef.current;
-    const grid = gridRef.current;
-    if (!viewport) return;
-    const camera = cameraRef.current;
-    viewport.position.set(camera.x, camera.y);
-    viewport.scale.set(camera.zoom);
-    if (grid) {
-      grid.tilePosition.set(camera.x, camera.y);
-      grid.tileScale.set(camera.zoom);
-    }
-    updateViewportCenter();
-    refreshSelectionOverlay();
-    refreshRemoteSelectionOverlay();
-    refreshRemoteActivityOverlay();
-    refreshActivityOverlay();
-  };
 
   const frameWorkspaceItems = (
     app: Application,
@@ -444,37 +393,6 @@ function GraphView({
       x: app.renderer.width / 2 - (anchorItem.position.x + PLACEHOLDER_WIDTH / 2),
       y: app.renderer.height / 2 - (anchorItem.position.y + CARD_HEIGHT / 2),
       zoom: 1,
-    };
-  };
-
-  const pixiPointerToWorld = (event: FederatedPointerEvent) => {
-    const camera = cameraRef.current;
-    return {
-      x: (event.global.x - camera.x) / camera.zoom,
-      y: (event.global.y - camera.y) / camera.zoom,
-    };
-  };
-
-  const screenPointToWorld = (screenX: number, screenY: number) => {
-    const camera = cameraRef.current;
-    return {
-      x: (screenX - camera.x) / camera.zoom,
-      y: (screenY - camera.y) / camera.zoom,
-    };
-  };
-
-  const worldRectToScreenRect = (rect: {
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  }) => {
-    const camera = cameraRef.current;
-    return {
-      left: rect.x * camera.zoom + camera.x,
-      top: rect.y * camera.zoom + camera.y,
-      width: rect.width * camera.zoom,
-      height: rect.height * camera.zoom,
     };
   };
 
