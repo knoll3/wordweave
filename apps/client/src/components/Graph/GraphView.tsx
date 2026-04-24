@@ -6,8 +6,6 @@ import {
   Graphics,
   Rectangle,
   Text,
-  Texture,
-  TilingSprite,
 } from "pixi.js";
 import type {
   SharedBoardActivityMode,
@@ -27,6 +25,7 @@ import { SPECIAL_ITEMS } from "../../lib/specialItems";
 import type { CatalystAction } from "./CatalystDock";
 import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
+import { usePixiApp } from "./hooks/usePixiApp";
 import {
   ARRIVAL_TINT_FADE_STEP,
   CARD_HEIGHT,
@@ -45,8 +44,6 @@ import {
   DUPLICATE_OFFSET_Y,
   GRID_CELL_GAP_X,
   GRID_CELL_GAP_Y,
-  GRID_RADIUS,
-  GRID_SPACING,
   HOVER_SCALE_STEP,
   INITIAL_WORLD_CENTER,
   ItemView,
@@ -216,13 +213,17 @@ function GraphView({
   catalystActions = [],
   closeCatalystMenuOnSelect = false,
 }: Props) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const appRef = useRef<Application | null>(null);
-  const viewportRef = useRef<Container | null>(null);
-  const worldRef = useRef<Container | null>(null);
-  const gridRef = useRef<TilingSprite | null>(null);
-  const gridTextureRef = useRef<Texture | null>(null);
-  const backgroundRef = useRef<Graphics | null>(null);
+  const {
+    hostRef,
+    appRef,
+    viewportRef,
+    worldRef,
+    gridRef,
+    backgroundRef,
+    resizeFrameRef,
+    initializePixiApp,
+    cleanupPixiApp,
+  } = usePixiApp();
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
   const cameraRef = useRef<CameraState>({ x: 0, y: 0, zoom: 1 });
   const dragStateRef = useRef<DragState | null>(null);
@@ -241,8 +242,6 @@ function GraphView({
     time: number;
   } | null>(null);
   const selectionDragRef = useRef<SelectionDragState | null>(null);
-  const resizeFrameRef = useRef<number>(0);
-  const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const combiningNodeIdsRef = useRef<string[]>(combiningNodeIds ?? []);
   const ponderingNodeIdsRef = useRef<string[]>(ponderingNodeIds ?? []);
   const webSearchingNodeIdsRef = useRef<string[]>(webSearchingNodeIds ?? []);
@@ -1860,57 +1859,11 @@ function GraphView({
     };
 
     const init = async () => {
-      const app = new Application();
-      await app.init({
-        width: Math.max(1, host.clientWidth),
-        height: Math.max(1, host.clientHeight),
-        antialias: true,
-        autoDensity: true,
-        backgroundAlpha: 0,
-        resolution: window.devicePixelRatio || 1,
+      const app = await initializePixiApp({
+        isCancelled: () => cancelled,
+        onResize: handleWindowResize,
       });
-      if (cancelled) {
-        app.destroy(true, { children: true });
-        return;
-      }
-
-      appRef.current = app;
-      host.appendChild(app.canvas);
-      app.canvas.style.touchAction = "none";
-      app.stage.eventMode = "static";
-
-      const background = new Graphics();
-      background.eventMode = "static";
-      background.cursor = "grab";
-      backgroundRef.current = background;
-      app.stage.addChild(background);
-
-      const gridPattern = new Graphics();
-      gridPattern
-        .rect(0, 0, GRID_SPACING, GRID_SPACING)
-        .fill({ color: 0x020617, alpha: 0.001 });
-      gridPattern
-        .circle(GRID_SPACING / 2, GRID_SPACING / 2, GRID_RADIUS)
-        .fill({ color: 0x94a3b8, alpha: 0.14 });
-      const gridTexture = app.renderer.generateTexture(gridPattern);
-      gridPattern.destroy();
-      gridTextureRef.current = gridTexture;
-
-      const grid = new TilingSprite({
-        texture: gridTexture,
-        width: app.renderer.width,
-        height: app.renderer.height,
-      });
-      grid.eventMode = "none";
-      app.stage.addChild(grid);
-
-      const viewport = new Container();
-      const world = new Container();
-      viewport.addChild(world);
-      app.stage.addChild(viewport);
-      viewportRef.current = viewport;
-      gridRef.current = grid;
-      worldRef.current = world;
+      if (!app) return;
 
       frameWorkspaceItems(app, workspaceItems);
 
@@ -2144,11 +2097,6 @@ function GraphView({
       app.canvas.addEventListener("wheel", handleWheel, { passive: false });
       window.addEventListener("resize", handleWindowResize);
 
-      const resizeObserver = new ResizeObserver(() => {
-        handleWindowResize();
-      });
-      resizeObserver.observe(host);
-      resizeObserverRef.current = resizeObserver;
     };
 
     void init();
@@ -2160,27 +2108,14 @@ function GraphView({
       window.removeEventListener("pointerup", handlePointerUp);
       window.removeEventListener("pointercancel", handlePointerUp);
       const app = appRef.current;
-      if (resizeFrameRef.current) {
-        window.cancelAnimationFrame(resizeFrameRef.current);
-        resizeFrameRef.current = 0;
-      }
       if (app) {
         app.stage.off("pointerdown", handleStagePointerDown);
         app.canvas.removeEventListener("mousedown", handleCanvasMouseDownCapture, true);
         app.canvas.removeEventListener("wheel", handleWheel);
-        app.destroy(true, { children: true });
       }
-      resizeObserverRef.current?.disconnect();
-      resizeObserverRef.current = null;
       window.removeEventListener("resize", handleWindowResize);
       itemViewsRef.current.clear();
-      appRef.current = null;
-      viewportRef.current = null;
-      gridRef.current = null;
-      gridTextureRef.current?.destroy(true);
-      gridTextureRef.current = null;
-      worldRef.current = null;
-      backgroundRef.current = null;
+      cleanupPixiApp();
       dragStateRef.current = null;
       hoverTargetNodeIdRef.current = null;
       panStateRef.current = null;
