@@ -6,6 +6,12 @@ import type {
   FederatedPointerEvent,
   TilingSprite,
 } from "pixi.js";
+import {
+  MAX_ZOOM,
+  MIN_ZOOM,
+  ZOOM_STEP,
+  clamp,
+} from "../graphViewHelpers";
 
 export type CameraState = {
   x: number;
@@ -94,6 +100,43 @@ export function useGraphCamera({
     onCameraAppliedRef.current?.();
   }, [gridRef, updateViewportCenter, viewportRef]);
 
+  const setCameraPosition = useCallback(
+    (position: { x: number; y: number }) => {
+      cameraRef.current.x = position.x;
+      cameraRef.current.y = position.y;
+      applyCamera();
+    },
+    [applyCamera]
+  );
+
+  const setCameraForWorldPoint = useCallback(
+    (screenPoint: { x: number; y: number }, worldPoint: { x: number; y: number }, zoom: number) => {
+      const nextZoom = clamp(zoom, MIN_ZOOM, MAX_ZOOM);
+      cameraRef.current.zoom = nextZoom;
+      cameraRef.current.x = screenPoint.x - worldPoint.x * nextZoom;
+      cameraRef.current.y = screenPoint.y - worldPoint.y * nextZoom;
+      applyCamera();
+    },
+    [applyCamera]
+  );
+
+  const zoomAtScreenPoint = useCallback(
+    (screenPoint: { x: number; y: number }, direction: "in" | "out") => {
+      const camera = cameraRef.current;
+      const previousZoom = camera.zoom;
+      const zoomDelta = direction === "in" ? 1 + ZOOM_STEP : 1 - ZOOM_STEP;
+      const nextZoom = clamp(previousZoom * zoomDelta, MIN_ZOOM, MAX_ZOOM);
+      if (nextZoom === previousZoom) return;
+
+      const worldPoint = {
+        x: (screenPoint.x - camera.x) / previousZoom,
+        y: (screenPoint.y - camera.y) / previousZoom,
+      };
+      setCameraForWorldPoint(screenPoint, worldPoint, nextZoom);
+    },
+    [setCameraForWorldPoint]
+  );
+
   const pixiPointerToWorld = useCallback((event: FederatedPointerEvent) => {
     const camera = cameraRef.current;
     return {
@@ -128,6 +171,9 @@ export function useGraphCamera({
     viewportSnapshot,
     updateViewportCenter,
     applyCamera,
+    setCameraPosition,
+    setCameraForWorldPoint,
+    zoomAtScreenPoint,
     pixiPointerToWorld,
     screenPointToWorld,
     worldRectToScreenRect,

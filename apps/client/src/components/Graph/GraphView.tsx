@@ -49,16 +49,12 @@ import {
   INITIAL_WORLD_CENTER,
   ItemView,
   ItemVisualState,
-  MAX_ZOOM,
-  MIN_ZOOM,
   PAN_DRAG_THRESHOLD,
   PLACEHOLDER_WIDTH,
   POSITION_STEP,
   SELECTION_PADDING,
   SHRINK_SCALE,
   SPAWN_SCALE,
-  ZOOM_STEP,
-  clamp,
   drawCelebrationBurst,
   drawCelebrationParticles,
   drawItemCard,
@@ -214,6 +210,9 @@ function GraphView({
     cameraRef,
     viewportSnapshot,
     applyCamera,
+    setCameraPosition,
+    setCameraForWorldPoint,
+    zoomAtScreenPoint,
     pixiPointerToWorld,
     screenPointToWorld,
     worldRectToScreenRect,
@@ -1478,18 +1477,14 @@ function GraphView({
             Math.hypot(secondPoint.x - firstPoint.x, secondPoint.y - firstPoint.y)
           );
 
-          const nextZoom = clamp(
-            touchGestureState.startZoom *
-              (currentDistance / touchGestureState.startDistance),
-            MIN_ZOOM,
-            MAX_ZOOM
+          setCameraForWorldPoint(
+            { x: currentCenterX, y: currentCenterY },
+            {
+              x: touchGestureState.startCenterWorldX,
+              y: touchGestureState.startCenterWorldY,
+            },
+            touchGestureState.startZoom * (currentDistance / touchGestureState.startDistance)
           );
-          cameraRef.current.zoom = nextZoom;
-          cameraRef.current.x =
-            currentCenterX - touchGestureState.startCenterWorldX * nextZoom;
-          cameraRef.current.y =
-            currentCenterY - touchGestureState.startCenterWorldY * nextZoom;
-          applyCamera();
           return;
         }
       }
@@ -1522,9 +1517,10 @@ function GraphView({
       if (!panState.moved && Math.hypot(deltaX, deltaY) >= PAN_DRAG_THRESHOLD) {
         panState.moved = true;
       }
-      cameraRef.current.x = panState.startCameraX + deltaX;
-      cameraRef.current.y = panState.startCameraY + deltaY;
-      applyCamera();
+      setCameraPosition({
+        x: panState.startCameraX + deltaX,
+        y: panState.startCameraY + deltaY,
+      });
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -1739,18 +1735,10 @@ function GraphView({
       const rect = element.getBoundingClientRect();
       const screenX = event.clientX - rect.left;
       const screenY = event.clientY - rect.top;
-      const camera = cameraRef.current;
-      const previousZoom = camera.zoom;
-      const zoomDelta = event.deltaY < 0 ? 1 + ZOOM_STEP : 1 - ZOOM_STEP;
-      const nextZoom = clamp(previousZoom * zoomDelta, MIN_ZOOM, MAX_ZOOM);
-      if (nextZoom === previousZoom) return;
-
-      const worldX = (screenX - camera.x) / previousZoom;
-      const worldY = (screenY - camera.y) / previousZoom;
-      camera.zoom = nextZoom;
-      camera.x = screenX - worldX * nextZoom;
-      camera.y = screenY - worldY * nextZoom;
-      applyCamera();
+      zoomAtScreenPoint(
+        { x: screenX, y: screenY },
+        event.deltaY < 0 ? "in" : "out"
+      );
     };
 
     const handleCanvasMouseDownCapture = (event: MouseEvent) => {
