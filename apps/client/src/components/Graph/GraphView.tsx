@@ -23,9 +23,10 @@ import {
   CREATIVE_ITEM,
 } from "../../types";
 import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
-import { resolveActionPromptFamilyKey } from "../../lib/actionPromptFamilies";
-import { ACTION_CATALYST_BY_ID, SPECIAL_ITEMS } from "../../lib/specialItems";
-import CatalystDock, { type CatalystAction } from "./CatalystDock";
+import { SPECIAL_ITEMS } from "../../lib/specialItems";
+import type { CatalystAction } from "./CatalystDock";
+import GraphControls from "./GraphControls";
+import GraphOverlays from "./GraphOverlays";
 import {
   ARRIVAL_TINT_FADE_STEP,
   CARD_HEIGHT,
@@ -69,6 +70,13 @@ import {
   setViewTargetTopLeftPosition,
   setViewTopLeftPosition,
 } from "./graphViewHelpers";
+import { rectanglesOverlap } from "./graphGeometry";
+import { buildGraphSelectionLayout } from "./graphSelectionLayout";
+import {
+  getLocalActivityOverlayLabels,
+  getRemoteActivityOverlayLabels,
+} from "./overlayLabels";
+import { calculateRemoteViewportIndicators } from "./remoteViewportIndicators";
 
 interface Props {
   items: Item[];
@@ -790,141 +798,34 @@ function GraphView({
   };
 
   const buildSelectionLayout = (nodeIds: string[]): SelectionCombineLayout | null => {
-    if (nodeIds.length < 2) return null;
-
     const selectedWorkspaceItems = nodeIds
       .map((nodeId) => workspaceItemsRef.current.find((item) => item.nodeId === nodeId))
       .filter(Boolean) as WorkspaceItem[];
-    const actionAnchor = selectedWorkspaceItems.find(
-      (item) => item.actionConstraintName && item.actionConstraintNormalizedName
-    );
-    const actionCatalyst = selectedWorkspaceItems
-      .map((item) => ACTION_CATALYST_BY_ID.get(item.itemId) ?? null)
-      .find((entry): entry is NonNullable<(typeof ACTION_CATALYST_BY_ID extends Map<any, infer V> ? V : never)> => entry != null) ?? null;
-    const effectiveActionConstraint =
-      actionAnchor?.actionConstraintName ?? actionCatalyst?.actionConstraint ?? null;
-    const isCompoundSelection =
-      resolveActionPromptFamilyKey(effectiveActionConstraint) === "compound";
 
     const selectedViews = nodeIds
       .map((nodeId) => {
         const view = itemViewsRef.current.get(nodeId);
-        return view ? { nodeId, view } : null;
+        return view
+          ? {
+              nodeId,
+              position: getViewTopLeftPosition(view),
+              width: view.width,
+            }
+          : null;
       })
-      .filter(Boolean) as Array<{ nodeId: string; view: ItemView }>;
+      .filter(
+        (
+          entry
+        ): entry is { nodeId: string; position: { x: number; y: number }; width: number } =>
+          entry != null
+      );
 
-    if (selectedViews.length < 2) return null;
-
-    const bounds = selectedViews.reduce(
-      (acc, entry) => {
-        const position = getViewTopLeftPosition(entry.view);
-        return {
-          left: Math.min(acc.left, position.x),
-          top: Math.min(acc.top, position.y),
-          right: Math.max(acc.right, position.x + entry.view.width),
-          bottom: Math.max(acc.bottom, position.y + CARD_HEIGHT),
-          totalWidth: acc.totalWidth + entry.view.width,
-        };
-      },
-      {
-        left: Number.POSITIVE_INFINITY,
-        top: Number.POSITIVE_INFINITY,
-        right: Number.NEGATIVE_INFINITY,
-        bottom: Number.NEGATIVE_INFINITY,
-        totalWidth: 0,
-      }
-    );
-
-    const orderedNodeIds = [...selectedViews]
-      .sort((a, b) => {
-        const aPosition = getViewTopLeftPosition(a.view);
-        const bPosition = getViewTopLeftPosition(b.view);
-        if (isCompoundSelection) {
-          if (aPosition.x !== bPosition.x) return aPosition.x - bPosition.x;
-          return aPosition.y - bPosition.y;
-        }
-        if (aPosition.y !== bPosition.y) return aPosition.y - bPosition.y;
-        return aPosition.x - bPosition.x;
-      })
-      .map((entry) => entry.nodeId);
-
-    const placeholderWidth = Math.max(
-      PLACEHOLDER_WIDTH,
-      Math.round(bounds.totalWidth / selectedViews.length)
-    );
-    const itemsForLayout = [
-      ...orderedNodeIds.map((nodeId) => ({
-        nodeId,
-        width: itemViewsRef.current.get(nodeId)?.width ?? 0,
-        isPlaceholder: false,
-      })),
-      {
-        nodeId: `workspace-selection-placeholder-${Date.now()}`,
-        width: placeholderWidth,
-        isPlaceholder: true,
-      },
-    ];
-
-    const selectionWidth = bounds.right - bounds.left;
-    const averageWidth = bounds.totalWidth / selectedViews.length;
-    const targetRowWidth = Math.max(
-      selectionWidth,
-      Math.round(Math.sqrt(itemsForLayout.length) * averageWidth)
-    );
-
-    const rows: Array<Array<(typeof itemsForLayout)[number]>> = [];
-    let currentRow: Array<(typeof itemsForLayout)[number]> = [];
-    let currentRowWidth = 0;
-
-    itemsForLayout.forEach((entry) => {
-      const nextWidth = currentRow.length === 0 ? entry.width : currentRowWidth + GRID_CELL_GAP_X + entry.width;
-      if (currentRow.length > 0 && nextWidth > targetRowWidth) {
-        rows.push(currentRow);
-        currentRow = [entry];
-        currentRowWidth = entry.width;
-        return;
-      }
-      currentRow.push(entry);
-      currentRowWidth = nextWidth;
+    return buildGraphSelectionLayout({
+      nodeIds,
+      selectedWorkspaceItems,
+      selectedViews,
+      placeholderNodeId: `workspace-selection-placeholder-${Date.now()}`,
     });
-    if (currentRow.length > 0) {
-      rows.push(currentRow);
-    }
-
-    const gridHeight = rows.length * CARD_HEIGHT + (rows.length - 1) * GRID_CELL_GAP_Y;
-    const currentCenterY = (bounds.top + bounds.bottom) / 2;
-    const startX = Math.round(bounds.left);
-    const startY = Math.round(currentCenterY - gridHeight / 2);
-    const nodePositions: SelectionCombineLayout["nodePositions"] = [];
-    let placeholderPosition = { x: startX, y: startY };
-
-    rows.forEach((row, rowIndex) => {
-      let rowX = startX;
-      const rowY = startY + rowIndex * (CARD_HEIGHT + GRID_CELL_GAP_Y);
-      row.forEach((entry) => {
-        if (entry.isPlaceholder) {
-          placeholderPosition = { x: Math.round(rowX), y: Math.round(rowY) };
-        } else {
-          nodePositions.push({
-            nodeId: entry.nodeId,
-            position: {
-              x: Math.round(rowX),
-              y: Math.round(rowY),
-            },
-          });
-        }
-        rowX += entry.width + GRID_CELL_GAP_X;
-      });
-    });
-
-    const placeholderNodeId = itemsForLayout[itemsForLayout.length - 1].nodeId;
-
-    return {
-      nodeIds: orderedNodeIds,
-      nodePositions,
-      placeholderNodeId,
-      placeholderPosition,
-    };
   };
 
   const applySelectionLayout = (nextLayout: SelectionCombineLayout | null) => {
@@ -942,15 +843,6 @@ function GraphView({
     setSelectedNodeIds(nextLayout.nodeIds);
     setSelectionLayout(nextLayout);
   };
-
-  const rectanglesOverlap = (
-    a: { x: number; y: number; width: number; height: number },
-    b: { x: number; y: number; width: number; height: number }
-  ) =>
-    a.x < b.x + b.width &&
-    a.x + a.width > b.x &&
-    a.y < b.y + b.height &&
-    a.y + a.height > b.y;
 
   const getItemViewAtWorldPosition = (position: { x: number; y: number }) => {
     const world = worldRef.current;
@@ -2504,97 +2396,14 @@ function GraphView({
     (isSelectionWebSearching || isSelectionPondering) && selectionOverlayRect
       ? selectionOverlayRect
       : activityOverlayRect;
-  const overlayTitle = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
-    ? "Searching"
-    : "Ponderificating";
-  const overlayCopy = isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
-    ? "Searching the web for better results."
-    : "Thinking harder for a better result.";
-  const remoteOverlayTitle =
-    remoteActivityMode === "searching"
-      ? "Searching"
-      : remoteActivityMode === "pondering"
-        ? "Ponderificating"
-        : "Combining";
-  const remoteOverlayCopy =
-    remoteActivityMode === "searching"
-      ? "Searching the web for better results."
-      : remoteActivityMode === "pondering"
-        ? "Thinking harder for a better result."
-        : "Another player is combining these items.";
-  const remoteViewportIndicators = useMemo(() => {
-    if (!viewportSnapshot || remoteViewportCenters.length === 0) {
-      return [];
-    }
-
-    const inset = 26;
-    const centerScreenX = viewportSnapshot.width / 2;
-    const centerScreenY = viewportSnapshot.height / 2;
-    const halfWidth = Math.max(1, centerScreenX - inset);
-    const halfHeight = Math.max(1, centerScreenY - inset);
-
-    const indicators = remoteViewportCenters
-      .map((entry) => {
-        const screenX = entry.center.x * viewportSnapshot.zoom + viewportSnapshot.cameraX;
-        const screenY = entry.center.y * viewportSnapshot.zoom + viewportSnapshot.cameraY;
-        if (
-          screenX >= 0 &&
-          screenX <= viewportSnapshot.width &&
-          screenY >= 0 &&
-          screenY <= viewportSnapshot.height
-        ) {
-          return null;
-        }
-
-        const deltaX = screenX - centerScreenX;
-        const deltaY = screenY - centerScreenY;
-        const absDeltaX = Math.abs(deltaX);
-        const absDeltaY = Math.abs(deltaY);
-        const scale =
-          absDeltaX === 0 && absDeltaY === 0
-            ? 0
-            : Math.min(
-                absDeltaX === 0 ? Number.POSITIVE_INFINITY : halfWidth / absDeltaX,
-                absDeltaY === 0 ? Number.POSITIVE_INFINITY : halfHeight / absDeltaY
-              );
-        const clampedScale = Number.isFinite(scale) ? scale : 0;
-        const angle = Math.atan2(deltaY, deltaX);
-        const edgeX = centerScreenX + deltaX * clampedScale;
-        const edgeY = centerScreenY + deltaY * clampedScale;
-        const colorSeed = [...entry.playerId].reduce(
-          (sum, char) => sum + char.charCodeAt(0),
-          0
-        );
-        return {
-          playerId: entry.playerId,
-          x: edgeX,
-          y: edgeY,
-          angle,
-          colorHue: colorSeed % 360,
-        };
-      })
-      .filter(Boolean)
-      .sort((left, right) => left!.angle - right!.angle) as Array<{
-      playerId: string;
-      x: number;
-      y: number;
-      angle: number;
-      colorHue: number;
-    }>;
-
-    return indicators.map((indicator, index) => {
-      const previous = indicators[index - 1];
-      const angleGap = previous == null ? Number.POSITIVE_INFINITY : indicator.angle - previous.angle;
-      const stackOffset = angleGap < 0.28 ? 18 : 0;
-      const tangentX = -Math.sin(indicator.angle);
-      const tangentY = Math.cos(indicator.angle);
-      return {
-        ...indicator,
-        x: indicator.x + tangentX * stackOffset,
-        y: indicator.y + tangentY * stackOffset,
-      };
-    });
-  }, [remoteViewportCenters, viewportSnapshot]);
+  const localActivityLabels = getLocalActivityOverlayLabels(
+    isSelectionWebSearching || (webSearchingNodeIds?.length ?? 0) > 0
+  );
+  const remoteActivityLabels = getRemoteActivityOverlayLabels(remoteActivityMode);
+  const remoteViewportIndicators = useMemo(
+    () => calculateRemoteViewportIndicators(viewportSnapshot, remoteViewportCenters),
+    [remoteViewportCenters, viewportSnapshot]
+  );
 
   return (
     <div ref={hostRef} className="graph-pixi-host">
@@ -2606,23 +2415,14 @@ function GraphView({
           </div>
         </div>
       ) : null}
-      <CatalystDock
+      <GraphControls
         catalystActions={catalystActions}
-        isOpen={isCatalystDockOpen}
-        onToggle={() => setIsCatalystDockOpen((current) => !current)}
-        closeOnSelect={closeCatalystMenuOnSelect}
-      />
-      <button
-        type="button"
-        className={`button ${isSelectionMode || selectedNodeIds.length > 0 ? "primary" : "secondary"} graph-selection-button`}
-        aria-label={
-          isSelectionMode
-            ? "Cancel selection mode"
-            : selectedNodeIds.length > 0
-              ? "Clear selection"
-              : "Enter selection mode"
-        }
-        onClick={() => {
+        isCatalystDockOpen={isCatalystDockOpen}
+        onToggleCatalystDock={() => setIsCatalystDockOpen((current) => !current)}
+        closeCatalystMenuOnSelect={closeCatalystMenuOnSelect}
+        isSelectionMode={isSelectionMode}
+        hasSelection={selectedNodeIds.length > 0}
+        onToggleSelectionMode={() => {
           if (isSelectionMode || selectedNodeIds.length > 0) {
             setIsSelectionMode(false);
             clearSelection();
@@ -2630,132 +2430,28 @@ function GraphView({
           }
           setIsSelectionMode(true);
         }}
-      >
-        <span aria-hidden="true">{isSelectionMode ? "×" : "⬚"}</span>
-      </button>
-      {selectionDragRect ? (
-        <div
-          className="graph-selection-drag-box"
-          style={{
-            left: selectionDragRect.left,
-            top: selectionDragRect.top,
-            width: selectionDragRect.width,
-            height: selectionDragRect.height,
-          }}
-        />
-      ) : null}
-      {activeActivityOverlayRect ? (
-        <div
-          className="graph-activity-overlay"
-          style={{
-            left: activeActivityOverlayRect.left,
-            top: activeActivityOverlayRect.top,
-            width: activeActivityOverlayRect.width,
-            height: activeActivityOverlayRect.height,
-          }}
-        >
-          <div className="graph-activity-overlay-sheen" aria-hidden="true" />
-          <div className="graph-activity-overlay-content" role="status" aria-live="polite">
-            <div className="graph-activity-overlay-loader" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="graph-activity-overlay-title">{overlayTitle}</div>
-            <div className="graph-activity-overlay-copy">{overlayCopy}</div>
-          </div>
-        </div>
-      ) : null}
-      {remoteActivityOverlayRect &&
-      (remoteActivityMode === "searching" || remoteActivityMode === "pondering") ? (
-        <div
-          className="graph-activity-overlay"
-          style={{
-            left: remoteActivityOverlayRect.left,
-            top: remoteActivityOverlayRect.top,
-            width: remoteActivityOverlayRect.width,
-            height: remoteActivityOverlayRect.height,
-          }}
-        >
-          <div className="graph-activity-overlay-sheen" aria-hidden="true" />
-          <div className="graph-activity-overlay-content" role="status" aria-live="polite">
-            <div className="graph-activity-overlay-loader" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-            </div>
-            <div className="graph-activity-overlay-title">{remoteOverlayTitle}</div>
-            <div className="graph-activity-overlay-copy">{remoteOverlayCopy}</div>
-          </div>
-        </div>
-      ) : null}
-      {selectionOverlayRect && selectedNodeIds.length >= 2 ? (
-        <div
-          className="graph-selection-overlay"
-          style={{
-            left: selectionOverlayRect.left,
-            top: selectionOverlayRect.top,
-            width: selectionOverlayRect.width,
-            height: selectionOverlayRect.height,
-          }}
-        >
-          <button
-            type="button"
-            className="button primary graph-selection-combine-button"
-            onClick={() => {
-              const nextLayout = buildSelectionLayout(selectedNodeIdsRef.current);
-              if (!nextLayout) return;
-              applySelectionLayout(nextLayout);
-              onCombineWorkspaceSelectionRef.current(nextLayout);
-            }}
-            disabled={isSelectionCombining}
-          >
-            {isSelectionCombining ? "Combining..." : "Combine"}
-          </button>
-        </div>
-      ) : null}
-      {remoteSelectionOverlayRect && remoteSelectedNodeIds.length >= 2 ? (
-        <div
-          className="graph-selection-overlay graph-selection-overlay-remote"
-          style={{
-            left: remoteSelectionOverlayRect.left,
-            top: remoteSelectionOverlayRect.top,
-            width: remoteSelectionOverlayRect.width,
-            height: remoteSelectionOverlayRect.height,
-          }}
-        />
-      ) : null}
-      {remoteViewportIndicators.map((indicator) => (
-        <div
-          key={indicator.playerId}
-          className="graph-remote-viewport-indicator"
-          style={
-            {
-              left: indicator.x,
-              top: indicator.y,
-              transform: `translate(-50%, -50%) rotate(${indicator.angle}rad)`,
-              ["--remote-player-hue" as string]: String(indicator.colorHue),
-            } as React.CSSProperties
-          }
-          aria-hidden="true"
-        >
-          <span className="graph-remote-viewport-indicator-pill">
-            <span className="graph-remote-viewport-indicator-dot" />
-            <span className="graph-remote-viewport-indicator-arrow">➜</span>
-          </span>
-        </div>
-      ))}
-      <button
-        type="button"
-        className="button secondary graph-clear-button"
-        aria-label={selectedNodeIds.length > 0 ? "Clear selected items" : "Clear workspace"}
-        title={selectedNodeIds.length > 0 ? "Clear selected" : "Clear"}
-        onClick={
-          selectedNodeIds.length > 0 ? clearSelectedWorkspaceItems : onClearWorkspace
-        }
-      >
-        {selectedNodeIds.length > 0 ? "Clear Selected" : "Clear"}
-      </button>
+        onClear={selectedNodeIds.length > 0 ? clearSelectedWorkspaceItems : onClearWorkspace}
+      />
+      <GraphOverlays
+        selectionDragRect={selectionDragRect}
+        activeActivityOverlayRect={activeActivityOverlayRect}
+        localActivityLabels={localActivityLabels}
+        remoteActivityOverlayRect={remoteActivityOverlayRect}
+        remoteActivityMode={remoteActivityMode}
+        remoteActivityLabels={remoteActivityLabels}
+        selectionOverlayRect={selectionOverlayRect}
+        selectedNodeCount={selectedNodeIds.length}
+        isSelectionCombining={isSelectionCombining}
+        onCombineSelection={() => {
+          const nextLayout = buildSelectionLayout(selectedNodeIdsRef.current);
+          if (!nextLayout) return;
+          applySelectionLayout(nextLayout);
+          onCombineWorkspaceSelectionRef.current(nextLayout);
+        }}
+        remoteSelectionOverlayRect={remoteSelectionOverlayRect}
+        remoteSelectedNodeCount={remoteSelectedNodeIds.length}
+        remoteViewportIndicators={remoteViewportIndicators}
+      />
     </div>
   );
 }
