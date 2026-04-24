@@ -36,6 +36,7 @@ import type { CatalystAction } from "./components/Graph/CatalystDock";
 import JournalDock from "./components/Journal/JournalDock";
 import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useQuestReferences } from "./hooks/useQuestReferences";
+import { useResponsiveLayout } from "./hooks/useResponsiveLayout";
 import {
   attachBoardActionModifier,
   attachBoardCategoryModifier,
@@ -263,22 +264,14 @@ const App: React.FC = () => {
   const [actionUnlockModal, setActionUnlockModal] = useState<ActionUnlockModalState | null>(
     null
   );
-  const [isPortraitTabletLayout, setIsPortraitTabletLayout] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY).matches;
-  });
-  const [isMobileLayout, setIsMobileLayout] = useState(() => {
-    if (typeof window === "undefined") {
-      return false;
-    }
-    return window.matchMedia(MOBILE_LAYOUT_QUERY).matches;
-  });
   const [librarySearchQuery, setLibrarySearchQuery] = useState("");
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const [androidViewportHeight, setAndroidViewportHeight] = useState<number | null>(null);
   const [androidKeyboardHeight, setAndroidKeyboardHeight] = useState(0);
+  const { isPortraitTabletLayout, isMobileLayout } = useResponsiveLayout({
+    portraitTabletLayoutQuery: PORTRAIT_TABLET_LAYOUT_QUERY,
+    mobileLayoutQuery: MOBILE_LAYOUT_QUERY,
+  });
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
   const hasHydratedSharedSnapshotRef = useRef(false);
@@ -397,32 +390,6 @@ const App: React.FC = () => {
   useEffect(() => {
     window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
   }, [selectedModel]);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(PORTRAIT_TABLET_LAYOUT_QUERY);
-    const handleChange = () => {
-      setIsPortraitTabletLayout(mediaQuery.matches);
-    };
-
-    handleChange();
-    mediaQuery.addEventListener("change", handleChange);
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, []);
-
-  useEffect(() => {
-    const mediaQuery = window.matchMedia(MOBILE_LAYOUT_QUERY);
-    const handleChange = () => {
-      setIsMobileLayout(mediaQuery.matches);
-    };
-
-    handleChange();
-    mediaQuery.addEventListener("change", handleChange);
-    return () => {
-      mediaQuery.removeEventListener("change", handleChange);
-    };
-  }, []);
 
   useEffect(() => {
     const handleVisibilityChange = () => {
