@@ -23,6 +23,7 @@ import type { CatalystAction } from "./CatalystDock";
 import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
 import { useGraphCamera } from "./hooks/useGraphCamera";
+import { useGraphDrag, type GraphDragState } from "./hooks/useGraphDrag";
 import { useGraphItems } from "./hooks/useGraphItems";
 import { usePixiApp } from "./hooks/usePixiApp";
 import { useGraphSelection } from "./hooks/useGraphSelection";
@@ -53,7 +54,6 @@ import {
   setViewTargetTopLeftPosition,
   setViewTopLeftPosition,
 } from "./graphViewHelpers";
-import { rectanglesOverlap } from "./graphGeometry";
 import {
   getLocalActivityOverlayLabels,
   getRemoteActivityOverlayLabels,
@@ -106,23 +106,6 @@ interface Props {
   catalystActions?: CatalystAction[];
   closeCatalystMenuOnSelect?: boolean;
 }
-
-type DragState = {
-  nodeId: string;
-  pointerId: number;
-  offsetX: number;
-  offsetY: number;
-  pointerStartX: number;
-  pointerStartY: number;
-  startX: number;
-  startY: number;
-  draggedNodeIds: string[];
-  nodeStartPositions: Array<{
-    nodeId: string;
-    x: number;
-    y: number;
-  }>;
-};
 
 type PanState = {
   pointerId: number;
@@ -210,13 +193,11 @@ function GraphView({
       refreshActivityOverlay();
     },
   });
-  const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
     nodeId: string;
     time: number;
   } | null>(null);
   const pendingDrawerOpenRef = useRef<number | null>(null);
-  const hoverTargetNodeIdRef = useRef<string | null>(null);
   const panStateRef = useRef<PanState | null>(null);
   const activeTouchPointsRef = useRef<Map<number, { x: number; y: number }>>(new Map());
   const touchGestureStateRef = useRef<TouchGestureState | null>(null);
@@ -373,20 +354,6 @@ function GraphView({
     applyCamera();
   };
 
-  const clearHoverTarget = () => {
-    const hoverTargetNodeId = hoverTargetNodeIdRef.current;
-    if (!hoverTargetNodeId) return;
-    const hoverView = itemViewsRef.current.get(hoverTargetNodeId);
-    if (hoverView) {
-      applyViewState(
-        hoverView,
-        selectedNodeIdsRef.current.includes(hoverTargetNodeId) ? "highlight" : "default",
-        1
-      );
-    }
-    hoverTargetNodeIdRef.current = null;
-  };
-
   function getCurrentOverlayNodeIds() {
     return webSearchingNodeIdsRef.current.length > 0
       ? webSearchingNodeIdsRef.current
@@ -412,19 +379,6 @@ function GraphView({
         remoteActivityLayoutRef.current?.placeholderNodeId === nodeId)
     );
   }
-
-  const cancelActiveDrag = () => {
-    const dragState = dragStateRef.current;
-    if (!dragState) return;
-    const view = itemViewsRef.current.get(dragState.nodeId);
-    if (view) {
-      view.container.alpha = 1;
-      view.container.cursor = "grab";
-      applyViewState(view, "default", 1);
-    }
-    dragStateRef.current = null;
-    clearHoverTarget();
-  };
 
   function beginTouchGesture() {
     const touchPoints = [...activeTouchPointsRef.current.values()];
@@ -553,6 +507,24 @@ function GraphView({
   });
 
   const {
+    dragStateRef,
+    hoverTargetNodeIdRef,
+    clearHoverTarget,
+    cancelActiveDrag,
+    updateHoverTarget,
+  } = useGraphDrag({
+    worldRef,
+    getItemViews: () => itemViewsRef.current,
+    selectedNodeIdsRef,
+    getItemViewBounds: (nodeId) => getItemViewBounds(nodeId),
+    getApplyViewState: () => applyViewState,
+    isNodeCoveredByOverlay,
+    isNodeReservedByLocalActivity,
+    isNodeReservedByRemoteSelection,
+    isNodeReservedByRemoteActivity,
+  });
+
+  const {
     itemViewsRef,
     getItemViewBounds,
     getItemViewAtWorldPosition,
@@ -603,53 +575,6 @@ function GraphView({
     onDeleteWorkspaceItemsRef.current([...selectedIds]);
     clearSelection();
     setIsSelectionMode(false);
-  };
-
-  const updateHoverTarget = (draggedNodeId: string) => {
-    const world = worldRef.current;
-    const draggedBounds = getItemViewBounds(draggedNodeId);
-    if (!world || !draggedBounds) return;
-
-    let nextHoverTargetNodeId: string | null = null;
-    let nextHoverTargetZIndex = -1;
-
-    itemViewsRef.current.forEach((view, nodeId) => {
-      if (nodeId === draggedNodeId) {
-        return;
-      }
-      if (
-        isNodeCoveredByOverlay(nodeId) ||
-        isNodeReservedByLocalActivity(nodeId) ||
-        isNodeReservedByRemoteSelection(nodeId) ||
-        isNodeReservedByRemoteActivity(nodeId)
-      ) {
-        return;
-      }
-      const overlaps = rectanglesOverlap(draggedBounds, {
-        ...getViewTopLeftPosition(view),
-        width: view.width,
-        height: CARD_HEIGHT,
-      });
-      if (!overlaps) {
-        return;
-      }
-      const zIndex = world.getChildIndex(view.container);
-      if (zIndex > nextHoverTargetZIndex) {
-        nextHoverTargetNodeId = nodeId;
-        nextHoverTargetZIndex = zIndex;
-      }
-    });
-
-    if (nextHoverTargetNodeId === hoverTargetNodeIdRef.current) return;
-
-    clearHoverTarget();
-
-    if (!nextHoverTargetNodeId) return;
-
-    const nextHoverView = itemViewsRef.current.get(nextHoverTargetNodeId);
-    if (!nextHoverView) return;
-    applyViewState(nextHoverView, "highlight", 1.04);
-    hoverTargetNodeIdRef.current = nextHoverTargetNodeId;
   };
 
   useEffect(() => {
