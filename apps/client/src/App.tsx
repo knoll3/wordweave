@@ -38,6 +38,7 @@ import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
 import { useMobileKeyboardWorkarounds } from "./hooks/useMobileKeyboardWorkarounds";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import { useResponsiveLayout } from "./hooks/useResponsiveLayout";
+import { useSettings } from "./hooks/useSettings";
 import {
   attachBoardActionModifier,
   attachBoardCategoryModifier,
@@ -218,9 +219,7 @@ const App: React.FC = () => {
     []
   );
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
-  const [forceUnlocks, setForceUnlocks] = useState(false);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [quests, setQuests] = useState<QuestRecord[]>([]);
   const [questStats, setQuestStats] = useState<PlayerQuestStats>({ totalPoints: 0 });
@@ -257,6 +256,17 @@ const App: React.FC = () => {
   const { isPortraitTabletLayout, isMobileLayout } = useResponsiveLayout({
     portraitTabletLayoutQuery: PORTRAIT_TABLET_LAYOUT_QUERY,
     mobileLayoutQuery: MOBILE_LAYOUT_QUERY,
+  });
+  const {
+    selectedModel,
+    setSelectedModel,
+    forceUnlocks,
+    setForceUnlocks,
+  } = useSettings({
+    modelStorageKey: MODEL_STORAGE_KEY,
+    forceUnlocksStorageKey: FORCE_UNLOCKS_STORAGE_KEY,
+    supportedModels: AI_MODELS,
+    defaultModel: "gpt-5-mini",
   });
   const celebrationTimeoutRef = useRef<number | null>(null);
   const journalDockRef = useRef<HTMLElement | null>(null);
@@ -350,18 +360,6 @@ const App: React.FC = () => {
   }
 
   useEffect(() => {
-    const storedModel = window.localStorage.getItem(MODEL_STORAGE_KEY);
-    if (storedModel && AI_MODELS.includes(storedModel as AiModel)) {
-      setSelectedModel(storedModel as AiModel);
-    }
-    setForceUnlocks(window.localStorage.getItem(FORCE_UNLOCKS_STORAGE_KEY) === "true");
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(MODEL_STORAGE_KEY, selectedModel);
-  }, [selectedModel]);
-
-  useEffect(() => {
     if (!isPortraitTabletLayout || !isJournalOpen) {
       return;
     }
@@ -383,13 +381,6 @@ const App: React.FC = () => {
       document.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [isJournalOpen, isPortraitTabletLayout]);
-
-  useEffect(() => {
-    window.localStorage.setItem(
-      FORCE_UNLOCKS_STORAGE_KEY,
-      forceUnlocks ? "true" : "false"
-    );
-  }, [forceUnlocks]);
 
   useEffect(() => {
     if (!errorMessage) return;
