@@ -223,6 +223,7 @@ function GraphView({
   });
   const {
     itemViewsRef,
+    getItemViewBounds,
     getItemViewAtWorldPosition,
     applyViewState,
     setViewContentAlpha,
@@ -568,22 +569,22 @@ function GraphView({
           relevantLayout?.placeholderNodeId === nodeId
             ? relevantLayout.placeholderPosition
             : relevantLayout?.nodePositions.find((entry) => entry.nodeId === nodeId)?.position;
-        const liveView = itemViewsRef.current.get(nodeId);
+        const liveBounds = getItemViewBounds(nodeId);
         const position =
           options?.preferLayoutPositions && layoutPosition
             ? layoutPosition
-            : liveView
-              ? getViewTopLeftPosition(liveView)
+            : liveBounds
+              ? { x: liveBounds.x, y: liveBounds.y }
               : layoutPosition;
         const width =
           relevantLayout?.placeholderNodeId === nodeId
             ? Math.max(
                 ...relevantLayout.nodeIds.map(
-                  (layoutNodeId) => itemViewsRef.current.get(layoutNodeId)?.width ?? 0
+                  (layoutNodeId) => getItemViewBounds(layoutNodeId)?.width ?? 0
                 ),
                 PLACEHOLDER_WIDTH
               )
-            : liveView?.width ?? 0;
+            : liveBounds?.width ?? 0;
         return position ? { ...position, width } : null;
       })
       .filter(Boolean) as Array<{ x: number; y: number; width: number }>;
@@ -678,12 +679,12 @@ function GraphView({
 
     const selectedViews = nodeIds
       .map((nodeId) => {
-        const view = itemViewsRef.current.get(nodeId);
-        return view
+        const bounds = getItemViewBounds(nodeId);
+        return bounds
           ? {
               nodeId,
-              position: getViewTopLeftPosition(view),
-              width: view.width,
+              position: { x: bounds.x, y: bounds.y },
+              width: bounds.width,
             }
           : null;
       })
@@ -740,14 +741,8 @@ function GraphView({
 
   const updateHoverTarget = (draggedNodeId: string) => {
     const world = worldRef.current;
-    const draggedView = itemViewsRef.current.get(draggedNodeId);
-    if (!world || !draggedView) return;
-
-    const draggedBounds = {
-      ...getViewTopLeftPosition(draggedView),
-      width: draggedView.width,
-      height: CARD_HEIGHT,
-    };
+    const draggedBounds = getItemViewBounds(draggedNodeId);
+    if (!world || !draggedBounds) return;
 
     let nextHoverTargetNodeId: string | null = null;
     let nextHoverTargetZIndex = -1;
@@ -1260,14 +1255,13 @@ function GraphView({
             if (isNodeReservedByRemoteActivity(item.nodeId)) {
               return false;
             }
-            const view = itemViewsRef.current.get(item.nodeId);
-            if (!view) return false;
-            const position = getViewTopLeftPosition(view);
+            const bounds = getItemViewBounds(item.nodeId);
+            if (!bounds) return false;
             return (
-              position.x >= worldRect.left &&
-              position.y >= worldRect.top &&
-              position.x + view.width <= worldRect.right &&
-              position.y + CARD_HEIGHT <= worldRect.bottom
+              bounds.x >= worldRect.left &&
+              bounds.y >= worldRect.top &&
+              bounds.x + bounds.width <= worldRect.right &&
+              bounds.y + bounds.height <= worldRect.bottom
             );
           })
           .map((item) => item.nodeId);

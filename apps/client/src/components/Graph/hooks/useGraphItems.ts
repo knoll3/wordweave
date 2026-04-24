@@ -19,6 +19,19 @@ export function useGraphItems({
 }) {
   const itemViewsRef = useRef<Map<string, ItemView>>(new Map());
 
+  const getItemViewBounds = (nodeId: string) => {
+    const view = itemViewsRef.current.get(nodeId);
+    if (!view) return null;
+    const position = getViewTopLeftPosition(view);
+    return {
+      view,
+      x: position.x,
+      y: position.y,
+      width: view.width,
+      height: CARD_HEIGHT,
+    };
+  };
+
   const getItemViewAtWorldPosition = (position: { x: number; y: number }) => {
     const world = worldRef.current;
     if (!world) return null;
@@ -93,6 +106,7 @@ export function useGraphItems({
 
   return {
     itemViewsRef,
+    getItemViewBounds,
     getItemViewAtWorldPosition,
     applyViewState,
     setViewContentAlpha,
