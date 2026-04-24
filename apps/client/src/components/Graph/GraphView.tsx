@@ -1,11 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Application,
-  Container,
   FederatedPointerEvent,
-  Graphics,
   Rectangle,
-  Text,
 } from "pixi.js";
 import type {
   SharedBoardActivityMode,
@@ -25,12 +22,12 @@ import { SPECIAL_ITEMS } from "../../lib/specialItems";
 import type { CatalystAction } from "./CatalystDock";
 import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
+import { createItemView as createGraphItemView } from "./createItemView";
 import { useGraphCamera } from "./hooks/useGraphCamera";
 import { usePixiApp } from "./hooks/usePixiApp";
 import {
   ARRIVAL_TINT_FADE_STEP,
   CARD_HEIGHT,
-  CARD_HORIZONTAL_PADDING,
   CELEBRATION_PROGRESS_STEP,
   CELEBRATION_TINT_FADE_STEP,
   CELEBRATION_TINT_HOLD_FRAMES,
@@ -55,10 +52,8 @@ import {
   SELECTION_PADDING,
   SHRINK_SCALE,
   SPAWN_SCALE,
-  drawCelebrationBurst,
   drawCelebrationParticles,
   drawItemCard,
-  getNodeTint,
   getViewTopLeftPosition,
   moveToward,
   setViewTargetTopLeftPosition,
@@ -330,7 +325,6 @@ function GraphView({
   const lastCelebratedNodeIdRef = useRef<string | null>(null);
   const ARRIVAL_HIGHLIGHT_MAX_MS = 30_000;
   const ARRIVAL_BOUNCE_MS = 500;
-  const ITEM_HITBOX_PADDING = 10;
 
   const itemById = useMemo(() => {
     const next = new Map(items.map((item) => [item.id, item]));
@@ -858,367 +852,124 @@ function GraphView({
   };
 
   const createItemView = (workspaceItem: WorkspaceItem, item: Item): ItemView => {
-    const container = new Container();
-    container.eventMode = "static";
-    container.cursor = "grab";
-    const isPlaceholder = item.id === COMBINE_RESULT_PLACEHOLDER_ITEM_ID;
-    const hasActionModifier = Boolean(
-      workspaceItem.actionConstraintName && workspaceItem.actionConstraintNormalizedName
-    );
-    const hasCategoryModifier = Boolean(
-      workspaceItem.categoryConstraintName && workspaceItem.categoryConstraintNormalizedName
-    );
-
-    const isModifierItem =
-      item.id === CATEGORY_MODIFIER_ITEM_ID || item.id === ACTION_MODIFIER_ITEM_ID;
-    const icon = new Text({
-      text: isPlaceholder ? "" : item.icon || "•",
-      style: {
-        fill: 0xe5e7eb,
-        fontFamily: "Apple Color Emoji, Segoe UI Emoji, Noto Color Emoji, sans-serif",
-        fontSize: isModifierItem ? 17 : 20,
-        fontWeight: "600",
-        wordWrap: false,
-        breakWords: false,
-      },
-    });
-    const labelValue = isPlaceholder ? "" : item.name;
-    const label = new Text({
-      text: labelValue,
-      style: {
-        fill: 0xe5e7eb,
-        fontFamily: "Trebuchet MS, Verdana, sans-serif",
-        fontSize: isModifierItem ? 15 : 17,
-        fontWeight: "600",
-        wordWrap: false,
-        breakWords: false,
-      },
-    });
-    const loader = isPlaceholder ? new Graphics() : null;
-    const badge = workspaceItem.isNewDiscovery
-      ? new Text({
-          text: "✦",
-          style: {
-            fill: 0xfacc15,
-            fontFamily: "Trebuchet MS, Verdana, sans-serif",
-            fontSize: 15,
-            fontWeight: "700",
-          },
-        })
-      : null;
-    const actionBadge = hasActionModifier ? new Container() : null;
-    const categoryBadge = hasCategoryModifier
-      ? new Container()
-      : null;
-    const celebration = isPlaceholder ? null : new Graphics();
-    const celebrationParticles = isPlaceholder ? null : new Graphics();
-
-    const background = new Graphics();
-    if (loader) {
-      loader
-        .arc(0, 0, 7, 0.2 * Math.PI, 1.7 * Math.PI)
-        .stroke({ width: 3, color: 0xe5e7eb, alpha: 0.95 });
-    }
-    const contentWidth = isPlaceholder
-      ? PLACEHOLDER_WIDTH
-      : CARD_HORIZONTAL_PADDING * 2 +
-        icon.width +
-        (isModifierItem ? 8 : 10) +
-        label.width;
-    const cardWidth = contentWidth;
-    drawItemCard(
-      background,
-      cardWidth,
-      item.id,
-      "default",
-      hasCategoryModifier || hasActionModifier
-    );
-
-    icon.x = isModifierItem ? 14 : CARD_HORIZONTAL_PADDING;
-    icon.y = Math.round((CARD_HEIGHT - icon.height) / 2) - 1;
-
-    label.x = icon.x + icon.width + (isModifierItem ? 8 : 10);
-    label.y = Math.round((CARD_HEIGHT - label.height) / 2) - 1;
-
-    if (loader) {
-      loader.x = Math.round(cardWidth / 2);
-      loader.y = Math.round(CARD_HEIGHT / 2);
-    }
-
-    if (badge) {
-      badge.x = cardWidth - badge.width - 6;
-      badge.y = CARD_HEIGHT - badge.height + 10;
-    }
-    if (actionBadge) {
-      const chipBg = new Graphics();
-      const chipLabel = new Text({
-        text: "Action ×",
-        style: {
-          fill: 0xfef3c7,
-          fontFamily: "Trebuchet MS, Verdana, sans-serif",
-          fontSize: 10,
-          fontWeight: "700",
-        },
-      });
-      const chipWidth = chipLabel.width + 12;
-      chipBg
-        .roundRect(0, 0, chipWidth, 18, 9)
-        .fill({ color: 0x78350f, alpha: 0.96 })
-        .stroke({ width: 1, color: 0xd97706, alpha: 0.72 });
-      chipLabel.x = 6;
-      chipLabel.y = Math.round((18 - chipLabel.height) / 2) - 1;
-      actionBadge.addChild(chipBg, chipLabel);
-      actionBadge.x = 8;
-      actionBadge.y = -9;
-      actionBadge.eventMode = "static";
-      actionBadge.cursor = "pointer";
-      actionBadge.on("pointerdown", (event) => {
+    return createGraphItemView(workspaceItem, item, {
+      onActionBadgePointerDown: (event, badgeWorkspaceItem) => {
         event.stopPropagation();
         if (
-          isNodeCoveredByOverlay(workspaceItem.nodeId) ||
-          isNodeReservedByLocalActivity(workspaceItem.nodeId) ||
-          isNodeReservedByRemoteActivity(workspaceItem.nodeId)
+          isNodeCoveredByOverlay(badgeWorkspaceItem.nodeId) ||
+          isNodeReservedByLocalActivity(badgeWorkspaceItem.nodeId) ||
+          isNodeReservedByRemoteActivity(badgeWorkspaceItem.nodeId)
         ) {
           return;
         }
-        onClearActionModifierRef.current(workspaceItem.nodeId);
-      });
-    }
-    if (categoryBadge) {
-      const chipBg = new Graphics();
-      const chipLabel = new Text({
-        text: "Category ×",
-        style: {
-          fill: 0xccfbf1,
-          fontFamily: "Trebuchet MS, Verdana, sans-serif",
-          fontSize: 10,
-          fontWeight: "700",
-        },
-      });
-      const chipWidth = chipLabel.width + 12;
-      chipBg
-        .roundRect(0, 0, chipWidth, 18, 9)
-        .fill({ color: 0x134e4a, alpha: 0.96 })
-        .stroke({ width: 1, color: 0x5eead4, alpha: 0.8 });
-      chipLabel.x = 6;
-      chipLabel.y = Math.round((18 - chipLabel.height) / 2) - 1;
-      categoryBadge.addChild(chipBg, chipLabel);
-      categoryBadge.x = Math.max(6, cardWidth - chipWidth - 8);
-      categoryBadge.y = -9;
-      categoryBadge.eventMode = "static";
-      categoryBadge.cursor = "pointer";
-      categoryBadge.on("pointerdown", (event) => {
+        onClearActionModifierRef.current(badgeWorkspaceItem.nodeId);
+      },
+      onCategoryBadgePointerDown: (event, badgeWorkspaceItem) => {
         event.stopPropagation();
         if (
-          isNodeCoveredByOverlay(workspaceItem.nodeId) ||
-          isNodeReservedByLocalActivity(workspaceItem.nodeId) ||
-          isNodeReservedByRemoteActivity(workspaceItem.nodeId)
+          isNodeCoveredByOverlay(badgeWorkspaceItem.nodeId) ||
+          isNodeReservedByLocalActivity(badgeWorkspaceItem.nodeId) ||
+          isNodeReservedByRemoteActivity(badgeWorkspaceItem.nodeId)
         ) {
           return;
         }
-        onClearCategoryModifierRef.current(workspaceItem.nodeId);
-      });
-    }
-    if (celebration) {
-      drawCelebrationBurst(celebration, cardWidth);
-      celebration.x = Math.round(cardWidth / 2);
-      celebration.y = Math.round(CARD_HEIGHT / 2);
-      celebration.visible = false;
-      celebration.alpha = 0;
-    }
-    if (celebrationParticles) {
-      celebrationParticles.x = Math.round(cardWidth / 2);
-      celebrationParticles.y = Math.round(CARD_HEIGHT / 2);
-      celebrationParticles.visible = false;
-      celebrationParticles.alpha = 0;
-    }
-
-    container.addChild(background);
-    if (loader) {
-      container.addChild(loader);
-    } else {
-      container.addChild(icon);
-      container.addChild(label);
-    }
-    if (badge) {
-      container.addChild(badge);
-    }
-    if (actionBadge) {
-      container.addChild(actionBadge);
-    }
-    if (categoryBadge) {
-      container.addChild(categoryBadge);
-    }
-    if (celebration) {
-      container.addChild(celebration);
-    }
-    if (celebrationParticles) {
-      container.addChild(celebrationParticles);
-    }
-
-    container.pivot.set(cardWidth / 2, CARD_HEIGHT / 2);
-    container.hitArea = new Rectangle(
-      -ITEM_HITBOX_PADDING,
-      -ITEM_HITBOX_PADDING,
-      cardWidth + ITEM_HITBOX_PADDING * 2,
-      CARD_HEIGHT + ITEM_HITBOX_PADDING * 2
-    );
-    container.on("pointerdown", (event) => {
-      if (event.pointerType === "touch") {
-        activeTouchPointsRef.current.set(event.pointerId, {
-          x: event.global.x,
-          y: event.global.y,
-        });
-        if (activeTouchPointsRef.current.size >= 2) {
-          beginTouchGesture();
+        onClearCategoryModifierRef.current(badgeWorkspaceItem.nodeId);
+      },
+      onContainerPointerDown: (event, view, pointerWorkspaceItem, pointerItem) => {
+        if (event.pointerType === "touch") {
+          activeTouchPointsRef.current.set(event.pointerId, {
+            x: event.global.x,
+            y: event.global.y,
+          });
+          if (activeTouchPointsRef.current.size >= 2) {
+            beginTouchGesture();
+            return;
+          }
+        }
+        if (isNodeCoveredByOverlay(pointerWorkspaceItem.nodeId)) {
           return;
         }
-      }
-      if (isNodeCoveredByOverlay(workspaceItem.nodeId)) {
-        return;
-      }
-      if (isNodeReservedByLocalActivity(workspaceItem.nodeId)) {
-        return;
-      }
-      if (isNodeReservedByRemoteSelection(workspaceItem.nodeId)) {
-        return;
-      }
-      if (isNodeReservedByRemoteActivity(workspaceItem.nodeId)) {
-        return;
-      }
-      if (selectionModeRef.current) {
-        return;
-      }
-      event.stopPropagation();
-      const currentSelectedNodeIds = selectedNodeIdsRef.current;
-      const isDraggingSelectedGroup =
-        currentSelectedNodeIds.length > 1 &&
-        currentSelectedNodeIds.includes(workspaceItem.nodeId);
-      if (currentSelectedNodeIds.length > 0 && !isDraggingSelectedGroup) {
-        clearSelection();
-      }
-      const pointerPosition = pixiPointerToWorld(event);
-      const world = worldRef.current;
-      if (world) {
-        world.addChild(container);
-      }
-      const topLeftPosition = getViewTopLeftPosition({
-        container,
-        background,
-        loader,
-        icon,
-        label,
-        badge,
-        actionBadge,
-        categoryBadge,
-        celebration,
-        celebrationParticles,
-        itemId: item.id,
-        hasActionModifier,
-        hasCategoryModifier,
-        width: cardWidth,
-        targetX: container.x,
-        targetY: container.y,
-        targetScale: 1,
-        scaleStep: HOVER_SCALE_STEP,
-        contentAlpha: 1,
-        targetContentAlpha: 1,
-        destroyWhenSettled: false,
-        arrivalTintProgress: 0,
-        arrivalHighlightUntil: null,
-        arrivalHighlightStartedAt: null,
-        celebrationProgress: 0,
-        celebrationTintProgress: 0,
-        celebrationTintHoldFrames: 0,
-        nodeId: workspaceItem.nodeId,
-      });
-      dragStateRef.current = {
-        nodeId: workspaceItem.nodeId,
-        pointerId: event.pointerId,
-        offsetX: pointerPosition.x - topLeftPosition.x,
-        offsetY: pointerPosition.y - topLeftPosition.y,
-        pointerStartX: pointerPosition.x,
-        pointerStartY: pointerPosition.y,
-        startX: topLeftPosition.x,
-        startY: topLeftPosition.y,
-        draggedNodeIds: isDraggingSelectedGroup
-          ? [...currentSelectedNodeIds]
-          : [workspaceItem.nodeId],
-        nodeStartPositions: (isDraggingSelectedGroup
-          ? currentSelectedNodeIds
-          : [workspaceItem.nodeId]
-        )
-          .map((nodeId) => {
-            const draggedView = itemViewsRef.current.get(nodeId);
-            if (!draggedView) return null;
-            const position = getViewTopLeftPosition(draggedView);
-            return {
-              nodeId,
-              x: position.x,
-              y: position.y,
-            };
-          })
-          .filter(
-            (
-              entry
-            ): entry is {
-              nodeId: string;
-              x: number;
-              y: number;
-            } => entry != null
-          ),
-      };
-      if (!isDraggingSelectedGroup) {
-        onClaimWorkspaceDragRef.current(workspaceItem.nodeId);
-      }
-      const touchedView = itemViewsRef.current.get(workspaceItem.nodeId);
-      if (touchedView) {
-        touchedView.arrivalHighlightUntil = null;
-        touchedView.arrivalHighlightStartedAt = null;
-      }
-      container.cursor = "grabbing";
-      container.alpha = 1;
-      drawItemCard(
-        background,
-        cardWidth,
-        item.id,
-        "highlight",
-        hasCategoryModifier || hasActionModifier
-      );
+        if (isNodeReservedByLocalActivity(pointerWorkspaceItem.nodeId)) {
+          return;
+        }
+        if (isNodeReservedByRemoteSelection(pointerWorkspaceItem.nodeId)) {
+          return;
+        }
+        if (isNodeReservedByRemoteActivity(pointerWorkspaceItem.nodeId)) {
+          return;
+        }
+        if (selectionModeRef.current) {
+          return;
+        }
+        event.stopPropagation();
+        const currentSelectedNodeIds = selectedNodeIdsRef.current;
+        const isDraggingSelectedGroup =
+          currentSelectedNodeIds.length > 1 &&
+          currentSelectedNodeIds.includes(pointerWorkspaceItem.nodeId);
+        if (currentSelectedNodeIds.length > 0 && !isDraggingSelectedGroup) {
+          clearSelection();
+        }
+        const pointerPosition = pixiPointerToWorld(event);
+        const world = worldRef.current;
+        if (world) {
+          world.addChild(view.container);
+        }
+        const topLeftPosition = getViewTopLeftPosition(view);
+        dragStateRef.current = {
+          nodeId: pointerWorkspaceItem.nodeId,
+          pointerId: event.pointerId,
+          offsetX: pointerPosition.x - topLeftPosition.x,
+          offsetY: pointerPosition.y - topLeftPosition.y,
+          pointerStartX: pointerPosition.x,
+          pointerStartY: pointerPosition.y,
+          startX: topLeftPosition.x,
+          startY: topLeftPosition.y,
+          draggedNodeIds: isDraggingSelectedGroup
+            ? [...currentSelectedNodeIds]
+            : [pointerWorkspaceItem.nodeId],
+          nodeStartPositions: (isDraggingSelectedGroup
+            ? currentSelectedNodeIds
+            : [pointerWorkspaceItem.nodeId]
+          )
+            .map((nodeId) => {
+              const draggedView = itemViewsRef.current.get(nodeId);
+              if (!draggedView) return null;
+              const position = getViewTopLeftPosition(draggedView);
+              return {
+                nodeId,
+                x: position.x,
+                y: position.y,
+              };
+            })
+            .filter(
+              (
+                entry
+              ): entry is {
+                nodeId: string;
+                x: number;
+                y: number;
+              } => entry != null
+            ),
+        };
+        if (!isDraggingSelectedGroup) {
+          onClaimWorkspaceDragRef.current(pointerWorkspaceItem.nodeId);
+        }
+        const touchedView = itemViewsRef.current.get(pointerWorkspaceItem.nodeId);
+        if (touchedView) {
+          touchedView.arrivalHighlightUntil = null;
+          touchedView.arrivalHighlightStartedAt = null;
+        }
+        view.container.cursor = "grabbing";
+        view.container.alpha = 1;
+        drawItemCard(
+          view.background,
+          view.width,
+          pointerItem.id,
+          "highlight",
+          view.hasCategoryModifier || view.hasActionModifier
+        );
+      },
     });
-
-    const view = {
-      nodeId: workspaceItem.nodeId,
-      container,
-      background,
-      loader,
-      icon,
-      label,
-      badge,
-      actionBadge,
-      categoryBadge,
-      celebration,
-      celebrationParticles,
-      itemId: item.id,
-      hasActionModifier,
-      hasCategoryModifier,
-      width: cardWidth,
-      targetX: 0,
-      targetY: 0,
-      targetScale: 1,
-      scaleStep: HOVER_SCALE_STEP,
-      contentAlpha: 1,
-      targetContentAlpha: 1,
-      destroyWhenSettled: false,
-      arrivalTintProgress: 0,
-      arrivalHighlightUntil: null,
-      arrivalHighlightStartedAt: null,
-      celebrationProgress: 0,
-      celebrationTintProgress: 0,
-      celebrationTintHoldFrames: 0,
-    };
-    setViewTopLeftPosition(view, workspaceItem.position);
-    return view;
   };
 
   const syncScene = (nextWorkspaceItems: WorkspaceItem[]) => {
