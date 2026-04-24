@@ -43,10 +43,8 @@ import {
   DUPLICATE_OFFSET_Y,
   GRID_CELL_GAP_X,
   GRID_CELL_GAP_Y,
-  HOVER_SCALE_STEP,
   INITIAL_WORLD_CENTER,
   ItemView,
-  ItemVisualState,
   PAN_DRAG_THRESHOLD,
   PLACEHOLDER_WIDTH,
   POSITION_STEP,
@@ -224,7 +222,12 @@ function GraphView({
       refreshActivityOverlay();
     },
   });
-  const { itemViewsRef, getItemViewAtWorldPosition } = useGraphItems({ worldRef });
+  const {
+    itemViewsRef,
+    getItemViewAtWorldPosition,
+    applyViewState,
+    setViewContentAlpha,
+  } = useGraphItems({ worldRef });
   const dragStateRef = useRef<DragState | null>(null);
   const lastItemClickRef = useRef<{
     nodeId: string;
@@ -419,30 +422,6 @@ function GraphView({
     drawBackground();
     drawGrid();
     applyCamera();
-  };
-
-  const applyViewState = (view: ItemView, state: ItemVisualState, scale = 1) => {
-    drawItemCard(
-      view.background,
-      view.width,
-      view.itemId,
-      state,
-      view.hasCategoryModifier || view.hasActionModifier,
-      view.arrivalTintProgress,
-      view.celebrationTintProgress
-    );
-    view.targetScale = scale;
-    const isHoverScale = scale === 1 || scale === 1.04;
-    const isSettledNearFullSize =
-      view.container.scale.x >= 0.98 && view.targetScale >= 0.98;
-    view.scaleStep =
-      isHoverScale && isSettledNearFullSize
-        ? HOVER_SCALE_STEP
-        : COMBINE_SCALE_STEP;
-  };
-
-  const setViewContentAlpha = (view: ItemView, alpha: number) => {
-    view.targetContentAlpha = alpha;
   };
 
   const clearHoverTarget = () => {
