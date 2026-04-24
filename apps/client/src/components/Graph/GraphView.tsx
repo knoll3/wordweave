@@ -10,9 +10,7 @@ import type {
 } from "../../liveBoardTypes";
 import {
   ACTION_MODIFIER_ITEM,
-  ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM,
-  CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM,
@@ -509,15 +507,27 @@ function GraphView({
   const {
     dragStateRef,
     hoverTargetNodeIdRef,
-    clearHoverTarget,
     cancelActiveDrag,
-    updateHoverTarget,
+    handleDragPointerMove,
+    handleDragPointerUp,
   } = useGraphDrag({
     worldRef,
     getItemViews: () => itemViewsRef.current,
     selectedNodeIdsRef,
     getItemViewBounds: (nodeId) => getItemViewBounds(nodeId),
     getApplyViewState: () => applyViewState,
+    hostRef,
+    screenPointToWorld,
+    onDragWorkspaceItemRef,
+    onDragWorkspaceGroupRef,
+    onMoveWorkspaceItemsRef,
+    onDeleteWorkspaceItemsRef,
+    onReleaseWorkspaceDragRef,
+    onAttachActionModifierRef,
+    onAttachCategoryModifierRef,
+    onCombineWorkspaceItemsRef,
+    refreshSelectionOverlay,
+    getCanAttachModifierToView: () => canAttachModifierToView,
     isNodeCoveredByOverlay,
     isNodeReservedByLocalActivity,
     isNodeReservedByRemoteSelection,
@@ -649,50 +659,7 @@ function GraphView({
     };
 
     const handleWindowPointerMove = (event: PointerEvent) => {
-      const dragState = dragStateRef.current;
-      if (dragState && dragState.pointerId === event.pointerId) {
-        const rect = host.getBoundingClientRect();
-        const worldPosition = screenPointToWorld(
-          event.clientX - rect.left,
-          event.clientY - rect.top
-        );
-        if (dragState.draggedNodeIds.length > 1) {
-          const deltaX = worldPosition.x - dragState.pointerStartX;
-          const deltaY = worldPosition.y - dragState.pointerStartY;
-          const liveMoves: Array<{ nodeId: string; position: { x: number; y: number } }> = [];
-          for (const startPosition of dragState.nodeStartPositions) {
-            const view = itemViewsRef.current.get(startPosition.nodeId);
-            if (!view) continue;
-            const nextPosition = {
-              x: startPosition.x + deltaX,
-              y: startPosition.y + deltaY,
-            };
-            setViewTopLeftPosition(view, nextPosition);
-            liveMoves.push({
-              nodeId: startPosition.nodeId,
-              position: {
-                x: nextPosition.x,
-                y: nextPosition.y,
-              },
-            });
-          }
-          onDragWorkspaceGroupRef.current?.(liveMoves);
-          refreshSelectionOverlay();
-        } else {
-          const view = itemViewsRef.current.get(dragState.nodeId);
-          if (view) {
-            const nextPosition = {
-              x: worldPosition.x - dragState.offsetX,
-              y: worldPosition.y - dragState.offsetY,
-            };
-            setViewTopLeftPosition(view, nextPosition);
-            onDragWorkspaceItemRef.current(dragState.nodeId, {
-              x: Math.round(nextPosition.x),
-              y: Math.round(nextPosition.y),
-            });
-            updateHoverTarget(dragState.nodeId);
-          }
-        }
+      if (handleDragPointerMove(event.pointerId, event.clientX, event.clientY)) {
         return;
       }
 
@@ -767,111 +734,36 @@ function GraphView({
         return;
       }
 
-      const dragState = dragStateRef.current;
-      if (dragState && dragState.pointerId === event.pointerId) {
-        const view = itemViewsRef.current.get(dragState.nodeId);
-        const dropTargetNodeId = hoverTargetNodeIdRef.current;
-        dragStateRef.current = null;
-        clearHoverTarget();
-        if (dragState.draggedNodeIds.length > 1) {
-          const nextPositions = new Map(
-            dragState.draggedNodeIds.map((nodeId) => {
-              const draggedView = itemViewsRef.current.get(nodeId);
-              const topLeftPosition = draggedView
-                ? getViewTopLeftPosition(draggedView)
-                : null;
-              return [
-                nodeId,
-                topLeftPosition
-                  ? {
-                      x: Math.round(topLeftPosition.x),
-                      y: Math.round(topLeftPosition.y),
-                    }
-                  : null,
-              ] as const;
-            })
-          );
-
-          onMoveWorkspaceItemsRef.current(
-            [...nextPositions.entries()]
-              .filter((entry): entry is [string, { x: number; y: number }] => entry[1] != null)
-              .map(([nodeId, position]) => ({ nodeId, position }))
-          );
+      const releaseResult = handleDragPointerUp(
+        event.pointerId,
+        event.clientX,
+        event.clientY
+      );
+      if (releaseResult) {
+        if (
+          releaseResult.kind === "group" ||
+          releaseResult.kind === "deleted" ||
+          releaseResult.kind === "modifier-attached" ||
+          releaseResult.kind === "combined"
+        ) {
           lastItemClickRef.current = null;
           return;
         }
-        if (view) {
-          view.container.alpha = 1;
-          view.container.cursor = "grab";
-          applyViewState(view, "default", 1);
-          const hostRect = host.getBoundingClientRect();
-          const releasedOutsideWorkspace =
-            event.clientX < hostRect.left ||
-            event.clientX > hostRect.right ||
-            event.clientY < hostRect.top ||
-            event.clientY > hostRect.bottom;
-          const topLeftPosition = getViewTopLeftPosition(view);
-          const nextPosition = {
-            x: Math.round(topLeftPosition.x),
-            y: Math.round(topLeftPosition.y),
-          };
-          const movedDistance = Math.hypot(
-            nextPosition.x - dragState.startX,
-            nextPosition.y - dragState.startY
-          );
-          const isClickRelease = movedDistance <= CLICK_MOVE_THRESHOLD;
-          const dropTargetView = dropTargetNodeId
-            ? itemViewsRef.current.get(dropTargetNodeId)
-            : null;
-          const resultCenter = dropTargetView
-            ? {
-                x: (nextPosition.x + getViewTopLeftPosition(dropTargetView).x) / 2,
-                y: (nextPosition.y + getViewTopLeftPosition(dropTargetView).y) / 2,
-              }
-            : undefined;
-          if (releasedOutsideWorkspace) {
-            lastItemClickRef.current = null;
-            onDeleteWorkspaceItemsRef.current([dragState.nodeId]);
-            return;
-          }
-          onReleaseWorkspaceDragRef.current(dragState.nodeId, nextPosition);
-          if (
-            (view.itemId === CATEGORY_MODIFIER_ITEM_ID ||
-              view.itemId === ACTION_MODIFIER_ITEM_ID) &&
-            dropTargetNodeId &&
-            dropTargetNodeId !== dragState.nodeId
-          ) {
-            const dropTargetView = itemViewsRef.current.get(dropTargetNodeId);
-            if (dropTargetView && canAttachModifierToView(dropTargetView)) {
-              lastItemClickRef.current = null;
-              if (view.itemId === ACTION_MODIFIER_ITEM_ID) {
-                onAttachActionModifierRef.current(dragState.nodeId, dropTargetNodeId);
-              } else {
-                onAttachCategoryModifierRef.current(dragState.nodeId, dropTargetNodeId);
-              }
-              return;
-            }
-          }
-          if (dropTargetNodeId && dropTargetNodeId !== dragState.nodeId) {
-            lastItemClickRef.current = null;
-            onCombineWorkspaceItemsRef.current(
-              dragState.nodeId,
-              dropTargetNodeId,
-              resultCenter
-            );
-          } else if (isClickRelease) {
+        if (releaseResult.kind === "released") {
+          const isClickRelease = releaseResult.movedDistance <= CLICK_MOVE_THRESHOLD;
+          if (isClickRelease) {
             const now = Date.now();
             const lastClick = lastItemClickRef.current;
             if (
               lastClick &&
-              lastClick.nodeId === dragState.nodeId &&
+              lastClick.nodeId === releaseResult.nodeId &&
               now - lastClick.time <= DOUBLE_CLICK_MS
             ) {
               clearPendingDrawerOpen();
-              duplicateWorkspaceItem(dragState.nodeId);
+              duplicateWorkspaceItem(releaseResult.nodeId);
               lastItemClickRef.current = null;
             } else {
-              const clickedItem = itemByIdRef.current.get(view.itemId);
+              const clickedItem = itemByIdRef.current.get(releaseResult.itemId);
               if (
                 clickedItem &&
                 clickedItem.id !== COMBINE_RESULT_PLACEHOLDER_ITEM_ID
@@ -879,14 +771,17 @@ function GraphView({
                 scheduleDrawerOpen(clickedItem);
               }
               lastItemClickRef.current = {
-                nodeId: dragState.nodeId,
+                nodeId: releaseResult.nodeId,
                 time: now,
               };
             }
           } else {
             lastItemClickRef.current = null;
           }
+          return;
         }
+        lastItemClickRef.current = null;
+        return;
       }
 
       const panState = panStateRef.current;
