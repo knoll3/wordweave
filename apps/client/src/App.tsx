@@ -35,6 +35,7 @@ import GraphView from "./components/Graph/GraphView";
 import type { CatalystAction } from "./components/Graph/CatalystDock";
 import JournalDock from "./components/Journal/JournalDock";
 import QuestGenerationModal from "./components/Journal/QuestGenerationModal";
+import { useLiveBoardSubscriptions } from "./hooks/useLiveBoardSubscriptions";
 import { useMobileKeyboardWorkarounds } from "./hooks/useMobileKeyboardWorkarounds";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import { useResponsiveLayout } from "./hooks/useResponsiveLayout";
@@ -43,15 +44,15 @@ import {
   attachBoardActionModifier,
   attachBoardCategoryModifier,
   clearBoardItems as clearSharedBoardItems,
-  combineBoardItems,
   acceptGeneratedQuestSet,
+  combineBoardItems,
   combineElements,
   createBoardItem,
   deleteBoardItems,
-    duplicateBoardItem,
-    fetchBoardSnapshot,
-    fetchItems,
-    fetchQuests,
+  duplicateBoardItem,
+  fetchBoardSnapshot,
+  fetchItems,
+  fetchQuests,
   fetchUnlockStatuses,
   generateQuestDraft,
   importLegacyQuestState,
@@ -68,15 +69,6 @@ import {
   publishViewportCenter,
   sendBoardGroupMove,
   sendBoardDragMove,
-  subscribeToBoardActivity,
-  subscribeToBoardPatch,
-  subscribeToBoardSelection,
-  subscribeToQuestCelebration,
-  subscribeToQuestSync,
-  subscribeToRoomSnapshot,
-  subscribeToViewportCenter,
-  subscribeToViewportCenterRemoved,
-  subscribeToViewportCentersSync,
 } from "./lib/liveBoardSocket";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
@@ -394,131 +386,26 @@ const App: React.FC = () => {
     void loadFeatureUnlocks();
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const snapshot = await fetchBoardSnapshot();
-        if (!cancelled) {
-          const nextWorkspace = hasHydratedSharedSnapshotRef.current
-            ? applyWorkspaceSnapshot(snapshot)
-            : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
-          hasHydratedSharedSnapshotRef.current = true;
-          setCanUndoWorkspace(Boolean(snapshot.canUndo));
-          setWorkspaceItems(nextWorkspace);
-          void refreshSharedItemsIfNeeded(nextWorkspace);
-        }
-      } catch {
-      }
-    })();
-
-    const unsubscribeSnapshot = subscribeToRoomSnapshot((snapshot) => {
-      if (cancelled) {
-        return;
-      }
-      const nextWorkspace = hasHydratedSharedSnapshotRef.current
-        ? applyWorkspaceSnapshot(snapshot)
-        : stripWorkspaceArrivalHighlights(applyWorkspaceSnapshot(snapshot));
-      hasHydratedSharedSnapshotRef.current = true;
-      setCanUndoWorkspace(Boolean(snapshot.canUndo));
-      setWorkspaceItems(nextWorkspace);
-      void refreshSharedItemsIfNeeded(nextWorkspace);
-    });
-    const unsubscribePatch = subscribeToBoardPatch((patch) => {
-      if (cancelled) {
-        return;
-      }
-      setWorkspaceItems((prev) => {
-        const nextWorkspace = applyWorkspacePatch(prev, patch);
-        if (patch.canUndo != null) {
-          setCanUndoWorkspace(Boolean(patch.canUndo));
-        }
-        void refreshSharedItemsIfNeeded(nextWorkspace);
-        return nextWorkspace;
-      });
-    });
-    const unsubscribeSelection = subscribeToBoardSelection((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setRemoteSelectedNodeIds(payload.nodeIds);
-      setRemoteSelectionLayout((payload.layout as SelectionCombineLayout | null) ?? null);
-    });
-    const unsubscribeActivity = subscribeToBoardActivity((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setRemoteActivityNodeIds(payload.nodeIds);
-      setRemoteActivityLayout((payload.layout as SelectionCombineLayout | null) ?? null);
-      setRemoteActivityMode(payload.mode ?? null);
-    });
-    const unsubscribeQuestSync = subscribeToQuestSync((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setQuests(payload.quests);
-      applyQuestStats(payload.stats);
-    });
-    const unsubscribeViewportCentersSync = subscribeToViewportCentersSync((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setRemoteViewportCenters(payload.players);
-    });
-    const unsubscribeViewportCenter = subscribeToViewportCenter((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setRemoteViewportCenters((current) => {
-        const next = current.filter((entry) => entry.playerId !== payload.playerId);
-        next.push(payload);
-        return next;
-      });
-    });
-    const unsubscribeViewportCenterRemoved = subscribeToViewportCenterRemoved((payload) => {
-      if (cancelled) {
-        return;
-      }
-      setRemoteViewportCenters((current) =>
-        current.filter((entry) => entry.playerId !== payload.playerId)
-      );
-    });
-    const unsubscribeQuestCelebration = subscribeToQuestCelebration((payload) => {
-      if (cancelled) {
-        return;
-      }
-      if (payload.totalPoints != null) {
-        applyQuestStats({
-          totalPoints: payload.totalPoints,
-        });
-      }
-      if (payload.newlyCompletedQuestNames.length > 0) {
-        applyNewlyCompletedQuests(
-          payload.newlyCompletedQuestNames,
-          payload.celebrationNodeId ?? null
-        );
-      }
-      if (payload.completedQuestSets && payload.completedQuestSets.length > 0) {
-        const latestCompletedSet =
-          payload.completedQuestSets[payload.completedQuestSets.length - 1];
-        showQuestSetCelebration(latestCompletedSet, payload.totalPoints ?? questStats.totalPoints);
-      }
-    });
-
-    return () => {
-      cancelled = true;
-      unsubscribeSnapshot();
-      unsubscribePatch();
-      unsubscribeSelection();
-      unsubscribeActivity();
-      unsubscribeQuestSync();
-      unsubscribeViewportCentersSync();
-      unsubscribeViewportCenter();
-      unsubscribeViewportCenterRemoved();
-      unsubscribeQuestCelebration();
-    };
-  }, []);
+  useLiveBoardSubscriptions({
+    applyWorkspaceSnapshot,
+    stripWorkspaceArrivalHighlights,
+    applyWorkspacePatch,
+    hasHydratedSharedSnapshotRef,
+    setCanUndoWorkspace,
+    setWorkspaceItems,
+    refreshSharedItemsIfNeeded,
+    setRemoteSelectedNodeIds,
+    setRemoteSelectionLayout,
+    setRemoteActivityNodeIds,
+    setRemoteActivityLayout,
+    setRemoteActivityMode,
+    setQuests,
+    applyQuestStats,
+    setRemoteViewportCenters,
+    applyNewlyCompletedQuests,
+    showQuestSetCelebration,
+    questStatsTotalPoints: questStats.totalPoints,
+  });
 
   useEffect(
     () => () => {
