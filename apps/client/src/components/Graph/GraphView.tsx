@@ -1,13 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   Application,
   FederatedPointerEvent,
   Rectangle,
 } from "pixi.js";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { SPECIAL_ITEMS } from "../../lib/specialItems";
 import type {
   SharedBoardActivityMode,
   SharedPlayerViewportCenter,
 } from "../../liveBoardTypes";
+import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
 import {
   ACTION_MODIFIER_ITEM,
   CATEGORY_MODIFIER_ITEM,
@@ -15,31 +17,19 @@ import {
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM,
 } from "../../types";
-import type { Item, SelectionCombineLayout, WorkspaceItem } from "../../types";
-import { SPECIAL_ITEMS } from "../../lib/specialItems";
 import type { CatalystAction } from "./CatalystDock";
 import GraphControls from "./GraphControls";
 import GraphOverlays from "./GraphOverlays";
-import { useGraphCamera } from "./hooks/useGraphCamera";
-import { useGraphDrag, type GraphDragState } from "./hooks/useGraphDrag";
-import { useGraphItems } from "./hooks/useGraphItems";
-import { usePixiApp } from "./hooks/usePixiApp";
-import { useGraphSelection } from "./hooks/useGraphSelection";
 import {
   ARRIVAL_TINT_FADE_STEP,
   CARD_HEIGHT,
   CELEBRATION_PROGRESS_STEP,
   CELEBRATION_TINT_FADE_STEP,
   CLICK_MOVE_THRESHOLD,
-  COMBINE_SCALE_STEP,
   CONTENT_ALPHA_STEP,
   DOUBLE_CLICK_MS,
   DOUBLE_TAP_DISTANCE_THRESHOLD,
   DRAWER_OPEN_DELAY_MS,
-  DUPLICATE_OFFSET_X,
-  DUPLICATE_OFFSET_Y,
-  GRID_CELL_GAP_X,
-  GRID_CELL_GAP_Y,
   INITIAL_WORLD_CENTER,
   ItemView,
   PAN_DRAG_THRESHOLD,
@@ -47,11 +37,15 @@ import {
   POSITION_STEP,
   drawCelebrationParticles,
   drawItemCard,
-  getViewTopLeftPosition,
   moveToward,
   setViewTargetTopLeftPosition,
-  setViewTopLeftPosition,
+  setViewTopLeftPosition
 } from "./graphViewHelpers";
+import { useGraphCamera } from "./hooks/useGraphCamera";
+import { useGraphDrag } from "./hooks/useGraphDrag";
+import { useGraphItems } from "./hooks/useGraphItems";
+import { useGraphSelection } from "./hooks/useGraphSelection";
+import { usePixiApp } from "./hooks/usePixiApp";
 import {
   getLocalActivityOverlayLabels,
   getRemoteActivityOverlayLabels,

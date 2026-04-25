@@ -1,6 +1,6 @@
-import type { SelectionCombineLayout, WorkspaceItem } from "../../types";
 import { resolveActionPromptFamilyKey } from "../../lib/actionPromptFamilies";
 import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
+import type { SelectionCombineLayout, WorkspaceItem } from "../../types";
 import {
   CARD_HEIGHT,
   GRID_CELL_GAP_X,

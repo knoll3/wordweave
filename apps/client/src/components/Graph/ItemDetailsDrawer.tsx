@@ -1,8 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  ACTION_PROMPT_FAMILY_REFERENCES,
+  normalizeActionTrigger,
+} from "../../lib/actionPromptFamilies";
+import {
+  clearLatestRecipeContextCache,
+  clearRecipeFeedback,
+  fetchItemReference,
+  fetchLatestRecipeContext,
+  submitRecipeFeedback,
+  type LatestRecipeCatalyst,
+  type LatestRecipeContext,
+  type LatestRecipeInput,
+} from "../../lib/api";
+import type { Item } from "../../types";
+import {
   ACTION_MODIFIER_ITEM_ID,
-  COMMON_CATALYST_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
+  COMMON_CATALYST_ITEM_ID,
   COMPOUND_CATALYST_ITEM_ID,
   CREATIVE_ITEM_ID,
   EVOLVE_CATALYST_ITEM_ID,
@@ -12,23 +27,8 @@ import {
   SPLIT_CATALYST_ITEM_ID,
   SYNONYM_CATALYST_ITEM_ID,
 } from "../../types";
-import type { Item } from "../../types";
-import {
-  clearRecipeFeedback,
-  clearLatestRecipeContextCache,
-  fetchItemReference,
-  fetchLatestRecipeContext,
-  submitRecipeFeedback,
-  type LatestRecipeCatalyst,
-  type LatestRecipeContext,
-  type LatestRecipeInput,
-} from "../../lib/api";
-import {
-  ACTION_PROMPT_FAMILY_REFERENCES,
-  normalizeActionTrigger,
-} from "../../lib/actionPromptFamilies";
-import ItemDrawerReferenceSection from "./ItemDrawerReferenceSection";
 import ItemDrawerRecipeSection from "./ItemDrawerRecipeSection";
+import ItemDrawerReferenceSection from "./ItemDrawerReferenceSection";
 
 type CatalystGuide = {
   description: string;

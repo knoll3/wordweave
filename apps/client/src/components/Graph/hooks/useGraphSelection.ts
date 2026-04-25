@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
 import type { MutableRefObject } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { SelectionCombineLayout, WorkspaceItem } from "../../../types";
 import { buildGraphSelectionLayout } from "../graphSelectionLayout";
 import { CARD_HEIGHT, PLACEHOLDER_WIDTH, SELECTION_PADDING } from "../graphViewHelpers";

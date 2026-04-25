@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import type { CacheRecipe } from "../types";
 import { fetchCacheRecipes, generateCacheRecipes } from "../lib/api";
+import type { CacheRecipe } from "../types";
 
 const PAGE_SIZE = 25;
 

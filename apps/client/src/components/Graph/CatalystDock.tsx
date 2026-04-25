@@ -1,5 +1,5 @@
-import React from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
+import React from "react";
 
 export interface CatalystAction {
   key: string;

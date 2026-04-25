@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Item, SemanticCluster } from "../../types";
 import { fetchItems, fetchSemanticClusters } from "../../lib/api";
+import type { Item, SemanticCluster } from "../../types";
 import { collectClusterIds } from "./elementClusters";
 import {
   buildDisplayedItems,

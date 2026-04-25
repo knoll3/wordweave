@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import type { QuestRecord } from "../types";
 import { fetchQuestTargetReference, type ItemReference } from "../lib/api";
+import type { QuestRecord } from "../types";
 
 export function useQuestReferences(
   quests: QuestRecord[],

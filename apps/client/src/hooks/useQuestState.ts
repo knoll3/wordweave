@@ -1,10 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  PlayerQuestStats,
-  QuestGenerationDraft,
-  QuestRecord,
-  QuestSetCompletion,
-} from "../types";
 import {
   acceptGeneratedQuestSet,
   fetchQuests,
@@ -19,6 +13,12 @@ import {
   loadLegacyStoredQuests,
   loadStoredNameSet,
 } from "../lib/legacyQuestStorage";
+import type {
+  PlayerQuestStats,
+  QuestGenerationDraft,
+  QuestRecord,
+  QuestSetCompletion,
+} from "../types";
 
 const QUEST_CELEBRATION_DURATION_MS = 2600;
 

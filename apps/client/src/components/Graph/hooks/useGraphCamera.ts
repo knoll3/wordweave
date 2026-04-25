@@ -1,11 +1,11 @@
-import { useCallback, useRef, useState } from "react";
-import type { RefObject } from "react";
 import type {
   Application,
   Container,
   FederatedPointerEvent,
   TilingSprite,
 } from "pixi.js";
+import type { RefObject } from "react";
+import { useCallback, useRef, useState } from "react";
 import {
   MAX_ZOOM,
   MIN_ZOOM,

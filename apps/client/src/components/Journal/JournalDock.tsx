@@ -1,6 +1,6 @@
 import React from "react";
-import type { Item, QuestRecord } from "../../types";
 import type { ItemReference } from "../../lib/api";
+import type { Item, QuestRecord } from "../../types";
 import ItemDetailsDrawer from "../Graph/ItemDetailsDrawer";
 import QuestDetailsPanel from "../Graph/QuestDetailsPanel";
 import JournalQuestBrowser from "./JournalQuestBrowser";

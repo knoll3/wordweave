@@ -1,16 +1,16 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import ErrorBoundary from "./components/ErrorBoundary";
 import AdminPage from "./pages/AdminPage";
 import CachePage from "./pages/CachePage";
 import ClustersPage from "./pages/ClustersPage";
 import FeedbackPage from "./pages/FeedbackPage";
 import PromptsPage from "./pages/PromptsPage";
-import ErrorBoundary from "./components/ErrorBoundary";
 import "./styles/core.css";
-import "./styles/layout.css";
 import "./styles/graph.css";
 import "./styles/journal.css";
+import "./styles/layout.css";
 import "./styles/pages.css";
 
 const pathname = window.location.pathname;

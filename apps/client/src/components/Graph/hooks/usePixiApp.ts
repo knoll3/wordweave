@@ -1,4 +1,3 @@
-import { useCallback, useRef } from "react";
 import {
   Application,
   Container,
@@ -6,6 +5,7 @@ import {
   Texture,
   TilingSprite,
 } from "pixi.js";
+import { useCallback, useRef } from "react";
 import { GRID_RADIUS, GRID_SPACING } from "../graphViewHelpers";
 
 type InitializePixiAppOptions = {

@@ -5,12 +5,12 @@ import {
   Rectangle,
   Text,
 } from "pixi.js";
+import type { Item, WorkspaceItem } from "../../types";
 import {
   ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
 } from "../../types";
-import type { Item, WorkspaceItem } from "../../types";
 import {
   CARD_HEIGHT,
   CARD_HORIZONTAL_PADDING,

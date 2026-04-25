@@ -1,7 +1,7 @@
-import React from "react";
 import { ThumbsDown, ThumbsUp } from "lucide-react";
-import type { Item } from "../../types";
+import React from "react";
 import type { LatestRecipeCatalyst, LatestRecipeContext, LatestRecipeInput } from "../../lib/api";
+import type { Item } from "../../types";
 
 export default function ItemDrawerRecipeSection({
   item,

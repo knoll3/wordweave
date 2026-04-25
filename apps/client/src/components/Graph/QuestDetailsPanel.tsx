@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
-import type { Item } from "../../types";
 import { fetchQuestTargetReference } from "../../lib/api";
+import type { Item } from "../../types";
 
 interface Props {
   quest: {

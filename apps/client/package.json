@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "organize-imports": "npx --yes organize-imports-cli tsconfig.json"
   },
   "dependencies": {
     "lucide-react": "^0.577.0",

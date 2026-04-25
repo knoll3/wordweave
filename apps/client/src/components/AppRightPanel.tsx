@@ -1,8 +1,8 @@
 import React from "react";
+import type { ItemReference } from "../lib/api";
+import type { Item, QuestGenerationDraft, QuestRecord } from "../types";
 import JournalDock from "./Journal/JournalDock";
 import QuestGenerationModal from "./Journal/QuestGenerationModal";
-import type { Item, QuestGenerationDraft, QuestRecord } from "../types";
-import type { ItemReference } from "../lib/api";
 
 type Props = {
   dockRef: React.RefObject<HTMLElement>;

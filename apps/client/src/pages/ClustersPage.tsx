@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { fetchSemanticClusters } from "../lib/api";
-import type { SemanticCluster, SemanticClustersResponse } from "../types";
+import type { SemanticClustersResponse } from "../types";
 
 function formatMembership(value: number) {
   return `${Math.round(value * 100)}%`;

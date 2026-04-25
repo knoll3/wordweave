@@ -1,11 +1,11 @@
 import { Container, Graphics, Text } from "pixi.js";
+import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
 import {
   ACTION_MODIFIER_ITEM_ID,
   CATEGORY_MODIFIER_ITEM_ID,
   COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
   CREATIVE_ITEM_ID,
 } from "../../types";
-import { ACTION_CATALYST_BY_ID } from "../../lib/specialItems";
 
 export type ItemVisualState = "default" | "highlight";
 

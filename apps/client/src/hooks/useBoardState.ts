@@ -1,25 +1,6 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type {
-  SharedBoardActivityMode,
-  SharedPlayerViewportCenter,
-  SharedRoomSnapshot,
-} from "../liveBoardTypes";
-import type {
-  AiModel,
-  AutoUnlockedActionWord,
-  Item,
-  PlayerQuestStats,
-  QuestRecord,
-  SelectionCombineLayout,
-  WorkspaceItem,
-} from "../types";
-import {
-  ACTION_MODIFIER_ITEM_ID,
-  CATEGORY_MODIFIER_ITEM_ID,
-  COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-  CREATIVE_ITEM_ID,
-} from "../types";
+import { resolveActionPromptFamilyKey } from "../lib/actionPromptFamilies";
 import {
   attachBoardActionModifier,
   attachBoardCategoryModifier,
@@ -46,13 +27,30 @@ import {
   sendBoardDragMove,
   sendBoardGroupMove,
 } from "../lib/liveBoardSocket";
-import { resolveActionPromptFamilyKey } from "../lib/actionPromptFamilies";
 import {
   ACTION_CATALYSTS,
   ACTION_CATALYST_BY_ID,
   NON_INGREDIENT_ITEM_IDS,
   SPECIAL_ITEM_BY_ID,
 } from "../lib/specialItems";
+import type {
+  SharedBoardActivityMode,
+  SharedPlayerViewportCenter,
+  SharedRoomSnapshot,
+} from "../liveBoardTypes";
+import type {
+  AiModel,
+  AutoUnlockedActionWord,
+  Item,
+  PlayerQuestStats,
+  QuestRecord,
+  SelectionCombineLayout,
+  WorkspaceItem,
+} from "../types";
+import {
+  COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
+  CREATIVE_ITEM_ID
+} from "../types";
 
 const VIEWPORT_CENTER_PUBLISH_INTERVAL_MS = 120;
 const VIEWPORT_CENTER_MIN_DELTA = 12;

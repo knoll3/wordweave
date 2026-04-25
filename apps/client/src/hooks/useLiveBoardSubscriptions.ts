@@ -1,17 +1,5 @@
-import { useEffect } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
-import type {
-  SharedBoardActivityMode,
-  SharedBoardPatch,
-  SharedPlayerViewportCenter,
-  SharedRoomSnapshot,
-} from "../liveBoardTypes";
-import type {
-  PlayerQuestStats,
-  QuestSetCompletion,
-  SelectionCombineLayout,
-  WorkspaceItem,
-} from "../types";
+import { useEffect } from "react";
 import { fetchBoardSnapshot } from "../lib/api";
 import {
   subscribeToBoardActivity,
@@ -24,6 +12,18 @@ import {
   subscribeToViewportCenterRemoved,
   subscribeToViewportCentersSync,
 } from "../lib/liveBoardSocket";
+import type {
+  SharedBoardActivityMode,
+  SharedBoardPatch,
+  SharedPlayerViewportCenter,
+  SharedRoomSnapshot,
+} from "../liveBoardTypes";
+import type {
+  PlayerQuestStats,
+  QuestSetCompletion,
+  SelectionCombineLayout,
+  WorkspaceItem,
+} from "../types";
 
 export function useLiveBoardSubscriptions({
   applyWorkspaceSnapshot,

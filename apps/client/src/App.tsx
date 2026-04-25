@@ -1,46 +1,44 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import type { SharedBoardPatch, SharedRoomSnapshot } from "./liveBoardTypes";
 import {
   ScrollText,
   Tags,
   Undo2,
   Zap,
 } from "lucide-react";
-import {
-  ACTION_MODIFIER_ITEM_ID,
-  CATEGORY_MODIFIER_ITEM_ID,
-  COMBINE_RESULT_PLACEHOLDER_ITEM_ID,
-  CREATIVE_ITEM_ID,
-} from "./types";
-import type {
-  AutoUnlockedActionWord,
-  AiModel,
-  FeatureUnlockStatus,
-  Item,
-  UnlockKey,
-  WorkspaceItem,
-} from "./types";
-import ElementSidebar from "./components/Sidebar/ElementSidebar";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import AppLayout from "./components/AppLayout";
 import AppRightPanel from "./components/AppRightPanel";
-import GraphView from "./components/Graph/GraphView";
 import type { CatalystAction } from "./components/Graph/CatalystDock";
+import GraphView from "./components/Graph/GraphView";
+import ElementSidebar from "./components/Sidebar/ElementSidebar";
+import { useBoardState } from "./hooks/useBoardState";
 import { useLiveBoardSubscriptions } from "./hooks/useLiveBoardSubscriptions";
 import { useMobileKeyboardWorkarounds } from "./hooks/useMobileKeyboardWorkarounds";
 import { useQuestReferences } from "./hooks/useQuestReferences";
 import { useQuestState } from "./hooks/useQuestState";
 import { useResponsiveLayout } from "./hooks/useResponsiveLayout";
 import { useSettings } from "./hooks/useSettings";
-import { useBoardState } from "./hooks/useBoardState";
-import { fetchUnlockStatuses } from "./lib/api";
 import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
 } from "./lib/actionPromptFamilies";
+import { fetchUnlockStatuses } from "./lib/api";
 import {
   ACTION_CATALYSTS,
   SPECIAL_ITEMS,
 } from "./lib/specialItems";
+import type { SharedBoardPatch, SharedRoomSnapshot } from "./liveBoardTypes";
+import type {
+  AiModel,
+  AutoUnlockedActionWord,
+  FeatureUnlockStatus,
+  Item,
+  UnlockKey,
+  WorkspaceItem,
+} from "./types";
+import {
+  ACTION_MODIFIER_ITEM_ID,
+  CATEGORY_MODIFIER_ITEM_ID
+} from "./types";
 
 const AI_MODELS: AiModel[] = [
   "gpt-5.4",

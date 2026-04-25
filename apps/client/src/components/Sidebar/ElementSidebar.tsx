@@ -1,8 +1,8 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
 import { SquareMinus, SquarePlus } from "lucide-react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Item, SemanticCluster } from "../../types";
-import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
+import ElementSearch from "./ElementSearch";
 import {
   expandAllClusterIds,
   getSortedClusterLeafEntries,
