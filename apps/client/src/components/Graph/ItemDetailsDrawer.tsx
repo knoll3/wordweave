@@ -1,5 +1,4 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { ThumbsDown, ThumbsUp } from "lucide-react";
 import {
   ACTION_MODIFIER_ITEM_ID,
   COMMON_CATALYST_ITEM_ID,
@@ -28,6 +27,8 @@ import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
 } from "../../lib/actionPromptFamilies";
+import ItemDrawerReferenceSection from "./ItemDrawerReferenceSection";
+import ItemDrawerRecipeSection from "./ItemDrawerRecipeSection";
 
 type CatalystGuide = {
   description: string;
@@ -325,239 +326,44 @@ const ItemDetailsDrawer: React.FC<Props> = ({
           </button>
         </div>
 
-        <section className="item-drawer-section">
-          <div className="item-drawer-section-label">Reference</div>
-          {catalystGuide ? (
-            <>
-              <p className="item-drawer-description">{catalystGuide.description}</p>
-              <div className="item-drawer-example">{catalystGuide.example}</div>
-              {actionTriggerSections ? (
-                <div className="item-drawer-action-triggers">
-                  {actionTriggerSections.map((section) => (
-                    <div key={section.title} className="item-drawer-action-trigger-group">
-                      <div className="item-drawer-action-trigger-family">{section.title}</div>
-                      <div className="item-drawer-action-trigger-summary">
-                        {section.description}
-                      </div>
-                      <div className="item-drawer-action-trigger-chips">
-                        {section.discoveredItems.map((triggerItem) => (
-                          <button
-                            key={triggerItem.id}
-                            type="button"
-                            className="item-drawer-action-trigger-chip is-owned is-clickable"
-                            onClick={() => onAddItemToWorkspaceAsActionAnchor(triggerItem)}
-                          >
-                            {triggerItem.name}
-                          </button>
-                        ))}
-                        {section.undiscoveredWords.map((word) => (
-                          <span key={word} className="item-drawer-action-trigger-chip is-disabled">
-                            {word}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </>
-          ) : isLoadingReference ? (
-            <div className="item-drawer-status" aria-live="polite">
-              <span className="search-pending-spinner" aria-hidden="true" />
-              <span>Loading reference…</span>
-            </div>
-          ) : referenceDescription ? (
-            <>
-              {referenceImageUrl ? (
-                <div className="item-drawer-media">
-                  <img
-                    className="item-drawer-media-image"
-                    src={referenceImageUrl}
-                    alt={referenceTitle || item.name}
-                    loading="lazy"
-                  />
-                </div>
-              ) : null}
-              <p className="item-drawer-description">{referenceDescription}</p>
-              {referenceUrl ? (
-                <a
-                  className="item-drawer-link"
-                  href={referenceUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  Open Wikipedia article
-                </a>
-              ) : null}
-            </>
-          ) : (
-            <p className="item-drawer-empty">
-              No reference summary found for this item yet.
-            </p>
-          )}
-        </section>
-
-        <section className="item-drawer-section">
-          <div className="item-drawer-section-label">Recipe</div>
-          {catalystGuide ? (
-            <p className="item-drawer-empty">
-              Catalysts are tools you combine with other items, not recipe results themselves.
-            </p>
-          ) : isBaseItem ? (
-            <p className="item-drawer-empty">
-              Base elements do not show recipe history here.
-            </p>
-          ) : isLoadingRecipe ? (
-            <div className="item-drawer-status" aria-live="polite">
-              <span className="search-pending-spinner" aria-hidden="true" />
-              <span>Loading first recipe…</span>
-            </div>
-          ) : recipeInputs.length > 0 ? (
-            <>
-              <div className="item-drawer-chip-row item-drawer-recipe-row">
-                {recipeCatalyst ? (
-                  <>
-                    <span className="item-drawer-chip is-disabled">
-                      <span aria-hidden="true">
-                        {recipeCatalyst.icon || recipeCatalyst.name.charAt(0).toUpperCase()}
-                      </span>
-                      <span>{recipeCatalyst.name}</span>
-                    </span>
-                    <span className="item-drawer-recipe-separator" aria-hidden="true">
-                      +
-                    </span>
-                  </>
-                ) : null}
-                {linkedRecipeInputs.map((input, index) => (
-                  <React.Fragment key={`${input.normalizedName}-${input.id ?? "missing"}`}>
-                    {index > 0 ? (
-                      <span className="item-drawer-recipe-separator" aria-hidden="true">
-                        +
-                      </span>
-                    ) : null}
-                    {input.item ? (
-                      <button
-                        type="button"
-                        className="item-drawer-chip"
-                        onClick={() => onSelectItem(input.item!)}
-                      >
-                        <span aria-hidden="true">
-                          {input.icon || input.name.charAt(0).toUpperCase()}
-                        </span>
-                        <span>{input.name}</span>
-                      </button>
-                    ) : (
-                      <span className="item-drawer-chip is-disabled">
-                        <span aria-hidden="true">
-                          {input.icon || input.name.charAt(0).toUpperCase()}
-                        </span>
-                        <span>{input.name}</span>
-                      </span>
-                    )}
-                  </React.Fragment>
-                ))}
-                <span className="item-drawer-recipe-separator" aria-hidden="true">
-                  →
-                </span>
-                <span className="item-drawer-chip is-result">
-                  <span aria-hidden="true">
-                    {item.icon || item.name.charAt(0).toUpperCase()}
-                  </span>
-                  <span>{item.name}</span>
-                </span>
-              </div>
-              {showRecipeFeedback ? (
-                <div className="item-drawer-feedback">
-                  <div className="item-drawer-feedback-header">
-                    <div className="item-drawer-feedback-title">Was this result good?</div>
-                    <div className="item-drawer-feedback-copy">
-                      Help improve future combinations.
-                    </div>
-                  </div>
-                  <div className="item-drawer-feedback-actions">
-                    <button
-                      type="button"
-                      className={`item-drawer-feedback-button ${
-                        pendingFeedbackSentiment === "up" ? "is-active is-positive" : ""
-                      }`}
-                      disabled={isSubmittingFeedback}
-                      onClick={() =>
-                        pendingFeedbackSentiment === "up"
-                          ? void handleClearFeedback()
-                          : void handleSubmitFeedback("up")
-                      }
-                    >
-                      <ThumbsUp size={16} />
-                      <span>Good</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={`item-drawer-feedback-button ${
-                        pendingFeedbackSentiment === "down" ? "is-active is-negative" : ""
-                      }`}
-                      disabled={isSubmittingFeedback}
-                      onClick={() => {
-                        if (pendingFeedbackSentiment === "down") {
-                          void handleClearFeedback();
-                          return;
-                        }
-                        setPendingFeedbackSentiment("down");
-                        setFeedbackNotice(null);
-                      }}
-                    >
-                      <ThumbsDown size={16} />
-                      <span>Bad</span>
-                    </button>
-                  </div>
-                  {pendingFeedbackSentiment === "down" ? (
-                    <div className="item-drawer-feedback-form">
-                      <label className="item-drawer-feedback-label" htmlFor={`feedback-${item.id}`}>
-                        What did you expect instead?
-                      </label>
-                      <input
-                        id={`feedback-${item.id}`}
-                        className="item-drawer-feedback-input"
-                        type="text"
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="none"
-                        spellCheck={false}
-                        inputMode="text"
-                        maxLength={128}
-                        placeholder="Optional expected result"
-                        value={expectedResultInput}
-                        onChange={(event) => setExpectedResultInput(event.target.value)}
-                      />
-                      <div className="item-drawer-feedback-form-actions">
-                        <button
-                          type="button"
-                          className="button"
-                          disabled={!canSubmitDownFeedback}
-                          onClick={() => void handleSubmitFeedback("down")}
-                        >
-                          {isSubmittingFeedback ? "Saving..." : "Send Feedback"}
-                        </button>
-                      </div>
-                    </div>
-                  ) : null}
-                  {feedbackNotice ? (
-                    <div className="item-drawer-feedback-notice" aria-live="polite">
-                      {feedbackNotice}
-                    </div>
-                  ) : recipeFeedback ? (
-                    <div className="item-drawer-feedback-meta">
-                      Saved {new Date(recipeFeedback.updatedAt).toLocaleString()}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </>
-          ) : (
-            <p className="item-drawer-empty">
-              No saved recipe is linked to this item yet.
-            </p>
-          )}
-        </section>
+        <ItemDrawerReferenceSection
+          item={item}
+          catalystGuide={catalystGuide}
+          actionTriggerSections={actionTriggerSections}
+          isLoadingReference={isLoadingReference}
+          referenceDescription={referenceDescription}
+          referenceTitle={referenceTitle}
+          referenceImageUrl={referenceImageUrl}
+          referenceUrl={referenceUrl}
+          onAddItemToWorkspaceAsActionAnchor={onAddItemToWorkspaceAsActionAnchor}
+        />
+        <ItemDrawerRecipeSection
+          item={item}
+          catalystGuide={catalystGuide}
+          isBaseItem={isBaseItem}
+          isLoadingRecipe={isLoadingRecipe}
+          recipeCatalyst={recipeCatalyst}
+          linkedRecipeInputs={linkedRecipeInputs}
+          showRecipeFeedback={showRecipeFeedback}
+          pendingFeedbackSentiment={pendingFeedbackSentiment}
+          isSubmittingFeedback={isSubmittingFeedback}
+          expectedResultInput={expectedResultInput}
+          canSubmitDownFeedback={canSubmitDownFeedback}
+          feedbackNotice={feedbackNotice}
+          recipeFeedback={recipeFeedback}
+          onSelectItem={onSelectItem}
+          onExpectedResultInputChange={setExpectedResultInput}
+          onClearFeedback={() => {
+            void handleClearFeedback();
+          }}
+          onSubmitFeedback={(sentiment) => {
+            void handleSubmitFeedback(sentiment);
+          }}
+          onOpenNegativeFeedback={() => {
+            setPendingFeedbackSentiment("down");
+            setFeedbackNotice(null);
+          }}
+        />
         <div className="item-drawer-bottom-spacer" aria-hidden="true" />
     </aside>
   );
