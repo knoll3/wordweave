@@ -4,23 +4,13 @@ import type { Item, SemanticCluster } from "../../types";
 import ElementSearch from "./ElementSearch";
 import ElementList from "./ElementList";
 import {
-  collectClusterIds,
   expandAllClusterIds,
   getSortedClusterLeafEntries,
 } from "./elementClusters";
 import {
-  buildDisplayedItems,
-  buildLexicalSearchItems,
-  compareItemsByName,
-  countSearchMatches,
-  getCorrectedQuery,
   MAX_ITEMS_TO_SHOW_WITHOUT_SEARCH,
-  MAX_VISIBLE_SEARCH_RESULTS,
 } from "./elementSearch";
-import {
-  fetchSemanticClusters,
-  fetchItems,
-} from "../../lib/api";
+import { useElementSearch } from "./useElementSearch";
 
 interface Props {
   items: Item[];
@@ -51,29 +41,32 @@ const ElementSidebar: React.FC<Props> = ({
   onSearchFocusChange,
   onSearchQueryChange,
 }) => {
-  const [search, setSearch] = useState("");
-  const [semanticItems, setSemanticItems] = useState<Item[]>([]);
-  const [loadingItems, setLoadingItems] = useState(false);
-  const [semanticPending, setSemanticPending] = useState(false);
-  const [semanticLoading, setSemanticLoading] = useState(false);
-  const [libraryLoadError, setLibraryLoadError] = useState<string | null>(null);
-  const [sortBy, setSortBy] = useState<"time" | "name">("time");
-  const [browseMode, setBrowseMode] = useState<"all" | "tree">("all");
-  const [clusters, setClusters] = useState<SemanticCluster[]>([]);
-  const [clustersLoading, setClustersLoading] = useState(false);
-  const [clustersStale, setClustersStale] = useState(false);
+  const {
+    search,
+    setSearch,
+    sortBy,
+    setSortBy,
+    browseMode,
+    setBrowseMode,
+    loadingItems,
+    libraryLoadError,
+    clusters,
+    clustersLoading,
+    displayedItems,
+    isSearchAwaitingMore,
+    shouldHideLibraryResultsOnMobile,
+    searchStatusLabel,
+    availableClusterIds,
+  } = useElementSearch({
+    items,
+    isMobileLayout,
+    onItemsLoaded,
+    onSearchQueryChange,
+  });
   const [expandedClusterIds, setExpandedClusterIds] = useState<string[]>([]);
-  const latestRequestIdRef = useRef(0);
-  const latestSemanticRequestIdRef = useRef(0);
-  const latestClustersRequestIdRef = useRef(0);
   const elementListRef = useRef<HTMLDivElement | null>(null);
   const pendingScrollRestoreRef = useRef<number | null>(null);
   const [isQuestPointsHighlighted, setIsQuestPointsHighlighted] = useState(false);
-
-  useEffect(() => {
-    void loadLibraryItems();
-    void loadSemanticClusters();
-  }, []);
 
   useEffect(() => {
     if (questPointsHighlightKey <= 0) {
@@ -88,151 +81,17 @@ const ElementSidebar: React.FC<Props> = ({
     };
   }, [questPointsHighlightKey]);
 
-  useEffect(() => {
-    if (latestRequestIdRef.current === 0) {
-      return;
-    }
-    setClustersStale(true);
-  }, [items]);
-
-  useEffect(() => {
-    if (browseMode !== "tree" || !clustersStale) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      void loadSemanticClusters();
-    }, 450);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [browseMode, clustersStale]);
-
-  const correctedSearchQuery = useMemo(
-    () => getCorrectedQuery(search, items),
-    [items, search]
-  );
-
-  useEffect(() => {
-    if (!search.trim()) {
-      setSemanticPending(false);
-      setSemanticLoading(false);
-      setSemanticItems([]);
-      return;
-    }
-    setSemanticPending(true);
-    const timeoutId = window.setTimeout(() => {
-      void loadSemanticItems(correctedSearchQuery ?? search);
-    }, 220);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [correctedSearchQuery, search]);
-
-  useEffect(() => {
-    onSearchQueryChange?.(search);
-  }, [onSearchQueryChange, search]);
-
-  async function loadLibraryItems() {
-    const requestId = ++latestRequestIdRef.current;
-    try {
-      setLoadingItems(true);
-      setLibraryLoadError(null);
-      const data = await fetchItems();
-      if (requestId !== latestRequestIdRef.current) return;
-      onItemsLoaded?.(data);
-    } catch (err) {
-      if (requestId === latestRequestIdRef.current) {
-        setLibraryLoadError(
-          err instanceof Error ? err.message : "Failed to load library items"
-        );
-      }
-    } finally {
-      if (requestId === latestRequestIdRef.current) {
-        setLoadingItems(false);
-      }
-    }
-  }
-
-  async function loadSemanticItems(query: string) {
-    const requestId = ++latestSemanticRequestIdRef.current;
-    try {
-      setSemanticPending(false);
-      setSemanticLoading(true);
-      const data = await fetchItems(query);
-      if (requestId !== latestSemanticRequestIdRef.current) return;
-      setSemanticItems(data);
-    } catch {
-    } finally {
-      if (requestId === latestSemanticRequestIdRef.current) {
-        setSemanticLoading(false);
-      }
-    }
-  }
-
-  async function loadSemanticClusters() {
-    const requestId = ++latestClustersRequestIdRef.current;
-    try {
-      setClustersLoading(true);
-      const response = await fetchSemanticClusters();
-      if (requestId !== latestClustersRequestIdRef.current) return;
-      setClusters(response.clusters);
-      setClustersStale(false);
-      const availableClusterIds = collectClusterIds(response.clusters);
-      setExpandedClusterIds((current) =>
-        current.length > 0
-          ? current.filter((clusterId) => availableClusterIds.has(clusterId))
-          : []
-      );
-    } catch {
-    } finally {
-      if (requestId === latestClustersRequestIdRef.current) {
-        setClustersLoading(false);
-      }
-    }
-  }
-
-  const lexicalSearchItems = useMemo(() => {
-    return buildLexicalSearchItems(items, search, correctedSearchQuery);
-  }, [correctedSearchQuery, items, search]);
-
-  const displayedItems = useMemo(() => {
-    return buildDisplayedItems({
-      items,
-      lexicalSearchItems,
-      semanticItems,
-      search,
-      sortBy,
-    });
-  }, [items, lexicalSearchItems, search, semanticItems, sortBy]);
-
-  const totalSearchMatches = useMemo(() => {
-    if (!search.trim()) {
-      return 0;
-    }
-    return countSearchMatches(lexicalSearchItems, semanticItems);
-  }, [lexicalSearchItems, search, semanticItems]);
-
-  const isSearchAwaitingMore = Boolean(search.trim()) && (semanticPending || semanticLoading);
-  const shouldHideLibraryResultsOnMobile =
-    isMobileLayout && !loadingItems && !libraryLoadError && !search.trim();
-
-  const searchStatusLabel = useMemo(() => {
-    if (!search.trim()) {
-      return null;
-    }
-    if (isSearchAwaitingMore) {
-      return null;
-    }
-    if (totalSearchMatches > MAX_VISIBLE_SEARCH_RESULTS) {
-      return `Showing top ${MAX_VISIBLE_SEARCH_RESULTS} of ${totalSearchMatches} matches.`;
-    }
-    return null;
-  }, [isSearchAwaitingMore, search, totalSearchMatches]);
-
   const itemsById = useMemo(() => new Map(items.map((item) => [item.id, item])), [items]);
+
+  useEffect(() => {
+    // Keep the tree open state stable when the cluster API refreshes, but drop
+    // any ids that no longer exist in the latest library grouping.
+    setExpandedClusterIds((current) =>
+      current.length > 0
+        ? current.filter((clusterId) => availableClusterIds.has(clusterId))
+        : []
+    );
+  }, [availableClusterIds]);
 
   useEffect(() => {
     if (pendingScrollRestoreRef.current == null) return;
@@ -285,19 +144,19 @@ const ElementSidebar: React.FC<Props> = ({
   function renderTreeLeaves(cluster: SemanticCluster, depth: number) {
     return getSortedClusterLeafEntries(cluster, itemsById).map((entry) => (
         <button
-          key={`${cluster.id}-${entry!.item.id}`}
+          key={`${cluster.id}-${entry.item.id}`}
           type="button"
-          className={`library-tree-leaf${entry!.isPrimary ? "" : " is-secondary"}`}
+          className={`library-tree-leaf${entry.isPrimary ? "" : " is-secondary"}`}
           style={{ paddingLeft: `${8 + depth * 18}px` }}
-          onClick={() => onAddItemToWorkspace(entry!.item)}
+          onClick={() => onAddItemToWorkspace(entry.item)}
         >
           <span className="library-tree-branch" aria-hidden="true">
             └
           </span>
           <span className="element-icon">
-            {entry!.item.icon || entry!.item.name.charAt(0).toUpperCase()}
+            {entry.item.icon || entry.item.name.charAt(0).toUpperCase()}
           </span>
-          <span className="library-tree-leaf-name">{entry!.item.name}</span>
+          <span className="library-tree-leaf-name">{entry.item.name}</span>
         </button>
       ));
   }
