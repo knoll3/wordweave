@@ -5,7 +5,6 @@ import ErrorBoundary from "./components/ErrorBoundary";
 import AdminPage from "./pages/AdminPage";
 import CachePage from "./pages/CachePage";
 import ClustersPage from "./pages/ClustersPage";
-import FeedbackPage from "./pages/FeedbackPage";
 import PromptsPage from "./pages/PromptsPage";
 import "./styles/core.css";
 import "./styles/graph.css";
@@ -21,8 +20,6 @@ const Page =
     ? CachePage
     : pathname === "/clusters"
       ? ClustersPage
-      : pathname === "/feedback"
-        ? FeedbackPage
       : pathname === "/prompts"
         ? PromptsPage
         : App;

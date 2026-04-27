@@ -1,8 +1,5 @@
 import type { Database } from "./db";
-import {
-  getCombinationRunFeedbackForSession,
-  getFirstCombinationRunForElement,
-} from "./feedback";
+import { getFirstCombinationRunForElement } from "./combinationRuns";
 
 export type LatestRecipeInput = {
   id: number | null;
@@ -23,12 +20,6 @@ export type LatestRecipeContext = {
   summaryLine: string | null;
   catalyst: LatestRecipeCatalyst | null;
   inputs: LatestRecipeInput[];
-  feedback: {
-    sentiment: "up" | "down";
-    expectedResultText: string | null;
-    commentText: string | null;
-    updatedAt: string;
-  } | null;
 };
 
 type ElementRow = {
@@ -125,8 +116,7 @@ function loadElementsByNormalizedName(db: Database) {
 
 export function getLatestRecipeContext(
   db: Database,
-  elementId: number,
-  clientSessionId?: string | null
+  elementId: number
 ): LatestRecipeContext | null {
   const elementStmt = db.prepare("SELECT id, name FROM elements WHERE id = ?");
   const elementRow = elementStmt.getAsObject([elementId]) as Record<string, unknown>;
@@ -144,7 +134,6 @@ export function getLatestRecipeContext(
       summaryLine: null,
       catalyst: null,
       inputs: [],
-      feedback: null,
     };
   }
 
@@ -165,10 +154,6 @@ export function getLatestRecipeContext(
   });
 
   const catalyst = getCatalystFromInputKey(firstRun.inputKey);
-  const feedback =
-    clientSessionId && clientSessionId.trim().length > 0
-      ? getCombinationRunFeedbackForSession(db, firstRun.id, clientSessionId.trim())
-      : null;
   const summaryParts = catalyst
     ? [catalyst.name, ...inputs.map((input) => input.name)]
     : inputs.map((input) => input.name);
@@ -182,13 +167,5 @@ export function getLatestRecipeContext(
         : null,
     catalyst,
     inputs,
-    feedback: feedback
-      ? {
-          sentiment: feedback.sentiment,
-          expectedResultText: feedback.expectedResultText,
-          commentText: feedback.commentText,
-          updatedAt: feedback.updatedAt,
-        }
-      : null,
   };
 }

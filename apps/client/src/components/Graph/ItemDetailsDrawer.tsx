@@ -4,13 +4,9 @@ import {
   normalizeActionTrigger,
 } from "../../lib/actionPromptFamilies";
 import {
-  clearLatestRecipeContextCache,
-  clearRecipeFeedback,
   fetchItemReference,
   fetchLatestRecipeContext,
-  submitRecipeFeedback,
   type LatestRecipeCatalyst,
-  type LatestRecipeContext,
   type LatestRecipeInput,
 } from "../../lib/api";
 import type { Item } from "../../types";
@@ -123,14 +119,6 @@ const ItemDetailsDrawer: React.FC<Props> = ({
   const [isLoadingReference, setIsLoadingReference] = useState(false);
   const [recipeCatalyst, setRecipeCatalyst] = useState<LatestRecipeCatalyst | null>(null);
   const [recipeInputs, setRecipeInputs] = useState<LatestRecipeInput[]>([]);
-  const [combinationRunId, setCombinationRunId] = useState<number | null>(null);
-  const [recipeFeedback, setRecipeFeedback] = useState<LatestRecipeContext["feedback"]>(null);
-  const [pendingFeedbackSentiment, setPendingFeedbackSentiment] = useState<"up" | "down" | null>(
-    null
-  );
-  const [expectedResultInput, setExpectedResultInput] = useState("");
-  const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
-  const [feedbackNotice, setFeedbackNotice] = useState<string | null>(null);
   const [isLoadingRecipe, setIsLoadingRecipe] = useState(false);
 
   useEffect(() => {
@@ -142,13 +130,8 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       setReferenceImageUrl(null);
       setReferenceUrl(null);
       setIsLoadingReference(false);
-      setCombinationRunId(null);
       setRecipeCatalyst(null);
       setRecipeInputs([]);
-      setRecipeFeedback(null);
-      setPendingFeedbackSentiment(null);
-      setExpectedResultInput("");
-      setFeedbackNotice(null);
       setIsLoadingRecipe(false);
       return;
     }
@@ -172,22 +155,13 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       });
 
     setIsLoadingRecipe(true);
-    setCombinationRunId(null);
     setRecipeCatalyst(null);
     setRecipeInputs([]);
-    setRecipeFeedback(null);
-    setPendingFeedbackSentiment(null);
-    setExpectedResultInput("");
-    setFeedbackNotice(null);
     void fetchLatestRecipeContext(item.id)
       .then((latestRecipe) => {
         if (cancelled) return;
-        setCombinationRunId(latestRecipe?.combinationRunId ?? null);
         setRecipeCatalyst(latestRecipe?.catalyst ?? null);
         setRecipeInputs(latestRecipe?.inputs ?? []);
-        setRecipeFeedback(latestRecipe?.feedback ?? null);
-        setPendingFeedbackSentiment(latestRecipe?.feedback?.sentiment ?? null);
-        setExpectedResultInput(latestRecipe?.feedback?.expectedResultText ?? "");
       })
       .finally(() => {
         if (cancelled) return;
@@ -215,53 +189,6 @@ const ItemDetailsDrawer: React.FC<Props> = ({
       })),
     [itemsById, recipeInputs]
   );
-  const showRecipeFeedback =
-    !catalystGuide && !isBaseItem && recipeInputs.length > 0 && combinationRunId != null;
-  const canSubmitDownFeedback = !isSubmittingFeedback && combinationRunId != null;
-
-  async function handleClearFeedback() {
-    if (!combinationRunId || isSubmittingFeedback) {
-      return;
-    }
-
-    try {
-      setIsSubmittingFeedback(true);
-      await clearRecipeFeedback({ combinationRunId });
-      setRecipeFeedback(null);
-      setPendingFeedbackSentiment(null);
-      setExpectedResultInput("");
-      setFeedbackNotice(null);
-      clearLatestRecipeContextCache(item.id);
-    } catch {
-      setFeedbackNotice("Could not save feedback right now.");
-    } finally {
-      setIsSubmittingFeedback(false);
-    }
-  }
-
-  async function handleSubmitFeedback(sentiment: "up" | "down") {
-    if (!combinationRunId || isSubmittingFeedback) {
-      return;
-    }
-
-    try {
-      setIsSubmittingFeedback(true);
-      const response = await submitRecipeFeedback({
-        combinationRunId,
-        sentiment,
-        expectedResultText: sentiment === "down" ? expectedResultInput : null,
-      });
-      setRecipeFeedback(response.feedback);
-      setPendingFeedbackSentiment(response.feedback.sentiment);
-      setExpectedResultInput(response.feedback.expectedResultText ?? "");
-      setFeedbackNotice("Thanks for the feedback.");
-      clearLatestRecipeContextCache(item.id);
-    } catch {
-      setFeedbackNotice("Could not save feedback right now.");
-    } finally {
-      setIsSubmittingFeedback(false);
-    }
-  }
   const actionTriggerSections = useMemo(() => {
     if (item.id !== ACTION_MODIFIER_ITEM_ID) {
       return null;
@@ -344,25 +271,7 @@ const ItemDetailsDrawer: React.FC<Props> = ({
           isLoadingRecipe={isLoadingRecipe}
           recipeCatalyst={recipeCatalyst}
           linkedRecipeInputs={linkedRecipeInputs}
-          showRecipeFeedback={showRecipeFeedback}
-          pendingFeedbackSentiment={pendingFeedbackSentiment}
-          isSubmittingFeedback={isSubmittingFeedback}
-          expectedResultInput={expectedResultInput}
-          canSubmitDownFeedback={canSubmitDownFeedback}
-          feedbackNotice={feedbackNotice}
-          recipeFeedback={recipeFeedback}
           onSelectItem={onSelectItem}
-          onExpectedResultInputChange={setExpectedResultInput}
-          onClearFeedback={() => {
-            void handleClearFeedback();
-          }}
-          onSubmitFeedback={(sentiment) => {
-            void handleSubmitFeedback(sentiment);
-          }}
-          onOpenNegativeFeedback={() => {
-            setPendingFeedbackSentiment("down");
-            setFeedbackNotice(null);
-          }}
         />
         <div className="item-drawer-bottom-spacer" aria-hidden="true" />
     </aside>

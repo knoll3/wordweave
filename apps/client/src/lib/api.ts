@@ -21,8 +21,6 @@ import type {
   QuestSetCompletion,
   RecentRecipe,
   Recipe,
-  RecipeFeedback,
-  RecipeFeedbackListEntry,
   SemanticClustersResponse
 } from "../types";
 
@@ -30,7 +28,6 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const itemReferenceCache = new Map<number, ItemReference | null>();
 const latestRecipeCache = new Map<number, LatestRecipeContext | null>();
 const questReferenceCache = new Map<string, ItemReference | null>();
-const CLIENT_SESSION_ID_STORAGE_KEY = "wordweave.client-session-id";
 
 export interface ItemReference {
   id: number;
@@ -62,23 +59,6 @@ export interface LatestRecipeContext {
   summaryLine: string | null;
   catalyst: LatestRecipeCatalyst | null;
   inputs: LatestRecipeInput[];
-  feedback: RecipeFeedback | null;
-}
-
-export function getOrCreateClientSessionId(): string {
-  if (typeof window === "undefined") {
-    return "server";
-  }
-  const existing = window.localStorage.getItem(CLIENT_SESSION_ID_STORAGE_KEY);
-  if (existing && existing.trim()) {
-    return existing;
-  }
-  const next =
-    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
-      ? crypto.randomUUID()
-      : `session-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  window.localStorage.setItem(CLIENT_SESSION_ID_STORAGE_KEY, next);
-  return next;
 }
 
 async function handleResponse<T>(res: Response): Promise<T> {
@@ -489,15 +469,12 @@ export async function fetchItemReference(elementId: number): Promise<ItemReferen
 export async function fetchLatestRecipeContext(
   elementId: number
 ): Promise<LatestRecipeContext | null> {
-  const clientSessionId = getOrCreateClientSessionId();
   const cacheKey = Number(`${elementId}`);
   if (latestRecipeCache.has(cacheKey)) {
     return latestRecipeCache.get(cacheKey) ?? null;
   }
 
-  const url = new URL(`${API_BASE}/elements/${elementId}/latest-recipe`, window.location.origin);
-  url.searchParams.set("clientSessionId", clientSessionId);
-  const res = await fetch(url.toString());
+  const res = await fetch(`${API_BASE}/elements/${elementId}/latest-recipe`);
   if (!res.ok) {
     if (res.status === 404) {
       latestRecipeCache.set(cacheKey, null);
@@ -509,54 +486,6 @@ export async function fetchLatestRecipeContext(
   const latestRecipe = (await res.json()) as LatestRecipeContext;
   latestRecipeCache.set(cacheKey, latestRecipe);
   return latestRecipe;
-}
-
-export function clearLatestRecipeContextCache(elementId: number) {
-  latestRecipeCache.delete(Number(`${elementId}`));
-}
-
-export async function submitRecipeFeedback(params: {
-  combinationRunId: number;
-  sentiment: "up" | "down";
-  expectedResultText?: string | null;
-  commentText?: string | null;
-}): Promise<{ ok: boolean; feedback: RecipeFeedback }> {
-  const res = await fetch(`${API_BASE}/recipes/${params.combinationRunId}/feedback`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      clientSessionId: getOrCreateClientSessionId(),
-      sentiment: params.sentiment,
-      expectedResultText: params.expectedResultText ?? null,
-      commentText: params.commentText ?? null,
-    }),
-  });
-  return handleResponse<{ ok: boolean; feedback: RecipeFeedback }>(res);
-}
-
-export async function clearRecipeFeedback(params: {
-  combinationRunId: number;
-}): Promise<{ ok: boolean; deleted: boolean }> {
-  const res = await fetch(`${API_BASE}/recipes/${params.combinationRunId}/feedback`, {
-    method: "DELETE",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      clientSessionId: getOrCreateClientSessionId(),
-    }),
-  });
-  return handleResponse<{ ok: boolean; deleted: boolean }>(res);
-}
-
-export async function fetchRecipeFeedbackList(limit = 100): Promise<RecipeFeedbackListEntry[]> {
-  const url = new URL(`${API_BASE}/recipes/feedback/list`, window.location.origin);
-  url.searchParams.set("limit", String(limit));
-  const res = await fetch(url.toString());
-  const data = await handleResponse<{ feedback: RecipeFeedbackListEntry[] }>(res);
-  return data.feedback;
 }
 
 export async function fetchPromptCatalog(): Promise<PromptCatalogResponse> {

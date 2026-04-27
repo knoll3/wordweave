@@ -76,15 +76,13 @@ router.get("/:id/reference", async (req, res) => {
 
 router.get("/:id/latest-recipe", async (req, res) => {
   const elementId = Number(req.params.id);
-  const clientSessionId =
-    typeof req.query.clientSessionId === "string" ? req.query.clientSessionId.trim() : null;
   if (!Number.isInteger(elementId) || elementId <= 0) {
     return res.status(400).json({ error: "Invalid element id" });
   }
 
   try {
     const db = await getDb();
-    const latestRecipe = getLatestRecipeContext(db, elementId, clientSessionId);
+    const latestRecipe = getLatestRecipeContext(db, elementId);
     if (!latestRecipe) {
       return res.status(404).json({ error: "Element not found" });
     }

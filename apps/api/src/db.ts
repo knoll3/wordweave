@@ -169,43 +169,6 @@ function createSchema(db: Database): void {
       FOREIGN KEY (result_element_id) REFERENCES elements(id) ON DELETE CASCADE
     );
 
-    CREATE TABLE IF NOT EXISTS combination_run_traces (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      combination_run_id INTEGER NOT NULL,
-      provider_type TEXT NOT NULL,
-      model TEXT NOT NULL,
-      action_prompt_family TEXT NULL,
-      action_constraint TEXT NULL,
-      category_constraint TEXT NULL,
-      creative INTEGER NOT NULL DEFAULT 0,
-      ponderificate INTEGER NOT NULL DEFAULT 0,
-      input_terms_json TEXT NOT NULL,
-      search_query TEXT NULL,
-      search_results_json TEXT NULL,
-      prompt_text TEXT NOT NULL,
-      raw_response_text TEXT NOT NULL,
-      parsed_response_json TEXT NOT NULL,
-      legacy_recipe_trace_id INTEGER NULL UNIQUE,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (combination_run_id) REFERENCES combination_runs(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS combination_run_feedback (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      combination_run_id INTEGER NOT NULL,
-      trace_id INTEGER NULL,
-      client_session_id TEXT NOT NULL,
-      sentiment TEXT NOT NULL CHECK(sentiment IN ('up', 'down')),
-      expected_result_text TEXT NULL,
-      comment_text TEXT NULL,
-      legacy_recipe_feedback_id INTEGER NULL UNIQUE,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(combination_run_id, client_session_id),
-      FOREIGN KEY (combination_run_id) REFERENCES combination_runs(id) ON DELETE CASCADE,
-      FOREIGN KEY (trace_id) REFERENCES combination_run_traces(id) ON DELETE SET NULL
-    );
-
     CREATE TABLE IF NOT EXISTS discoveries (
       element_id INTEGER PRIMARY KEY,
       discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -316,8 +279,6 @@ function createSchema(db: Database): void {
   ensureColumn(db, "quests", "set_id", "TEXT NULL");
   ensureColumn(db, "quests", "set_title", "TEXT NULL");
   ensureColumn(db, "quests", "points_awarded", "INTEGER NOT NULL DEFAULT 10");
-  ensureColumn(db, "combination_run_traces", "legacy_recipe_trace_id", "INTEGER NULL");
-  ensureColumn(db, "combination_run_feedback", "legacy_recipe_feedback_id", "INTEGER NULL");
   ensureColumn(db, "room_board_items", "is_new_discovery", "INTEGER NOT NULL DEFAULT 0");
   ensureColumn(
     db,
@@ -336,18 +297,6 @@ function createSchema(db: Database): void {
   );
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_combination_runs_recipe ON combination_runs (recipe_id, id)"
-  );
-  db.run(
-    "CREATE INDEX IF NOT EXISTS idx_combination_run_traces_run ON combination_run_traces (combination_run_id, id)"
-  );
-  db.run(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_combination_run_traces_legacy_recipe_trace ON combination_run_traces (legacy_recipe_trace_id)"
-  );
-  db.run(
-    "CREATE INDEX IF NOT EXISTS idx_combination_run_feedback_run ON combination_run_feedback (combination_run_id, updated_at)"
-  );
-  db.run(
-    "CREATE UNIQUE INDEX IF NOT EXISTS idx_combination_run_feedback_legacy_recipe_feedback ON combination_run_feedback (legacy_recipe_feedback_id)"
   );
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_room_board_items_room ON room_board_items (room_id, created_at, id)"
@@ -487,6 +436,8 @@ function removeUnusedSchema(db: Database) {
       DROP TABLE IF EXISTS recipe_candidates;
       DROP TABLE IF EXISTS recipe_feedback;
       DROP TABLE IF EXISTS recipe_generation_traces;
+      DROP TABLE IF EXISTS combination_run_feedback;
+      DROP TABLE IF EXISTS combination_run_traces;
       DROP TABLE IF EXISTS completed_quests;
       DROP TABLE IF EXISTS quest_generation_turns;
       DROP TABLE IF EXISTS quest_generation_sessions;
