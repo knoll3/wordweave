@@ -289,12 +289,10 @@ export async function resetLibrary(): Promise<{ ok: boolean }> {
 
 export async function fetchCacheStats(): Promise<{
   recipeCount: number;
-  candidateCount: number;
 }> {
   const res = await fetch(`${API_BASE}/elements/cache-stats`);
   return handleResponse<{
     recipeCount: number;
-    candidateCount: number;
   }>(res);
 }
 
@@ -334,7 +332,6 @@ export async function generateCacheRecipes(): Promise<GenerateCacheRecipesResult
 export async function resetCache(): Promise<{
   ok: boolean;
   clearedRecipeCount: number;
-  clearedCandidateCount: number;
 }> {
   const res = await fetch(`${API_BASE}/elements/reset-cache`, {
     method: "POST",
@@ -342,7 +339,6 @@ export async function resetCache(): Promise<{
   return handleResponse<{
     ok: boolean;
     clearedRecipeCount: number;
-    clearedCandidateCount: number;
   }>(res);
 }
 
@@ -371,34 +367,6 @@ export async function combineElements(
     }),
   });
   return handleResponse<Recipe>(res);
-}
-
-export async function selectCandidate(
-  recipeId: number,
-  candidateId: number
-): Promise<{
-  recipeId: number;
-  chosenCandidateId: number;
-  resultElement: Item | null;
-  newlyCompletedQuestNames?: string[];
-  completedQuestSets?: QuestSetCompletion[];
-  awardedPoints?: number;
-  totalPoints?: number;
-  autoUnlockedActionWords?: Array<{
-    familyKey: string;
-    familyTitle: string;
-    triggerWord: string;
-    element: Item;
-  }>;
-}> {
-  const res = await fetch(`${API_BASE}/recipes/${recipeId}/select`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ candidateId }),
-  });
-  return handleResponse(res);
 }
 
 export async function fetchQuestTargetReference(

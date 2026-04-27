@@ -23,7 +23,6 @@ import { searchGoogleLikeWeb } from "../webSearch";
 import {
   deleteCombinationRunFeedbackForSession,
   getCombinationRunById,
-  getLatestTraceForRecipe,
   getLatestTraceForCombinationRun,
   insertCombinationRun,
   insertCombinationRunTrace,
@@ -34,7 +33,6 @@ import {
   combineRequestSchema,
   recipeFeedbackDeleteRequestSchema,
   recipeFeedbackRequestSchema,
-  selectRequestSchema,
 } from "../validation";
 import {
   buildCombineResponse,
@@ -330,16 +328,10 @@ function upsertCanonicalRecipe(params: {
   if (existingRow.id !== undefined) {
     recipeId = Number(existingRow.id);
     const updateRecipeStmt = params.db.prepare(
-      "UPDATE recipes SET input_display_json = ?, chosen_candidate_id = NULL, result_element_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+      "UPDATE recipes SET input_display_json = ?, result_element_id = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
     );
     updateRecipeStmt.run([params.inputDisplayJson, recipeId]);
     updateRecipeStmt.free();
-
-    const deleteCandidatesStmt = params.db.prepare(
-      "DELETE FROM recipe_candidates WHERE recipe_id = ?"
-    );
-    deleteCandidatesStmt.run([recipeId]);
-    deleteCandidatesStmt.free();
   } else {
     const insertRecipeStmt = params.db.prepare(
       "INSERT INTO recipes (input_key, input_display_json) VALUES (?, ?)"
@@ -359,24 +351,6 @@ function upsertCanonicalRecipe(params: {
     throw new Error("Failed to upsert recipe");
   }
 
-  const insertCandidateStmt = params.db.prepare(
-    "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
-  );
-  insertCandidateStmt.run([recipeId, params.resultName, params.resultIcon, 0]);
-  insertCandidateStmt.free();
-
-  const candidateIdStmt = params.db.prepare("SELECT last_insert_rowid() AS id");
-  let candidateId: number | null = null;
-  if (candidateIdStmt.step()) {
-    const row = candidateIdStmt.getAsObject() as Record<string, unknown>;
-    candidateId = Number(row.id);
-  }
-  candidateIdStmt.free();
-
-  if (!candidateId || Number.isNaN(candidateId)) {
-    throw new Error("Failed to create recipe candidate");
-  }
-
   const elementId = ensureElement(params.db, {
     name: params.resultName,
     normalizedName: params.resultName.trim().toLowerCase(),
@@ -384,12 +358,12 @@ function upsertCanonicalRecipe(params: {
   });
 
   const updateRecipeStmt = params.db.prepare(
-    "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    "UPDATE recipes SET result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
   );
-  updateRecipeStmt.run([candidateId, elementId, recipeId]);
+  updateRecipeStmt.run([elementId, recipeId]);
   updateRecipeStmt.free();
 
-  return { recipeId, candidateId, elementId };
+  return { recipeId, elementId };
 }
 
 function recordCombinationRun(params: {
@@ -399,7 +373,6 @@ function recordCombinationRun(params: {
   inputKey: string;
   inputDisplayJson: string;
   inputTerms: string[];
-  chosenCandidateId?: number | null;
   chosenName: string;
   chosenIcon: string | null;
   trace?: GenerationTracePayload | null;
@@ -415,7 +388,6 @@ function recordCombinationRun(params: {
     resultElementId: params.resultElementId,
     inputKey: params.inputKey,
     inputDisplayJson: params.inputDisplayJson,
-    chosenCandidateId: params.chosenCandidateId ?? null,
     chosenName: params.chosenName,
     chosenIcon: params.chosenIcon,
   });
@@ -535,7 +507,6 @@ router.post("/generate-cache", async (_req, res) => {
           inputKey,
           inputDisplayJson: JSON.stringify(normalizedInputs),
           inputTerms: normalizedInputs.map((input) => input.name),
-          chosenCandidateId: upserted.candidateId,
           chosenName: resultName,
           chosenIcon: generated.icon,
           trace: batchTraceRef.current
@@ -666,32 +637,6 @@ router.post("/combine", async (req, res) => {
         resultElementId: recipeRow.result_element_id ?? null,
       });
       // Load candidates
-      const candidatesStmt = db.prepare(
-        "SELECT * FROM recipe_candidates WHERE recipe_id = ? ORDER BY order_index ASC"
-      );
-      candidatesStmt.bind([Number(recipeRow.id)]);
-      const candidatesRows: any[] = [];
-      while (candidatesStmt.step()) {
-        candidatesRows.push(candidatesStmt.getAsObject());
-      }
-      candidatesStmt.free();
-
-      if (
-        candidatesRows.length === 0 &&
-        recipeRow.chosen_candidate_id != null
-      ) {
-        const chosenCandidateStmt = db.prepare(
-          "SELECT * FROM recipe_candidates WHERE id = ?"
-        );
-        const chosenCandidateRow = chosenCandidateStmt.getAsObject([
-          Number(recipeRow.chosen_candidate_id),
-        ]);
-        chosenCandidateStmt.free();
-        if (chosenCandidateRow && chosenCandidateRow.id !== undefined) {
-          candidatesRows.push(chosenCandidateRow);
-        }
-      }
-
       let resultElement =
         recipeRow.result_element_id != null
           ? getElementById(db, Number(recipeRow.result_element_id))
@@ -743,74 +688,31 @@ router.post("/combine", async (req, res) => {
         console.warn("[api][combine] cache hit with null result; backfilling", {
           inputKey,
           recipeId: recipeRow.id,
-          candidateCount: candidatesRows.length,
         });
 
-        let chosenCandidateId: number | null = null;
-        let chosenName: string;
-        let chosenIcon: string;
         const backfillTraceRef: { current: GenerationTracePayload | null } = { current: null };
-
-        if (candidatesRows.length > 0) {
-          const first = candidatesRows[0] as any;
-          chosenCandidateId = Number(first.id);
-          chosenName = toTitleCaseWords(String(first.name));
-          chosenIcon = String(first.icon ?? "✨");
-        } else {
-          // If no candidates exist, regenerate one now.
-          const generated = await generateResult(
-            normalizedInputs.map((i) => i.name),
-            {
-              creative: effectiveCreative,
-              ponderificate,
-              categoryConstraint: categoryConstraint ?? undefined,
-              actionConstraint: actionConstraint ?? undefined,
-              actionPromptFamily: actionPromptFamily?.key ?? null,
-              model,
-              onTrace: (trace) => {
-                backfillTraceRef.current = trace;
-              },
-            }
-          );
-          console.log("[api][combine] backfill generated result", generated);
-          const { selectedResult: generatedPrimary } = normalizeGeneratedResultOptions(
-            generated,
-            db,
-            ponderificate
-          );
-
-          const insertCandidateStmt = db.prepare(
-            "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
-          );
-          const generatedName = toTitleCaseWords(generatedPrimary.name);
-          insertCandidateStmt.run([
-            Number(recipeRow.id),
-            generatedName,
-            generatedPrimary.icon,
-            0,
-          ]);
-          insertCandidateStmt.free();
-
-          const lastCandidateStmt = db.prepare(
-            "SELECT last_insert_rowid() as id"
-          );
-          if (lastCandidateStmt.step()) {
-            const row = lastCandidateStmt.getAsObject() as any;
-            chosenCandidateId = Number(row.id);
+        const generated = await generateResult(
+          normalizedInputs.map((i) => i.name),
+          {
+            creative: effectiveCreative,
+            ponderificate,
+            categoryConstraint: categoryConstraint ?? undefined,
+            actionConstraint: actionConstraint ?? undefined,
+            actionPromptFamily: actionPromptFamily?.key ?? null,
+            model,
+            onTrace: (trace) => {
+              backfillTraceRef.current = trace;
+            },
           }
-          lastCandidateStmt.free();
-
-          chosenName = generatedName;
-          chosenIcon = generatedPrimary.icon;
-          candidatesRows.push({
-            id: chosenCandidateId,
-            recipe_id: Number(recipeRow.id),
-            name: chosenName,
-            icon: chosenIcon,
-            order_index: 0,
-          });
-
-        }
+        );
+        console.log("[api][combine] backfill generated result", generated);
+        const { selectedResult: generatedPrimary } = normalizeGeneratedResultOptions(
+          generated,
+          db,
+          ponderificate
+        );
+        const chosenName = toTitleCaseWords(generatedPrimary.name);
+        const chosenIcon = generatedPrimary.icon;
 
         const normalizedName = chosenName.trim().toLowerCase();
         const elementId = ensureElement(db, {
@@ -821,10 +723,9 @@ router.post("/combine", async (req, res) => {
         const wasNewResultDiscovery = discoverElement(db, elementId);
 
         const updateRecipeStmt = db.prepare(
-          "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+          "UPDATE recipes SET result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         );
         updateRecipeStmt.run([
-          chosenCandidateId,
           elementId,
           Number(recipeRow.id),
         ]);
@@ -837,7 +738,6 @@ router.post("/combine", async (req, res) => {
           inputKey: String(recipeRow.input_key),
           inputDisplayJson: String(recipeRow.input_display_json),
           inputTerms: normalizedInputs.map((input) => input.name),
-          chosenCandidateId,
           chosenName,
           chosenIcon,
           trace: backfillTraceRef.current,
@@ -850,7 +750,6 @@ router.post("/combine", async (req, res) => {
 
         persistDatabase(db);
 
-        recipeRow.chosen_candidate_id = chosenCandidateId;
         recipeRow.result_element_id = elementId;
         resultElement = getElementById(db, elementId);
         autoUnlockedActionWords = resultElement
@@ -880,7 +779,6 @@ router.post("/combine", async (req, res) => {
       return res.json(
         buildCombineResponse({
           recipeRow,
-          candidates: candidatesRows,
           resultElement,
           autoUnlockedActionWords,
           newlyCompletedQuestNames,
@@ -1089,13 +987,6 @@ router.post("/combine", async (req, res) => {
         recipeId: -1,
         inputKey: recipeInputKey,
         inputs: displayInputs,
-        candidates: generatedResults.map((entry, index) => ({
-          id: -(index + 1),
-          name: entry.name,
-          icon: entry.icon,
-          orderIndex: index,
-        })),
-        chosenCandidateId: null,
         resultElement,
         resultElements:
           responseKind === "split" && resultElements.length > 0 ? resultElements : undefined,
@@ -1138,30 +1029,6 @@ router.post("/combine", async (req, res) => {
       lastIdStmt.free();
       if (!recipeId || Number.isNaN(recipeId)) {
         throw new Error("Failed to obtain recipe id");
-      }
-
-      const insertCandidateStmt = db.prepare(
-        "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
-      );
-      insertCandidateStmt.run([
-        recipeId,
-        primaryGeneratedResult.name,
-        primaryGeneratedResult.icon,
-        0,
-      ]);
-      insertCandidateStmt.free();
-
-      const lastCandidateStmt = db.prepare(
-        "SELECT last_insert_rowid() as id"
-      );
-      let chosenCandidateId: number | null = null;
-      if (lastCandidateStmt.step()) {
-        const lastCandidateRow = lastCandidateStmt.getAsObject() as any;
-        chosenCandidateId = Number(lastCandidateRow.id);
-      }
-      lastCandidateStmt.free();
-      if (!chosenCandidateId || Number.isNaN(chosenCandidateId)) {
-        throw new Error("Failed to obtain candidate id");
       }
 
       const normalizedName = primaryGeneratedResult.name.trim().toLowerCase();
@@ -1211,35 +1078,10 @@ router.post("/combine", async (req, res) => {
           throw new Error("Failed to obtain secondary recipe id");
         }
 
-        const insertSecondaryCandidateStmt = db.prepare(
-          "INSERT INTO recipe_candidates (recipe_id, name, icon, order_index) VALUES (?, ?, ?, ?)"
-        );
-        insertSecondaryCandidateStmt.run([
-          secondaryRecipeId,
-          extraResult.name,
-          extraResult.icon,
-          0,
-        ]);
-        insertSecondaryCandidateStmt.free();
-
-        const secondaryCandidateIdStmt = db.prepare(
-          "SELECT last_insert_rowid() as id"
-        );
-        let secondaryCandidateId: number | null = null;
-        if (secondaryCandidateIdStmt.step()) {
-          const row = secondaryCandidateIdStmt.getAsObject() as any;
-          secondaryCandidateId = Number(row.id);
-        }
-        secondaryCandidateIdStmt.free();
-        if (!secondaryCandidateId || Number.isNaN(secondaryCandidateId)) {
-          throw new Error("Failed to obtain secondary candidate id");
-        }
-
         const updateSecondaryRecipeStmt = db.prepare(
-          "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+          "UPDATE recipes SET result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
         );
         updateSecondaryRecipeStmt.run([
-          secondaryCandidateId,
           extraElementId,
           secondaryRecipeId,
         ]);
@@ -1252,7 +1094,6 @@ router.post("/combine", async (req, res) => {
           inputKey: secondaryInputKey,
           inputDisplayJson,
           inputTerms: orderedInputs.map((input) => input.name),
-          chosenCandidateId: secondaryCandidateId,
           chosenName: extraResult.name,
           chosenIcon: extraResult.icon,
           trace: generationTraceRef.current,
@@ -1277,9 +1118,9 @@ router.post("/combine", async (req, res) => {
       ]);
 
       const updateRecipeStmt = db.prepare(
-        "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+        "UPDATE recipes SET result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
       );
-      updateRecipeStmt.run([chosenCandidateId, elementId, recipeId]);
+      updateRecipeStmt.run([elementId, recipeId]);
       updateRecipeStmt.free();
 
       recordCombinationRun({
@@ -1289,7 +1130,6 @@ router.post("/combine", async (req, res) => {
         inputKey: storedRecipeInputKey,
         inputDisplayJson,
         inputTerms: orderedInputs.map((input) => input.name),
-        chosenCandidateId,
         chosenName: primaryGeneratedResult.name,
         chosenIcon: primaryGeneratedResult.icon,
         trace: generationTraceRef.current,
@@ -1342,16 +1182,6 @@ router.post("/combine", async (req, res) => {
     recipeRow = stmt.getAsObject([storedRecipeInputKey]);
     stmt.free();
 
-    const candidatesStmt = db.prepare(
-      "SELECT * FROM recipe_candidates WHERE recipe_id = ? ORDER BY order_index ASC"
-    );
-    candidatesStmt.bind([Number(recipeRow.id)]);
-    const candidatesRows: any[] = [];
-    while (candidatesStmt.step()) {
-      candidatesRows.push(candidatesStmt.getAsObject());
-    }
-    candidatesStmt.free();
-
     const resultElement =
       recipeRow.result_element_id != null
         ? getElementById(db, Number(recipeRow.result_element_id))
@@ -1370,7 +1200,6 @@ router.post("/combine", async (req, res) => {
     return res.json(
       buildCombineResponse({
         recipeRow,
-        candidates: candidatesRows,
         resultElement,
         resultElements,
         autoUnlockedActionWords,
@@ -1383,181 +1212,6 @@ router.post("/combine", async (req, res) => {
     );
   } catch (err) {
     console.error("Unexpected error in /recipes/combine", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-router.post("/:id/select", async (req, res) => {
-  const recipeId = Number(req.params.id);
-  if (!Number.isInteger(recipeId) || recipeId <= 0) {
-    return res.status(400).json({ error: "Invalid recipe id" });
-  }
-
-  const parsedBody = selectRequestSchema.safeParse(req.body);
-  if (!parsedBody.success) {
-    return res.status(400).json({ error: "Invalid request body" });
-  }
-
-  const { candidateId } = parsedBody.data;
-
-  try {
-    const db = await getDb();
-
-    // Ensure recipe exists
-    let stmt = db.prepare("SELECT * FROM recipes WHERE id = ?");
-    const recipeRow = stmt.getAsObject([recipeId]);
-    stmt.free();
-    if (!recipeRow || recipeRow.id === undefined) {
-      return res.status(404).json({ error: "Recipe not found" });
-    }
-
-    // Ensure candidate belongs to recipe
-    stmt = db.prepare(
-      "SELECT * FROM recipe_candidates WHERE id = ? AND recipe_id = ?"
-    );
-    const candidateRow = stmt.getAsObject([candidateId, recipeId]);
-    stmt.free();
-    if (!candidateRow || candidateRow.id === undefined) {
-      return res
-        .status(404)
-        .json({ error: "Candidate not found for this recipe" });
-    }
-
-    const candidateName = toTitleCaseWords(String(candidateRow.name));
-    const candidateIcon = String(candidateRow.icon ?? "✨");
-    const normalizedName = candidateName.trim().toLowerCase();
-
-    db.run("BEGIN");
-    try {
-      // Upsert element
-      const elementId = ensureElement(db, {
-        name: candidateName,
-        normalizedName,
-        icon: candidateIcon,
-      });
-      const wasNewResultDiscovery = discoverElement(db, elementId);
-      const resultElement = getElementById(db, elementId);
-      const autoUnlockedActionWords = resultElement
-        ? maybeAutoUnlockActionWords(db, [resultElement])
-        : [];
-      await syncSearchIndex(db, [
-        elementId,
-        ...autoUnlockedActionWords.map((entry) => entry.element.id),
-      ]);
-
-      const updateRecipeStmt = db.prepare(
-        "UPDATE recipes SET chosen_candidate_id = ?, result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
-      );
-      updateRecipeStmt.run([candidateId, elementId, recipeId]);
-      updateRecipeStmt.free();
-
-      const priorTrace = getLatestTraceForRecipe(db, recipeId);
-
-      recordCombinationRun({
-        db,
-        recipeId,
-        resultElementId: elementId,
-        inputKey: String(recipeRow.input_key),
-        inputDisplayJson: String(recipeRow.input_display_json),
-        inputTerms: (JSON.parse(String(recipeRow.input_display_json)) as Array<{ name: string }>)
-          .map((input) => input.name),
-        chosenCandidateId: candidateId,
-        chosenName: candidateName,
-        chosenIcon: candidateIcon,
-        trace: priorTrace
-          ? {
-              providerType: priorTrace.providerType as GenerationTracePayload["providerType"],
-              model: priorTrace.model,
-              prompt: priorTrace.promptText,
-              rawResponseText: priorTrace.rawResponseText,
-              parsedResponseJson: priorTrace.parsedResponseJson,
-              searchQuery: priorTrace.searchQuery,
-              searchResults: priorTrace.searchResults,
-            }
-          : null,
-        traceActionPromptFamily: priorTrace?.actionPromptFamily ?? null,
-        actionConstraint: priorTrace?.actionConstraint ?? null,
-        categoryConstraint: priorTrace?.categoryConstraint ?? null,
-        creative: priorTrace?.creative ?? false,
-        ponderificate: priorTrace?.ponderificate ?? false,
-        parsedResponseJsonOverride: priorTrace
-          ? {
-              fullResponse: priorTrace.parsedResponseJson,
-              selectedResult: {
-                name: candidateName,
-                icon: candidateIcon,
-              },
-            }
-          : undefined,
-      });
-
-      db.run("COMMIT");
-
-      // Fetch the resulting element for response
-      const elementStmt = db.prepare(
-        "SELECT id, name, normalized_name, icon FROM elements WHERE id = ?"
-      );
-      const elementRow = elementStmt.getAsObject([elementId]);
-      elementStmt.free();
-
-      persistDatabase(db);
-
-      const candidateNames = [
-        ...(wasNewResultDiscovery ? [candidateName] : []),
-        ...autoUnlockedActionWords.map((entry) => entry.element.name),
-      ];
-      let newlyCompletedQuestNames: string[] = [];
-      let completedQuestMatches: Array<{ questName: string; matchedItemName: string }> = [];
-      let completedQuestSets: Array<{
-        id: string;
-        title: string;
-        topic: string;
-        questCount: number;
-        earnedPoints: number;
-      }> = [];
-      let awardedPoints = 0;
-      let totalPoints: number | undefined;
-      if (candidateNames.length > 0) {
-        const completionResult = await syncQuestCompletions(db, {
-          candidateNames,
-        });
-        newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
-        completedQuestMatches = completionResult.completedQuestMatches;
-        completedQuestSets = completionResult.completedQuestSets;
-        awardedPoints = completionResult.awardedPoints;
-        totalPoints = completionResult.totalPoints;
-        persistDatabase(db);
-      }
-
-      return res.json({
-        recipeId,
-        chosenCandidateId: candidateId,
-        resultElement: elementRow
-          ? {
-              id: elementRow.id,
-              name: elementRow.name,
-              normalizedName: elementRow.normalized_name,
-              icon: elementRow.icon ?? null,
-            }
-          : null,
-        autoUnlockedActionWords,
-        newlyCompletedQuestNames:
-          newlyCompletedQuestNames.length > 0 ? newlyCompletedQuestNames : undefined,
-        completedQuestMatches:
-          completedQuestMatches.length > 0 ? completedQuestMatches : undefined,
-        completedQuestSets: completedQuestSets.length > 0 ? completedQuestSets : undefined,
-        awardedPoints: awardedPoints > 0 ? awardedPoints : undefined,
-        totalPoints,
-      });
-    } catch (err) {
-      db.run("ROLLBACK");
-      console.error("Error selecting candidate", err);
-      return res
-        .status(500)
-        .json({ error: "Failed to select candidate" });
-    }
-  } catch (err) {
-    console.error("Unexpected error in /recipes/:id/select", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });

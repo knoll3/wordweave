@@ -7,19 +7,10 @@ export interface ElementDTO {
   icon: string | null;
 }
 
-export interface RecipeCandidateDTO {
-  id: number;
-  name: string;
-  icon: string;
-  orderIndex: number;
-}
-
 export interface RecipeDTO {
   recipeId: number;
   inputKey: string;
   inputs: { name: string; normalized: string }[];
-  candidates: RecipeCandidateDTO[];
-  chosenCandidateId: number | null;
   resultElement?: ElementDTO;
   resultElements?: ElementDTO[];
   autoUnlockedActionWords?: Array<{
@@ -105,18 +96,8 @@ export function mapElementRow(row: any): ElementDTO {
   };
 }
 
-export function mapCandidateRow(row: any): RecipeCandidateDTO {
-  return {
-    id: row.id,
-    name: row.name,
-    icon: row.icon,
-    orderIndex: row.order_index,
-  };
-}
-
 export function buildCombineResponse(params: {
   recipeRow: any;
-  candidates: any[];
   resultElement?: ElementDTO;
   resultElements?: ElementDTO[];
   autoUnlockedActionWords?: RecipeDTO["autoUnlockedActionWords"];
@@ -128,7 +109,6 @@ export function buildCombineResponse(params: {
 }): RecipeDTO {
   const {
     recipeRow,
-    candidates,
     resultElement,
     resultElements,
     autoUnlockedActionWords,
@@ -148,8 +128,6 @@ export function buildCombineResponse(params: {
     recipeId: recipeRow.id,
     inputKey: recipeRow.input_key,
     inputs,
-    candidates: candidates.map(mapCandidateRow),
-    chosenCandidateId: recipeRow.chosen_candidate_id ?? null,
     resultElement: resultElement ?? undefined,
     resultElements:
       resultElements && resultElements.length > 0 ? resultElements : resultElement ? [resultElement] : undefined,

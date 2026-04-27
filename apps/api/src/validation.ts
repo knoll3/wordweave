@@ -11,10 +11,6 @@ export const combineRequestSchema = z.object({
     .optional(),
 });
 
-export const selectRequestSchema = z.object({
-  candidateId: z.number().int().positive(),
-});
-
 export const recipeFeedbackRequestSchema = z.object({
   clientSessionId: z.string().min(1).max(128),
   sentiment: z.enum(["up", "down"]),

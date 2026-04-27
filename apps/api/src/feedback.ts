@@ -9,7 +9,6 @@ export type CombinationRunRecord = {
   resultElementId: number;
   inputKey: string;
   inputDisplayJson: string;
-  chosenCandidateId: number | null;
   chosenName: string;
   chosenIcon: string | null;
   createdAt: string;
@@ -54,7 +53,6 @@ function mapRunRow(row: Record<string, unknown>): CombinationRunRecord {
     resultElementId: Number(row.result_element_id),
     inputKey: String(row.input_key),
     inputDisplayJson: String(row.input_display_json),
-    chosenCandidateId: row.chosen_candidate_id == null ? null : Number(row.chosen_candidate_id),
     chosenName: String(row.chosen_name),
     chosenIcon: typeof row.chosen_icon === "string" ? String(row.chosen_icon) : null,
     createdAt: String(row.created_at),
@@ -111,7 +109,6 @@ export function insertCombinationRun(
     resultElementId: number;
     inputKey: string;
     inputDisplayJson: string;
-    chosenCandidateId?: number | null;
     chosenName: string;
     chosenIcon?: string | null;
     createdAt?: string | null;
@@ -124,19 +121,17 @@ export function insertCombinationRun(
       result_element_id,
       input_key,
       input_display_json,
-      chosen_candidate_id,
       chosen_name,
       chosen_icon,
       created_at,
       updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
+    ) VALUES (?, ?, ?, ?, ?, ?, COALESCE(?, CURRENT_TIMESTAMP), COALESCE(?, CURRENT_TIMESTAMP))
   `);
   stmt.run([
     params.recipeId ?? null,
     params.resultElementId,
     params.inputKey,
     params.inputDisplayJson,
-    params.chosenCandidateId ?? null,
     params.chosenName,
     params.chosenIcon ?? null,
     params.createdAt ?? null,
@@ -274,26 +269,6 @@ export function getLatestTraceForCombinationRun(
     LIMIT 1
   `);
   const row = stmt.getAsObject([runId]) as Record<string, unknown>;
-  stmt.free();
-  if (row.id == null) {
-    return null;
-  }
-  return mapTraceRow(row);
-}
-
-export function getLatestTraceForRecipe(
-  db: Database,
-  recipeId: number
-): CombinationRunTraceRecord | null {
-  const stmt = db.prepare(`
-    SELECT crt.*
-    FROM combination_run_traces crt
-    JOIN combination_runs cr ON cr.id = crt.combination_run_id
-    WHERE cr.recipe_id = ?
-    ORDER BY crt.id DESC
-    LIMIT 1
-  `);
-  const row = stmt.getAsObject([recipeId]) as Record<string, unknown>;
   stmt.free();
   if (row.id == null) {
     return null;

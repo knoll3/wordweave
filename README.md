@@ -77,14 +77,10 @@ Key API routes:
 
 - `POST /api/recipes/combine`
   - Body: `{ "inputs": string[] }`
-  - Normalizes, looks up or generates candidate results with OpenAI, and returns:
+  - Normalizes, looks up or generates a result with OpenAI, and returns:
     - the recipe id
     - the normalized input set
-    - the candidate list (name + emoji)
-    - the chosen result (if already selected)
-- `POST /api/recipes/:id/select`
-  - Body: `{ "candidateId": number }`
-  - Persists the selected candidate as the canonical result and creates/links the resulting element.
+    - the result element
 - `GET /api/elements`
   - Optional query `?q=search` to filter by element name.
 - `GET /api/elements/recent-recipes`

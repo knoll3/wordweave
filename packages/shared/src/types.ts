@@ -5,19 +5,10 @@ export interface ElementDTO {
   icon: string | null;
 }
 
-export interface RecipeCandidateDTO {
-  id: number;
-  name: string;
-  icon: string;
-  orderIndex: number;
-}
-
 export interface RecipeDTO {
   recipeId: number;
   inputKey: string;
   inputs: { name: string; normalized: string }[];
-  candidates: RecipeCandidateDTO[];
-  chosenCandidateId: number | null;
   resultElement?: ElementDTO;
 }
 

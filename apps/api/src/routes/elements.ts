@@ -167,8 +167,7 @@ router.get("/cache-stats", async (_req, res) => {
     const stmt = db.prepare(
       `
       SELECT
-        (SELECT COUNT(*) FROM recipes) AS recipe_count,
-        (SELECT COUNT(*) FROM recipe_candidates) AS candidate_count
+        (SELECT COUNT(*) FROM recipes) AS recipe_count
       `
     );
     let row: any = null;
@@ -179,7 +178,6 @@ router.get("/cache-stats", async (_req, res) => {
 
     return res.json({
       recipeCount: Number(row?.recipe_count ?? 0),
-      candidateCount: Number(row?.candidate_count ?? 0),
     });
   } catch (err) {
     console.error("Error in GET /elements/cache-stats", err);
@@ -212,7 +210,6 @@ router.get("/cache-recipes", async (req, res) => {
         r.input_key,
         r.input_display_json,
         r.updated_at,
-        r.chosen_candidate_id,
         r.result_element_id,
         e.id AS result_element_id_value,
         e.name AS result_element_name,
@@ -230,50 +227,18 @@ router.get("/cache-recipes", async (req, res) => {
       id: number;
       inputKey: string;
       inputs: { name: string; normalized: string }[];
-      chosenCandidateId: number | null;
       resultElement: {
         id: number;
         name: string;
         normalizedName: string;
         icon: string | null;
       } | null;
-      candidates: Array<{
-        id: number;
-        name: string;
-        icon: string;
-        orderIndex: number;
-      }>;
       updatedAt: string;
     }> = [];
 
     while (stmt.step()) {
       const row = stmt.getAsObject() as Record<string, unknown>;
       const recipeId = Number(row.id);
-      const candidateStmt = db.prepare(
-        `
-        SELECT id, name, icon, order_index
-        FROM recipe_candidates
-        WHERE recipe_id = ?
-        ORDER BY order_index ASC, id ASC
-        `
-      );
-      const candidates: Array<{
-        id: number;
-        name: string;
-        icon: string;
-        orderIndex: number;
-      }> = [];
-      while (candidateStmt.step()) {
-        const candidateRow = candidateStmt.getAsObject() as Record<string, unknown>;
-        candidates.push({
-          id: Number(candidateRow.id),
-          name: String(candidateRow.name),
-          icon: String(candidateRow.icon),
-          orderIndex: Number(candidateRow.order_index),
-        });
-      }
-      candidateStmt.free();
-
       recipes.push({
         id: recipeId,
         inputKey: String(row.input_key),
@@ -281,8 +246,6 @@ router.get("/cache-recipes", async (req, res) => {
           name: string;
           normalized: string;
         }[],
-        chosenCandidateId:
-          row.chosen_candidate_id == null ? null : Number(row.chosen_candidate_id),
         resultElement:
           row.result_element_id_value == null
             ? null
@@ -295,7 +258,6 @@ router.get("/cache-recipes", async (req, res) => {
                     ? null
                     : String(row.result_element_icon),
               },
-        candidates,
         updatedAt: String(row.updated_at),
       });
     }
@@ -353,8 +315,7 @@ router.post("/reset-cache", async (_req, res) => {
     const countStmt = db.prepare(
       `
       SELECT
-        (SELECT COUNT(*) FROM recipes) AS recipe_count,
-        (SELECT COUNT(*) FROM recipe_candidates) AS candidate_count
+        (SELECT COUNT(*) FROM recipes) AS recipe_count
       `
     );
     let countRow: any = null;
@@ -364,11 +325,9 @@ router.post("/reset-cache", async (_req, res) => {
     countStmt.free();
 
     const recipeCount = Number(countRow?.recipe_count ?? 0);
-    const candidateCount = Number(countRow?.candidate_count ?? 0);
 
     db.run("BEGIN");
     try {
-      db.run("DELETE FROM recipe_candidates");
       db.run("DELETE FROM recipes");
       db.run("COMMIT");
     } catch (err) {
@@ -380,7 +339,6 @@ router.post("/reset-cache", async (_req, res) => {
     return res.json({
       ok: true,
       clearedRecipeCount: recipeCount,
-      clearedCandidateCount: candidateCount,
     });
   } catch (err) {
     console.error("Error in POST /elements/reset-cache", err);

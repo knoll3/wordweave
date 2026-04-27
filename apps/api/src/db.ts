@@ -150,55 +150,9 @@ function createSchema(db: Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       input_key TEXT NOT NULL UNIQUE,
       input_display_json TEXT NOT NULL,
-      chosen_candidate_id INTEGER NULL,
       result_element_id INTEGER NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS recipe_generation_traces (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      recipe_id INTEGER NOT NULL,
-      provider_type TEXT NOT NULL,
-      model TEXT NOT NULL,
-      action_prompt_family TEXT NULL,
-      action_constraint TEXT NULL,
-      category_constraint TEXT NULL,
-      creative INTEGER NOT NULL DEFAULT 0,
-      ponderificate INTEGER NOT NULL DEFAULT 0,
-      input_terms_json TEXT NOT NULL,
-      search_query TEXT NULL,
-      search_results_json TEXT NULL,
-      prompt_text TEXT NOT NULL,
-      raw_response_text TEXT NOT NULL,
-      parsed_response_json TEXT NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
-    );
-
-    CREATE TABLE IF NOT EXISTS recipe_feedback (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      recipe_id INTEGER NOT NULL,
-      trace_id INTEGER NULL,
-      client_session_id TEXT NOT NULL,
-      sentiment TEXT NOT NULL CHECK(sentiment IN ('up', 'down')),
-      expected_result_text TEXT NULL,
-      comment_text TEXT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(recipe_id, client_session_id),
-      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE,
-      FOREIGN KEY (trace_id) REFERENCES recipe_generation_traces(id) ON DELETE SET NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS recipe_candidates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      recipe_id INTEGER NOT NULL,
-      name TEXT NOT NULL,
-      icon TEXT NOT NULL,
-      order_index INTEGER NOT NULL,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS combination_runs (
@@ -207,14 +161,12 @@ function createSchema(db: Database): void {
       result_element_id INTEGER NOT NULL,
       input_key TEXT NOT NULL,
       input_display_json TEXT NOT NULL,
-      chosen_candidate_id INTEGER NULL,
       chosen_name TEXT NOT NULL,
       chosen_icon TEXT NULL,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE SET NULL,
-      FOREIGN KEY (result_element_id) REFERENCES elements(id) ON DELETE CASCADE,
-      FOREIGN KEY (chosen_candidate_id) REFERENCES recipe_candidates(id) ON DELETE SET NULL
+      FOREIGN KEY (result_element_id) REFERENCES elements(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS combination_run_traces (
@@ -364,7 +316,6 @@ function createSchema(db: Database): void {
   ensureColumn(db, "quests", "set_id", "TEXT NULL");
   ensureColumn(db, "quests", "set_title", "TEXT NULL");
   ensureColumn(db, "quests", "points_awarded", "INTEGER NOT NULL DEFAULT 10");
-  ensureColumn(db, "recipe_feedback", "comment_text", "TEXT NULL");
   ensureColumn(db, "combination_run_traces", "legacy_recipe_trace_id", "INTEGER NULL");
   ensureColumn(db, "combination_run_feedback", "legacy_recipe_feedback_id", "INTEGER NULL");
   ensureColumn(db, "room_board_items", "is_new_discovery", "INTEGER NOT NULL DEFAULT 0");
@@ -402,7 +353,7 @@ function createSchema(db: Database): void {
     "CREATE INDEX IF NOT EXISTS idx_room_board_items_room ON room_board_items (room_id, created_at, id)"
   );
 
-  backfillCombinationRuns(db);
+  removeUnusedSchema(db);
 }
 
 function ensureColumn(
@@ -427,116 +378,139 @@ function ensureColumn(
   }
 }
 
-function backfillCombinationRuns(db: Database) {
+function hasColumn(db: Database, tableName: string, columnName: string) {
+  const stmt = db.prepare(`PRAGMA table_info(${tableName})`);
+  let exists = false;
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    if (String(row.name) === columnName) {
+      exists = true;
+      break;
+    }
+  }
+  stmt.free();
+  return exists;
+}
+
+function rebuildRecipesWithoutCandidates(db: Database) {
+  if (!hasColumn(db, "recipes", "chosen_candidate_id")) {
+    return;
+  }
+
   db.run(`
-    INSERT INTO combination_runs (
+    CREATE TABLE recipes_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      input_key TEXT NOT NULL UNIQUE,
+      input_display_json TEXT NOT NULL,
+      result_element_id INTEGER NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    INSERT INTO recipes_new (
+      id,
+      input_key,
+      input_display_json,
+      result_element_id,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      input_key,
+      input_display_json,
+      result_element_id,
+      created_at,
+      updated_at
+    FROM recipes;
+
+    DROP TABLE recipes;
+    ALTER TABLE recipes_new RENAME TO recipes;
+  `);
+}
+
+function rebuildCombinationRunsWithoutCandidates(db: Database) {
+  if (!hasColumn(db, "combination_runs", "chosen_candidate_id")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE combination_runs_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      recipe_id INTEGER NULL,
+      result_element_id INTEGER NOT NULL,
+      input_key TEXT NOT NULL,
+      input_display_json TEXT NOT NULL,
+      chosen_name TEXT NOT NULL,
+      chosen_icon TEXT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE SET NULL,
+      FOREIGN KEY (result_element_id) REFERENCES elements(id) ON DELETE CASCADE
+    );
+
+    INSERT INTO combination_runs_new (
+      id,
       recipe_id,
       result_element_id,
       input_key,
       input_display_json,
-      chosen_candidate_id,
       chosen_name,
       chosen_icon,
       created_at,
       updated_at
     )
     SELECT
-      r.id,
-      r.result_element_id,
-      r.input_key,
-      r.input_display_json,
-      r.chosen_candidate_id,
-      COALESCE(rc.name, e.name),
-      COALESCE(rc.icon, e.icon),
-      r.created_at,
-      r.updated_at
-    FROM recipes r
-    LEFT JOIN recipe_candidates rc ON rc.id = r.chosen_candidate_id
-    LEFT JOIN elements e ON e.id = r.result_element_id
-    WHERE r.result_element_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM combination_runs cr
-        WHERE cr.recipe_id = r.id
-      )
-  `);
-
-  db.run(`
-    INSERT INTO combination_run_traces (
-      combination_run_id,
-      provider_type,
-      model,
-      action_prompt_family,
-      action_constraint,
-      category_constraint,
-      creative,
-      ponderificate,
-      input_terms_json,
-      search_query,
-      search_results_json,
-      prompt_text,
-      raw_response_text,
-      parsed_response_json,
-      legacy_recipe_trace_id,
-      created_at
-    )
-    SELECT
-      cr.id,
-      rgt.provider_type,
-      rgt.model,
-      rgt.action_prompt_family,
-      rgt.action_constraint,
-      rgt.category_constraint,
-      rgt.creative,
-      rgt.ponderificate,
-      rgt.input_terms_json,
-      rgt.search_query,
-      rgt.search_results_json,
-      rgt.prompt_text,
-      rgt.raw_response_text,
-      rgt.parsed_response_json,
-      rgt.id,
-      rgt.created_at
-    FROM recipe_generation_traces rgt
-    JOIN combination_runs cr ON cr.recipe_id = rgt.recipe_id
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM combination_run_traces crt
-      WHERE crt.legacy_recipe_trace_id = rgt.id
-    )
-  `);
-
-  db.run(`
-    INSERT INTO combination_run_feedback (
-      combination_run_id,
-      trace_id,
-      client_session_id,
-      sentiment,
-      expected_result_text,
-      comment_text,
-      legacy_recipe_feedback_id,
+      id,
+      recipe_id,
+      result_element_id,
+      input_key,
+      input_display_json,
+      chosen_name,
+      chosen_icon,
       created_at,
       updated_at
-    )
-    SELECT
-      cr.id,
-      crt.id,
-      rf.client_session_id,
-      rf.sentiment,
-      rf.expected_result_text,
-      rf.comment_text,
-      rf.id,
-      rf.created_at,
-      rf.updated_at
-    FROM recipe_feedback rf
-    JOIN combination_runs cr ON cr.recipe_id = rf.recipe_id
-    LEFT JOIN combination_run_traces crt ON crt.legacy_recipe_trace_id = rf.trace_id
-    WHERE NOT EXISTS (
-      SELECT 1
-      FROM combination_run_feedback crf
-      WHERE crf.legacy_recipe_feedback_id = rf.id
-    )
+    FROM combination_runs;
+
+    DROP TABLE combination_runs;
+    ALTER TABLE combination_runs_new RENAME TO combination_runs;
   `);
+}
+
+function removeUnusedSchema(db: Database) {
+  db.pragma("foreign_keys = OFF");
+  db.run("BEGIN");
+  try {
+    rebuildCombinationRunsWithoutCandidates(db);
+    rebuildRecipesWithoutCandidates(db);
+    db.run(`
+      DROP TABLE IF EXISTS recipe_candidates;
+      DROP TABLE IF EXISTS recipe_feedback;
+      DROP TABLE IF EXISTS recipe_generation_traces;
+      DROP TABLE IF EXISTS completed_quests;
+      DROP TABLE IF EXISTS quest_generation_turns;
+      DROP TABLE IF EXISTS quest_generation_sessions;
+      DROP TABLE IF EXISTS target_quest_history;
+      DROP TABLE IF EXISTS semantic_category_memberships;
+      DROP TABLE IF EXISTS semantic_categories;
+      DROP TABLE IF EXISTS semantic_group_memberships;
+      DROP TABLE IF EXISTS semantic_groups;
+      DROP TABLE IF EXISTS bible_verses;
+    `);
+    db.run("COMMIT");
+  } catch (error) {
+    db.run("ROLLBACK");
+    throw error;
+  } finally {
+    db.pragma("foreign_keys = ON");
+  }
+
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_runs_result_element ON combination_runs (result_element_id, id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_combination_runs_recipe ON combination_runs (recipe_id, id)"
+  );
 }
 
 function seedBaseElements(db: Database): void {

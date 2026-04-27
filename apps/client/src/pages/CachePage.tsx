@@ -140,16 +140,10 @@ const CachePage: React.FC = () => {
           <div className="cache-table">
             <div className="cache-table-head">
               <span>Inputs</span>
-              <span>Chosen Result</span>
-              <span>Candidates</span>
+              <span>Result</span>
               <span>Updated</span>
             </div>
-            {recipes.map((recipe) => {
-              const chosenCandidate =
-                recipe.candidates.find(
-                  (candidate) => candidate.id === recipe.chosenCandidateId
-                ) ?? null;
-              return (
+            {recipes.map((recipe) => (
                 <div key={recipe.id} className="cache-table-row">
                   <div className="cache-cell cache-inputs">
                     {recipe.inputs.map((input) => input.name).join(" + ")}
@@ -157,28 +151,13 @@ const CachePage: React.FC = () => {
                   <div className="cache-cell">
                     {recipe.resultElement
                       ? `${recipe.resultElement.icon ?? ""} ${recipe.resultElement.name}`.trim()
-                      : chosenCandidate
-                        ? `${chosenCandidate.icon} ${chosenCandidate.name}`
-                        : "Unresolved"}
-                  </div>
-                  <div className="cache-cell cache-candidates">
-                    {recipe.candidates.map((candidate) => (
-                      <span
-                        key={candidate.id}
-                        className={`cache-candidate-chip ${
-                          candidate.id === recipe.chosenCandidateId ? "active" : ""
-                        }`}
-                      >
-                        {candidate.icon} {candidate.name}
-                      </span>
-                    ))}
+                      : "Unresolved"}
                   </div>
                   <div className="cache-cell cache-updated">
                     {new Date(recipe.updatedAt).toLocaleString()}
                   </div>
                 </div>
-              );
-            })}
+            ))}
           </div>
         </>
       )}

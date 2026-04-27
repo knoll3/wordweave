@@ -117,13 +117,6 @@ export const COMBINE_RESULT_PLACEHOLDER_ITEM: Item = {
   icon: null,
 };
 
-export interface RecipeCandidate {
-  id: number;
-  name: string;
-  icon: string;
-  orderIndex: number;
-}
-
 export interface AutoUnlockedActionWord {
   familyKey: string;
   familyTitle: string;
@@ -135,8 +128,6 @@ export interface Recipe {
   recipeId: number;
   inputKey: string;
   inputs: { name: string; normalized: string }[];
-  candidates: RecipeCandidate[];
-  chosenCandidateId: number | null;
   resultElement?: Item;
   resultElements?: Item[];
   autoUnlockedActionWords?: AutoUnlockedActionWord[];
@@ -224,9 +215,7 @@ export interface CacheRecipe {
   id: number;
   inputKey: string;
   inputs: { name: string; normalized: string }[];
-  chosenCandidateId: number | null;
   resultElement: Item | null;
-  candidates: RecipeCandidate[];
   updatedAt: string;
 }
 
