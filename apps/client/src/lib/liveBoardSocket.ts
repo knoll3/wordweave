@@ -9,8 +9,10 @@ import type {
   SharedRoomSnapshot,
 } from "../liveBoardTypes";
 import type { PlayerQuestStats, QuestRecord, QuestSetCompletion } from "../types";
+import { getCurrentSessionId } from "./session";
 
 let socket: Socket | null = null;
+let socketSessionId: string | null = null;
 
 function getSocketBaseUrl() {
   const base = import.meta.env.VITE_API_BASE_URL;
@@ -26,9 +28,18 @@ function getSocketBaseUrl() {
 }
 
 export function getLiveBoardSocket() {
+  const sessionId = getCurrentSessionId();
+  if (socket && socketSessionId !== sessionId) {
+    socket.disconnect();
+    socket = null;
+  }
   if (!socket) {
+    socketSessionId = sessionId;
     socket = io(getSocketBaseUrl(), {
       transports: ["websocket", "polling"],
+      auth: {
+        sessionId,
+      },
     });
   }
   return socket;

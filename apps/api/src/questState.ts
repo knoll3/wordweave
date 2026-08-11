@@ -83,6 +83,7 @@ function mapQuestRow(row: Record<string, unknown>): QuestRecord {
 
 export function listQuests(
   db: Database,
+  sessionId = "default-room",
   options?: { includeAbandoned?: boolean }
 ) {
   const includeAbandoned = options?.includeAbandoned ?? false;
@@ -90,10 +91,12 @@ export function listQuests(
     `
     SELECT name, normalized_name, icon, set_id, set_title, points_awarded, status, matched_item_name, completion_method, created_at, completed_at
     FROM quests
-    ${includeAbandoned ? "" : "WHERE status != 'abandoned'"}
+    WHERE session_id = ?
+    ${includeAbandoned ? "" : "AND status != 'abandoned'"}
     ORDER BY created_at ASC, name COLLATE NOCASE ASC
     `
   );
+  stmt.bind([sessionId]);
   const quests: QuestRecord[] = [];
   while (stmt.step()) {
     quests.push(mapQuestRow(stmt.getAsObject() as Record<string, unknown>));
@@ -111,15 +114,17 @@ export function insertQuest(
     setId?: string | null;
     setTitle?: string | null;
     pointsAwarded?: number;
+    sessionId?: string;
   }
 ) {
   const normalizedName = normalizeQuestName(params.name);
   const stmt = db.prepare(`
-    INSERT INTO quests (name, normalized_name, icon, set_id, set_title, points_awarded, status, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-    ON CONFLICT(normalized_name) DO NOTHING
+    INSERT INTO quests (session_id, name, normalized_name, icon, set_id, set_title, points_awarded, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    ON CONFLICT(session_id, normalized_name) DO NOTHING
   `);
   stmt.run([
+    params.sessionId ?? "default-room",
     params.name.trim(),
     normalizedName,
     params.icon.trim(),
@@ -134,6 +139,7 @@ export function insertQuest(
 export function importLegacyQuests(
   db: Database,
   params: {
+    sessionId?: string;
     quests: Array<{ name: string; icon: string }>;
     trackedNames?: string[];
     abandonedNames?: string[];
@@ -148,6 +154,7 @@ export function importLegacyQuests(
     insertQuest(db, {
       name: quest.name,
       icon: quest.icon,
+      sessionId: params.sessionId,
       status: abandoned.has(normalizedName)
         ? "abandoned"
         : tracked.has(normalizedName)
@@ -159,14 +166,18 @@ export function importLegacyQuests(
 
 export function updateQuestStatus(
   db: Database,
-  params: { name: string; status: Extract<QuestStatus, "available" | "tracked" | "abandoned"> }
+  params: {
+    sessionId?: string;
+    name: string;
+    status: Extract<QuestStatus, "available" | "tracked" | "abandoned">;
+  }
 ) {
   const stmt = db.prepare(`
     UPDATE quests
     SET status = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE normalized_name = ? AND status != 'completed'
+    WHERE session_id = ? AND normalized_name = ? AND status != 'completed'
   `);
-  stmt.run([params.status, normalizeQuestName(params.name)]);
+  stmt.run([params.status, params.sessionId ?? "default-room", normalizeQuestName(params.name)]);
   stmt.free();
 }
 
@@ -346,6 +357,7 @@ function findProgrammaticQuestNameOverlap(
 
 export function findAvailableQuestTargetMatch(
   db: Database,
+  sessionId: string,
   candidateNames: string[]
 ): AvailableQuestTargetMatch | null {
   const uniqueCandidateNames = uniqueNormalized(candidateNames);
@@ -353,7 +365,7 @@ export function findAvailableQuestTargetMatch(
     return null;
   }
 
-  const quests = loadIncompleteQuests(db);
+  const quests = loadIncompleteQuests(db, sessionId);
   if (quests.length === 0) {
     return null;
   }
@@ -387,11 +399,12 @@ export function findAvailableQuestTargetMatch(
 
 function loadIncompleteQuests(
   db: Database,
+  sessionId: string,
   options?: { targetNames?: string[] }
 ) {
   const targetNames = uniqueNormalized(options?.targetNames ?? []);
   const normalizedTargets = targetNames.map(normalizeQuestName);
-  const whereClauses = [`status IN ('available', 'tracked')`];
+  const whereClauses = [`session_id = ?`, `status IN ('available', 'tracked')`];
   if (normalizedTargets.length > 0) {
     whereClauses.push(`normalized_name IN (${normalizedTargets.map(() => "?").join(", ")})`);
   }
@@ -401,8 +414,11 @@ function loadIncompleteQuests(
     WHERE ${whereClauses.join(" AND ")}
     ORDER BY created_at ASC, name COLLATE NOCASE ASC
   `);
+  const params = [sessionId, ...normalizedTargets];
   if (normalizedTargets.length > 0) {
-    stmt.bind(normalizedTargets);
+    stmt.bind(params);
+  } else {
+    stmt.bind([sessionId]);
   }
   const quests: QuestRecord[] = [];
   while (stmt.step()) {
@@ -443,23 +459,27 @@ function loadIncompleteQuests(
 
 function loadDiscoveredRows(
   db: Database,
+  sessionId: string,
   options?: { candidateNames?: string[] }
 ) {
   const candidateNames = uniqueNormalized(options?.candidateNames ?? []);
   const normalizedCandidates = candidateNames.map(normalizeQuestName);
-  const whereClauses = ["1=1"];
+  const whereClauses = ["d.session_id = ?"];
   if (normalizedCandidates.length > 0) {
     whereClauses.push(`e.normalized_name IN (${normalizedCandidates.map(() => "?").join(", ")})`);
   }
   const stmt = db.prepare(`
     SELECT e.id, e.name, e.normalized_name
-    FROM discoveries d
+    FROM session_discoveries d
     JOIN elements e ON e.id = d.element_id
     WHERE ${whereClauses.join(" AND ")}
     ORDER BY d.discovered_at ASC
   `);
+  const params = [sessionId, ...normalizedCandidates];
   if (normalizedCandidates.length > 0) {
-    stmt.bind(normalizedCandidates);
+    stmt.bind(params);
+  } else {
+    stmt.bind([sessionId]);
   }
   const rows: Array<{ id: number; name: string; normalizedName: string }> = [];
   while (stmt.step()) {
@@ -476,6 +496,7 @@ function loadDiscoveredRows(
 
 export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
   db: Database,
+  sessionId: string,
   targetNames: string[]
 ) {
   const uniqueTargets = uniqueNormalized(targetNames);
@@ -483,7 +504,7 @@ export async function findGeneratedQuestTargetsTooCloseToDiscoveries(
     return new Set<string>();
   }
 
-  const discoveredRows = loadDiscoveredRows(db);
+  const discoveredRows = loadDiscoveredRows(db, sessionId);
   if (discoveredRows.length === 0) {
     return new Set<string>();
   }
@@ -541,6 +562,7 @@ export function replaceQuestTargetVariants(
 function markQuestCompleted(
   db: Database,
   params: {
+    sessionId: string;
     normalizedName: string;
     matchedItemName: string | null;
     completionMethod: "exact" | "normalized";
@@ -553,9 +575,14 @@ function markQuestCompleted(
         completion_method = ?,
         completed_at = COALESCE(completed_at, CURRENT_TIMESTAMP),
         updated_at = CURRENT_TIMESTAMP
-    WHERE normalized_name = ? AND status IN ('available', 'tracked')
+    WHERE session_id = ? AND normalized_name = ? AND status IN ('available', 'tracked')
   `);
-  stmt.run([params.matchedItemName, params.completionMethod, params.normalizedName]);
+  stmt.run([
+    params.matchedItemName,
+    params.completionMethod,
+    params.sessionId,
+    params.normalizedName,
+  ]);
   stmt.free();
   console.log("[api][quests] quest marked completed", {
     normalizedName: params.normalizedName,
@@ -564,22 +591,23 @@ function markQuestCompleted(
   });
 }
 
-function ensurePlayerStatRow(db: Database, key: string) {
+function ensurePlayerStatRow(db: Database, sessionId: string, key: string) {
   const stmt = db.prepare(`
-    INSERT INTO player_stats (key, value_integer, updated_at)
-    VALUES (?, 0, CURRENT_TIMESTAMP)
-    ON CONFLICT(key) DO NOTHING
+    INSERT INTO player_stats (session_id, key, value_integer, updated_at)
+    VALUES (?, ?, 0, CURRENT_TIMESTAMP)
+    ON CONFLICT(session_id, key) DO NOTHING
   `);
-  stmt.run([key]);
+  stmt.run([sessionId, key]);
   stmt.free();
 }
 
-function calculateQuestPointsSeedTotal(db: Database) {
+function calculateQuestPointsSeedTotal(db: Database, sessionId: string) {
   const stmt = db.prepare(`
     SELECT
-      COALESCE((SELECT SUM(points_awarded) FROM quests WHERE status = 'completed'), 0)
+      COALESCE((SELECT SUM(points_awarded) FROM quests WHERE session_id = ? AND status = 'completed'), 0)
       AS total_points
   `);
+  stmt.bind([sessionId]);
   const row = stmt.step()
     ? (stmt.getAsObject() as Record<string, unknown>)
     : { total_points: 0 };
@@ -587,14 +615,14 @@ function calculateQuestPointsSeedTotal(db: Database) {
   return Number(row.total_points ?? 0);
 }
 
-function seedPlayerQuestPoints(db: Database) {
-  const totalPoints = calculateQuestPointsSeedTotal(db);
+function seedPlayerQuestPoints(db: Database, sessionId: string) {
+  const totalPoints = calculateQuestPointsSeedTotal(db, sessionId);
   const stmt = db.prepare(`
-    INSERT INTO player_stats (key, value_integer, updated_at)
-    VALUES ('quest_points_total', ?, CURRENT_TIMESTAMP)
-    ON CONFLICT(key) DO UPDATE SET value_integer = excluded.value_integer, updated_at = CURRENT_TIMESTAMP
+    INSERT INTO player_stats (session_id, key, value_integer, updated_at)
+    VALUES (?, 'quest_points_total', ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(session_id, key) DO UPDATE SET value_integer = excluded.value_integer, updated_at = CURRENT_TIMESTAMP
   `);
-  stmt.run([totalPoints]);
+  stmt.run([sessionId, totalPoints]);
   stmt.free();
   console.log("[api][quests] seeded player quest points", {
     totalPoints,
@@ -602,17 +630,21 @@ function seedPlayerQuestPoints(db: Database) {
   return totalPoints;
 }
 
-function repairPlayerQuestPointsIfNeeded(db: Database, currentTotalPoints: number) {
-  const seededTotalPoints = calculateQuestPointsSeedTotal(db);
+function repairPlayerQuestPointsIfNeeded(
+  db: Database,
+  sessionId: string,
+  currentTotalPoints: number
+) {
+  const seededTotalPoints = calculateQuestPointsSeedTotal(db, sessionId);
   if (currentTotalPoints >= seededTotalPoints) {
     return currentTotalPoints;
   }
   const stmt = db.prepare(`
     UPDATE player_stats
     SET value_integer = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE key = 'quest_points_total'
+    WHERE session_id = ? AND key = 'quest_points_total'
   `);
-  stmt.run([seededTotalPoints]);
+  stmt.run([seededTotalPoints, sessionId]);
   stmt.free();
   console.log("[api][quests] repaired player quest points", {
     previousTotalPoints: currentTotalPoints,
@@ -621,9 +653,9 @@ function repairPlayerQuestPointsIfNeeded(db: Database, currentTotalPoints: numbe
   return seededTotalPoints;
 }
 
-function incrementPlayerPoints(db: Database, points: number) {
-  const currentTotalPoints = getPlayerQuestStats(db).totalPoints;
-  const repairedTotalPoints = repairPlayerQuestPointsIfNeeded(db, currentTotalPoints);
+function incrementPlayerPoints(db: Database, sessionId: string, points: number) {
+  const currentTotalPoints = getPlayerQuestStats(db, sessionId).totalPoints;
+  const repairedTotalPoints = repairPlayerQuestPointsIfNeeded(db, sessionId, currentTotalPoints);
   if (points <= 0) {
     console.log("[api][quests] increment skipped", {
       currentTotalPoints: repairedTotalPoints,
@@ -631,15 +663,15 @@ function incrementPlayerPoints(db: Database, points: number) {
     });
     return;
   }
-  ensurePlayerStatRow(db, "quest_points_total");
+  ensurePlayerStatRow(db, sessionId, "quest_points_total");
   const stmt = db.prepare(`
     UPDATE player_stats
     SET value_integer = value_integer + ?, updated_at = CURRENT_TIMESTAMP
-    WHERE key = 'quest_points_total'
+    WHERE session_id = ? AND key = 'quest_points_total'
   `);
-  stmt.run([points]);
+  stmt.run([points, sessionId]);
   stmt.free();
-  const nextTotalPoints = getPlayerQuestStats(db).totalPoints;
+  const nextTotalPoints = getPlayerQuestStats(db, sessionId).totalPoints;
   console.log("[api][quests] incremented player quest points", {
     previousTotalPoints: repairedTotalPoints,
     addedPoints: points,
@@ -647,14 +679,21 @@ function incrementPlayerPoints(db: Database, points: number) {
   });
 }
 
-export function getPlayerQuestStats(db: Database): PlayerQuestStats {
-  const stmt = db.prepare("SELECT value_integer FROM player_stats WHERE key = 'quest_points_total'");
+export function getPlayerQuestStats(db: Database, sessionId = "default-room"): PlayerQuestStats {
+  const stmt = db.prepare(
+    "SELECT value_integer FROM player_stats WHERE session_id = ? AND key = 'quest_points_total'"
+  );
+  stmt.bind([sessionId]);
   const row = stmt.step()
     ? (stmt.getAsObject() as Record<string, unknown>)
     : {};
   stmt.free();
   if (row.value_integer != null) {
-    const totalPoints = repairPlayerQuestPointsIfNeeded(db, Number(row.value_integer ?? 0));
+    const totalPoints = repairPlayerQuestPointsIfNeeded(
+      db,
+      sessionId,
+      Number(row.value_integer ?? 0)
+    );
     console.log("[api][quests] loaded player quest points", {
       totalPoints,
     });
@@ -664,20 +703,27 @@ export function getPlayerQuestStats(db: Database): PlayerQuestStats {
   }
 
   return {
-    totalPoints: seedPlayerQuestPoints(db),
+    totalPoints: seedPlayerQuestPoints(db, sessionId),
   };
 }
 
 export function createQuestSet(
   db: Database,
-  params: { id: string; title: string; topic: string; totalQuestCount: number }
+  params: {
+    id: string;
+    sessionId?: string;
+    title: string;
+    topic: string;
+    totalQuestCount: number;
+  }
 ) {
   const stmt = db.prepare(`
-    INSERT INTO quest_sets (id, title, topic, total_quest_count, bonus_points_awarded, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    INSERT INTO quest_sets (id, session_id, title, topic, total_quest_count, bonus_points_awarded, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
   stmt.run([
     params.id,
+    params.sessionId ?? "default-room",
     params.title,
     params.topic,
     params.totalQuestCount,
@@ -688,6 +734,7 @@ export function createQuestSet(
 
 export async function syncQuestCompletions(
   db: Database,
+  sessionId = "default-room",
   options?: {
     candidateNames?: string[];
     targetNames?: string[];
@@ -695,18 +742,20 @@ export async function syncQuestCompletions(
   }
 ) {
   const logEnabled = options?.log ?? true;
-  const quests = loadIncompleteQuests(db, { targetNames: options?.targetNames });
+  const quests = loadIncompleteQuests(db, sessionId, { targetNames: options?.targetNames });
   if (quests.length === 0) {
     return {
       newlyCompletedQuestNames: [] as string[],
       completedQuestMatches: [] as CompletedQuestMatch[],
       completedQuestSets: [] as CompletedQuestSet[],
       awardedPoints: 0,
-      totalPoints: getPlayerQuestStats(db).totalPoints,
+      totalPoints: getPlayerQuestStats(db, sessionId).totalPoints,
     };
   }
 
-  const discoveredRows = loadDiscoveredRows(db, { candidateNames: options?.candidateNames });
+  const discoveredRows = loadDiscoveredRows(db, sessionId, {
+    candidateNames: options?.candidateNames,
+  });
   if (discoveredRows.length === 0) {
     if (logEnabled) {
       console.log("[api][quests] completion check", {
@@ -720,7 +769,7 @@ export async function syncQuestCompletions(
       completedQuestMatches: [] as CompletedQuestMatch[],
       completedQuestSets: [] as CompletedQuestSet[],
       awardedPoints: 0,
-      totalPoints: getPlayerQuestStats(db).totalPoints,
+      totalPoints: getPlayerQuestStats(db, sessionId).totalPoints,
     };
   }
 
@@ -739,6 +788,7 @@ export async function syncQuestCompletions(
         });
       }
       markQuestCompleted(db, {
+        sessionId,
         normalizedName: quest.normalizedName,
         matchedItemName: quest.name,
         completionMethod: "exact",
@@ -763,6 +813,7 @@ export async function syncQuestCompletions(
 
     if (programmaticMatch) {
       markQuestCompleted(db, {
+        sessionId,
         normalizedName: quest.normalizedName,
         matchedItemName: programmaticMatch.matchedItemName,
         completionMethod: programmaticMatch.completionMethod,
@@ -781,8 +832,8 @@ export async function syncQuestCompletions(
     .reduce((sum, quest) => sum + (quest.pointsAwarded || QUEST_POINTS_PER_TARGET), 0);
   const completedQuestSets: CompletedQuestSet[] = [];
   const awardedPoints = questPointAwards;
-  incrementPlayerPoints(db, awardedPoints);
-  const totalPoints = getPlayerQuestStats(db).totalPoints;
+  incrementPlayerPoints(db, sessionId, awardedPoints);
+  const totalPoints = getPlayerQuestStats(db, sessionId).totalPoints;
 
   if (logEnabled) {
     console.log("[api][quests] completion summary", {

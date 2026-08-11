@@ -21,7 +21,15 @@ import {
   ACTION_PROMPT_FAMILY_REFERENCES,
   normalizeActionTrigger,
 } from "./lib/actionPromptFamilies";
-import { fetchUnlockStatuses } from "./lib/api";
+import {
+  fetchSession,
+  fetchUnlockStatuses,
+} from "./lib/api";
+import {
+  getSessionIdFromPath,
+  rememberLocalSession,
+  type SessionRecord,
+} from "./lib/session";
 import {
   ACTION_CATALYSTS,
   SPECIAL_ITEMS,
@@ -102,6 +110,8 @@ const App: React.FC = () => {
   const [items, setItems] = useState<Item[]>([]);
   const [hasLoadedInitialLibrary, setHasLoadedInitialLibrary] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [session, setSession] = useState<SessionRecord | null>(null);
+  const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
@@ -187,6 +197,7 @@ const App: React.FC = () => {
     setRightPanelMode,
     setIsJournalOpen,
     onError: showError,
+    enabled: session != null,
   });
 
   useEffect(() => {
@@ -213,6 +224,34 @@ const App: React.FC = () => {
   }, [isJournalOpen, isPortraitTabletLayout]);
 
   useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const pathSessionId = getSessionIdFromPath();
+        if (!pathSessionId) {
+          if (cancelled) return;
+          setSessionLoadError("Session ID required.");
+          return;
+        }
+        const loadedSession = await fetchSession(pathSessionId);
+        if (cancelled) return;
+        rememberLocalSession(loadedSession.id);
+        setSession(loadedSession);
+      } catch (err) {
+        if (cancelled) return;
+        setSessionLoadError(
+          err instanceof Error ? err.message : "Failed to load session."
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!errorMessage) return;
     const timeoutId = window.setTimeout(() => {
       setErrorMessage(null);
@@ -221,8 +260,9 @@ const App: React.FC = () => {
   }, [errorMessage]);
 
   useEffect(() => {
+    if (!session) return;
     void loadFeatureUnlocks();
-  }, []);
+  }, [session?.id]);
 
   const {
     workspaceItems,
@@ -302,6 +342,7 @@ const App: React.FC = () => {
     applyNewlyCompletedQuests,
     showQuestSetCelebration,
     questStatsTotalPoints: questStats.totalPoints,
+    enabled: session != null,
   });
 
   const questReferences = useQuestReferences(visibleQuests, isJournalOpen);
@@ -312,6 +353,7 @@ const App: React.FC = () => {
   }
 
   async function loadFeatureUnlocks() {
+    if (!session) return;
     try {
       const statuses = await fetchUnlockStatuses();
       setFeatureUnlocks(statuses);
@@ -434,6 +476,17 @@ const App: React.FC = () => {
       setRightPanelMode(previousItemId == null ? "journal" : "item");
       return history.slice(0, -1);
     });
+  }
+
+  if (!session) {
+    return (
+      <div className="app-loading-screen">
+        <div className="app-loading-title">Wordweave</div>
+        <div className="app-loading-copy">
+          {sessionLoadError ?? "Starting session..."}
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -619,6 +672,8 @@ const App: React.FC = () => {
             onUndoWorkspace={undoWorkspaceBoardAction}
             onSearchFocusChange={setIsSearchFocused}
             onSearchQueryChange={setLibrarySearchQuery}
+            session={session}
+            onSessionUpdated={setSession}
           />
         }
         workspace={

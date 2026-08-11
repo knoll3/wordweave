@@ -30,6 +30,7 @@ import {
   toTitleCaseWords,
 } from "../models";
 import { findAvailableQuestTargetMatch, syncQuestCompletions } from "../questState";
+import { ensureSession, getRequestSessionId } from "../sessions";
 
 const router = express.Router();
 const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
@@ -102,6 +103,7 @@ function normalizeGeneratedResultOptions(
         bestOption: { name: string; icon: string; score: number };
       },
   db: Awaited<ReturnType<typeof getDb>>,
+  sessionId: string,
   ponderificate: boolean
 ) {
   if ("options" in llmResult) {
@@ -112,6 +114,7 @@ function normalizeGeneratedResultOptions(
     }));
     const questMatch = findAvailableQuestTargetMatch(
       db,
+      sessionId,
       options.map((entry) => entry.name)
     );
     const selectedOption =
@@ -159,6 +162,7 @@ function normalizeGeneratedResultOptions(
 
 function maybeAutoUnlockActionWords(
   db: Awaited<ReturnType<typeof getDb>>,
+  sessionId: string,
   discoveredItems: Array<{ name: string }>
 ): Array<{
   familyKey: string;
@@ -189,7 +193,7 @@ function maybeAutoUnlockActionWords(
       normalizedName: normalizedCanonical,
       icon: null,
     });
-    const wasNewDiscovery = discoverElement(db, canonicalElementId);
+    const wasNewDiscovery = discoverElement(db, canonicalElementId, sessionId);
     if (!wasNewDiscovery) {
       continue;
     }
@@ -519,6 +523,11 @@ router.post("/combine", async (req, res) => {
 
   try {
     const db = await getDb();
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
     const effectiveCreative = creative;
 
     const recipeInputKey = buildRecipeInputKey({
@@ -589,8 +598,8 @@ router.post("/combine", async (req, res) => {
       let totalPoints: number | undefined;
 
       if (resultElement) {
-        const wasNewResultDiscovery = discoverElement(db, Number(resultElement.id));
-        autoUnlockedActionWords = maybeAutoUnlockActionWords(db, [resultElement]);
+        const wasNewResultDiscovery = discoverElement(db, Number(resultElement.id), sessionId);
+        autoUnlockedActionWords = maybeAutoUnlockActionWords(db, sessionId, [resultElement]);
         await syncSearchIndex(db, [
           Number(resultElement.id),
           ...autoUnlockedActionWords.map((entry) => entry.element.id),
@@ -600,7 +609,7 @@ router.post("/combine", async (req, res) => {
           ...autoUnlockedActionWords.map((entry) => entry.element.name),
         ];
         if (candidateNames.length > 0) {
-          const completionResult = await syncQuestCompletions(db, {
+          const completionResult = await syncQuestCompletions(db, sessionId, {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
@@ -634,6 +643,7 @@ router.post("/combine", async (req, res) => {
         const { selectedResult: generatedPrimary } = normalizeGeneratedResultOptions(
           generated,
           db,
+          sessionId,
           ponderificate
         );
         const chosenName = toTitleCaseWords(generatedPrimary.name);
@@ -645,7 +655,7 @@ router.post("/combine", async (req, res) => {
           normalizedName,
           icon: chosenIcon,
         });
-        const wasNewResultDiscovery = discoverElement(db, elementId);
+        const wasNewResultDiscovery = discoverElement(db, elementId, sessionId);
 
         const updateRecipeStmt = db.prepare(
           "UPDATE recipes SET result_element_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
@@ -671,7 +681,7 @@ router.post("/combine", async (req, res) => {
         recipeRow.result_element_id = elementId;
         resultElement = getElementById(db, elementId);
         autoUnlockedActionWords = resultElement
-          ? maybeAutoUnlockActionWords(db, [resultElement])
+          ? maybeAutoUnlockActionWords(db, sessionId, [resultElement])
           : [];
         await syncSearchIndex(db, [
           elementId,
@@ -682,7 +692,7 @@ router.post("/combine", async (req, res) => {
           ...autoUnlockedActionWords.map((entry) => entry.element.name),
         ];
         if (candidateNames.length > 0) {
-          const completionResult = await syncQuestCompletions(db, {
+          const completionResult = await syncQuestCompletions(db, sessionId, {
             candidateNames,
           });
           newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
@@ -794,7 +804,7 @@ router.post("/combine", async (req, res) => {
       responseKind,
       candidateOptions: generatedResults,
       selectedResult: primaryGeneratedResult,
-    } = normalizeGeneratedResultOptions(llmResult, db, ponderificate);
+    } = normalizeGeneratedResultOptions(llmResult, db, sessionId, ponderificate);
 
     if (bypassCache) {
       const newlyDiscoveredQuestCandidateNames: string[] = [];
@@ -808,7 +818,7 @@ router.post("/combine", async (req, res) => {
           icon: primaryGeneratedResult.icon,
         });
         elementIds.push(elementId);
-        if (discoverElement(db, elementId)) {
+        if (discoverElement(db, elementId, sessionId)) {
           newlyDiscoveredQuestCandidateNames.push(primaryGeneratedResult.name);
         }
       } else {
@@ -820,7 +830,7 @@ router.post("/combine", async (req, res) => {
             icon: generatedResult.icon,
           });
           elementIds.push(elementId);
-          if (discoverElement(db, elementId)) {
+          if (discoverElement(db, elementId, sessionId)) {
             newlyDiscoveredQuestCandidateNames.push(generatedResult.name);
           }
         }
@@ -831,7 +841,7 @@ router.post("/combine", async (req, res) => {
         .filter((element): element is ElementDTO => element != null);
       const resultElement = resultElements[0];
 
-      const autoUnlockedActionWords = maybeAutoUnlockActionWords(db, resultElements);
+      const autoUnlockedActionWords = maybeAutoUnlockActionWords(db, sessionId, resultElements);
       await syncSearchIndex(db, [
         ...elementIds,
         ...autoUnlockedActionWords.map((entry) => entry.element.id),
@@ -853,7 +863,7 @@ router.post("/combine", async (req, res) => {
       let awardedPoints = 0;
       let totalPoints: number | undefined;
       if (newlyDiscoveredQuestCandidateNames.length > 0) {
-        const completionResult = await syncQuestCompletions(db, {
+        const completionResult = await syncQuestCompletions(db, sessionId, {
           candidateNames: newlyDiscoveredQuestCandidateNames,
         });
         newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;
@@ -937,7 +947,7 @@ router.post("/combine", async (req, res) => {
         normalizedName,
         icon: primaryGeneratedResult.icon,
       });
-      if (discoverElement(db, elementId)) {
+      if (discoverElement(db, elementId, sessionId)) {
         newlyDiscoveredQuestCandidateNames.push(primaryGeneratedResult.name);
       }
       const additionalElementIds: number[] = [];
@@ -949,7 +959,7 @@ router.post("/combine", async (req, res) => {
           normalizedName: extraResult.name.trim().toLowerCase(),
           icon: extraResult.icon,
         });
-        if (discoverElement(db, extraElementId)) {
+        if (discoverElement(db, extraElementId, sessionId)) {
           newlyDiscoveredQuestCandidateNames.push(extraResult.name);
         }
         additionalElementIds.push(extraElementId);
@@ -999,7 +1009,7 @@ router.post("/combine", async (req, res) => {
       }
       const resultElementsForUnlocks = [getElementById(db, elementId), ...additionalElementIds.map((id) => getElementById(db, id))]
         .filter((element): element is ElementDTO => element != null);
-      autoUnlockedActionWords = maybeAutoUnlockActionWords(db, resultElementsForUnlocks);
+      autoUnlockedActionWords = maybeAutoUnlockActionWords(db, sessionId, resultElementsForUnlocks);
       await syncSearchIndex(db, [
         elementId,
         ...additionalElementIds,
@@ -1048,7 +1058,7 @@ router.post("/combine", async (req, res) => {
     let awardedPoints = 0;
     let totalPoints: number | undefined;
     if (newlyDiscoveredQuestCandidateNames.length > 0) {
-      const completionResult = await syncQuestCompletions(db, {
+      const completionResult = await syncQuestCompletions(db, sessionId, {
         candidateNames: newlyDiscoveredQuestCandidateNames,
       });
       newlyCompletedQuestNames = completionResult.newlyCompletedQuestNames;

@@ -36,10 +36,12 @@ export function useQuestState({
   setRightPanelMode,
   setIsJournalOpen,
   onError,
+  enabled = true,
 }: {
   setRightPanelMode: React.Dispatch<React.SetStateAction<"journal" | "item" | "quest">>;
   setIsJournalOpen: React.Dispatch<React.SetStateAction<boolean>>;
   onError: (message: string, err: unknown) => void;
+  enabled?: boolean;
 }) {
   const [quests, setQuests] = useState<QuestRecord[]>([]);
   const [questStats, setQuestStats] = useState<PlayerQuestStats>({ totalPoints: 0 });
@@ -65,6 +67,11 @@ export function useQuestState({
 
   useEffect(() => {
     let cancelled = false;
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     void (async () => {
       try {
@@ -94,7 +101,7 @@ export function useQuestState({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [enabled]);
 
   useEffect(
     () => () => {

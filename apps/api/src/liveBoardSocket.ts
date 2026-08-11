@@ -9,9 +9,10 @@ import type {
   SharedBoardItem,
   SharedPlayerViewportCenter,
 } from "./liveBoardTypes";
-import { DEFAULT_ROOM_ID, getBoardItemById, updateBoardItemPosition } from "./boardState";
+import { getBoardItemById, updateBoardItemPosition } from "./boardState";
 import { getDb, persistDatabase } from "./db";
 import { emitBoardPatch, getLiveBoardRoomChannel, setLiveBoardIo } from "./liveBoardEvents";
+import { ensureSession, isValidSessionId } from "./sessions";
 
 const DRAG_LEASE_MS = 6_000;
 
@@ -60,11 +61,22 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
   setLiveBoardIo(io);
 
   io.on("connection", (socket) => {
-    const roomId = DEFAULT_ROOM_ID;
+    const rawSessionId =
+      typeof socket.handshake.auth?.sessionId === "string"
+        ? socket.handshake.auth.sessionId
+        : typeof socket.handshake.query?.sessionId === "string"
+          ? socket.handshake.query.sessionId
+          : "";
+    if (!isValidSessionId(rawSessionId)) {
+      socket.disconnect(true);
+      return;
+    }
+    const roomId = rawSessionId;
     socket.join(getLiveBoardRoomChannel(roomId));
 
     void (async () => {
       const db = await getDb();
+      ensureSession(db, roomId);
       socket.emit("room:snapshot", buildRoomSnapshotWithUndo(db, roomId));
     })();
     socket.emit("board:viewport-centers", {
@@ -121,7 +133,7 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
 
       const db = await getDb();
       const item = getBoardItemById(db, nodeId);
-      if (!item) {
+      if (!item || String(item.room_id) !== roomId) {
         return;
       }
       emitBoardPatch({
@@ -172,6 +184,11 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
 
       dragLeases.delete(nodeId);
       const db = await getDb();
+      const current = getBoardItemById(db, nodeId);
+      if (!current || String(current.room_id) !== roomId) {
+        callback?.({ ok: false, nodeId });
+        return;
+      }
       recordBoardHistory(db, roomId);
       const updated = updateBoardItemPosition(db, {
         nodeId,
@@ -255,7 +272,7 @@ export function createLiveBoardSocketServer(httpServer: HttpServer) {
         const updated = moves
           .map((item) => {
             const current = getBoardItemById(db, String(item.nodeId));
-            if (!current) {
+            if (!current || String(current.room_id) !== roomId) {
               return null;
             }
             const previewItem: SharedBoardItem = {

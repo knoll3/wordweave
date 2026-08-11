@@ -123,13 +123,15 @@ function normalize(value: string) {
   return value.trim().toLowerCase();
 }
 
-function loadDiscoveredRows(db: Database) {
+function loadDiscoveredRows(db: Database, sessionId: string) {
   const stmt = db.prepare(`
     SELECT e.id, e.name, e.normalized_name
-    FROM discoveries d
+    FROM session_discoveries d
     JOIN elements e ON e.id = d.element_id
+    WHERE d.session_id = ?
     ORDER BY d.discovered_at ASC
   `);
+  stmt.bind([sessionId]);
   const rows: DiscoveredRow[] = [];
   while (stmt.step()) {
     rows.push(stmt.getAsObject() as unknown as DiscoveredRow);
@@ -151,9 +153,11 @@ async function getOrCreateQueryEmbedding(db: Database, query: string) {
   return embedding;
 }
 
-function isUnlocked(db: Database, key: UnlockKey) {
-  const stmt = db.prepare("SELECT 1 FROM player_unlocks WHERE feature_key = ?");
-  const row = stmt.getAsObject([key]) as Record<string, unknown>;
+function isUnlocked(db: Database, sessionId: string, key: UnlockKey) {
+  const stmt = db.prepare(
+    "SELECT 1 FROM player_unlocks WHERE session_id = ? AND feature_key = ?"
+  );
+  const row = stmt.getAsObject([sessionId, key]) as Record<string, unknown>;
   stmt.free();
   return row["1"] != null || row.feature_key != null;
 }
@@ -162,26 +166,28 @@ function insertUnlockWithSource(
   db: Database,
   params: {
     key: UnlockKey;
+    sessionId: string;
     sourceItemName: string;
     sourceMatchedWord: string;
   }
 ) {
   const stmt = db.prepare(`
     INSERT OR IGNORE INTO player_unlocks (
+      session_id,
       feature_key,
       unlocked_at,
       intro_shown_at,
       source_item_name,
       source_matched_word
     )
-    VALUES (?, CURRENT_TIMESTAMP, NULL, ?, ?)
+    VALUES (?, ?, CURRENT_TIMESTAMP, NULL, ?, ?)
   `);
-  stmt.run([params.key, params.sourceItemName, params.sourceMatchedWord]);
+  stmt.run([params.sessionId, params.key, params.sourceItemName, params.sourceMatchedWord]);
   stmt.free();
 }
 
-export async function syncFeatureUnlocks(db: Database) {
-  const discoveredRows = loadDiscoveredRows(db);
+export async function syncFeatureUnlocks(db: Database, sessionId: string) {
+  const discoveredRows = loadDiscoveredRows(db, sessionId);
   const discoveredNames = new Set(
     discoveredRows.map((row) => normalize(String(row.normalized_name)))
   );
@@ -198,7 +204,7 @@ export async function syncFeatureUnlocks(db: Database) {
   );
 
   for (const definition of UNLOCK_DEFINITIONS) {
-    if (isUnlocked(db, definition.key)) continue;
+    if (isUnlocked(db, sessionId, definition.key)) continue;
 
     const directMatch = definition.acceptedWords.find((word) =>
       discoveredNames.has(normalize(word))
@@ -206,6 +212,7 @@ export async function syncFeatureUnlocks(db: Database) {
     if (directMatch) {
       insertUnlockWithSource(db, {
         key: definition.key,
+        sessionId,
         sourceItemName: directMatch,
         sourceMatchedWord: directMatch,
       });
@@ -237,6 +244,7 @@ export async function syncFeatureUnlocks(db: Database) {
     if (matchedWord && matchedItem) {
       insertUnlockWithSource(db, {
         key: definition.key,
+        sessionId,
         sourceItemName: matchedItem,
         sourceMatchedWord: matchedWord,
       });
@@ -250,11 +258,13 @@ export async function syncFeatureUnlocks(db: Database) {
   }
 }
 
-export function getFeatureUnlockStatuses(db: Database) {
+export function getFeatureUnlockStatuses(db: Database, sessionId: string) {
   const stmt = db.prepare(`
     SELECT feature_key, unlocked_at, intro_shown_at, source_item_name, source_matched_word
     FROM player_unlocks
+    WHERE session_id = ?
   `);
+  stmt.bind([sessionId]);
   const rows = new Map<
     string,
     {
@@ -303,18 +313,24 @@ export function getFeatureUnlockStatuses(db: Database) {
   });
 }
 
-export function markFeatureUnlockIntroSeen(db: Database, key: UnlockKey) {
+export function markFeatureUnlockIntroSeen(db: Database, sessionId: string, key: UnlockKey) {
   const stmt = db.prepare(`
     UPDATE player_unlocks
     SET intro_shown_at = COALESCE(intro_shown_at, CURRENT_TIMESTAMP)
-    WHERE feature_key = ?
+    WHERE session_id = ? AND feature_key = ?
   `);
-  stmt.run([key]);
+  stmt.run([sessionId, key]);
   stmt.free();
 }
 
-export function clearFeatureUnlocks(db: Database) {
-  db.run("DELETE FROM player_unlocks");
+export function clearFeatureUnlocks(db: Database, sessionId?: string) {
+  if (!sessionId) {
+    db.run("DELETE FROM player_unlocks");
+    return;
+  }
+  const stmt = db.prepare("DELETE FROM player_unlocks WHERE session_id = ?");
+  stmt.run([sessionId]);
+  stmt.free();
 }
 
 export function isKnownUnlockKey(value: string): value is UnlockKey {

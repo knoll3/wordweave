@@ -74,7 +74,7 @@ function scoreResult(params: {
   };
 }
 
-function loadDiscoveredElements(db: Database) {
+function loadDiscoveredElements(db: Database, sessionId: string) {
   const stmt = db.prepare(
     `
     SELECT
@@ -83,11 +83,13 @@ function loadDiscoveredElements(db: Database) {
       e.normalized_name,
       e.icon,
       d.discovered_at
-    FROM discoveries d
+    FROM session_discoveries d
     JOIN elements e ON e.id = d.element_id
+    WHERE d.session_id = ?
     ORDER BY d.discovered_at ASC
     `
   );
+  stmt.bind([sessionId]);
   const rows: IndexedElementRow[] = [];
   while (stmt.step()) {
     rows.push(stmt.getAsObject() as unknown as IndexedElementRow);
@@ -168,8 +170,12 @@ export async function ensureSearchIndexForElementIds(db: Database, elementIds: n
   await upsertElementEmbeddings(db, missingRows);
 }
 
-export async function searchDiscoveredElements(db: Database, query: string) {
-  const discoveredRows = loadDiscoveredElements(db);
+export async function searchDiscoveredElements(
+  db: Database,
+  query: string,
+  sessionId: string
+) {
+  const discoveredRows = loadDiscoveredElements(db, sessionId);
   const trimmedQuery = query.trim();
 
   if (!trimmedQuery) {

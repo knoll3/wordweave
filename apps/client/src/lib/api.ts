@@ -23,6 +23,7 @@ import type {
   Recipe,
   SemanticClustersResponse
 } from "../types";
+import { getSessionHeaders, type SessionRecord } from "./session";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "/api";
 const itemReferenceCache = new Map<number, ItemReference | null>();
@@ -77,12 +78,68 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+function mergeHeaders(headers?: HeadersInit): HeadersInit {
+  return {
+    ...(headers ?? {}),
+    ...getSessionHeaders(),
+  };
+}
+
+function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
+  return fetch(input, {
+    ...init,
+    headers: mergeHeaders(init?.headers),
+  });
+}
+
+export async function createSession(payload?: { name?: string }): Promise<SessionRecord> {
+  const res = await apiFetch(`${API_BASE}/sessions`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload ?? {}),
+  });
+  return handleResponse<SessionRecord>(res);
+}
+
+export async function fetchSession(sessionId: string): Promise<SessionRecord> {
+  const res = await apiFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`);
+  return handleResponse<SessionRecord>(res);
+}
+
+export async function updateSession(
+  sessionId: string,
+  payload: { name: string }
+): Promise<SessionRecord> {
+  const res = await apiFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+  return handleResponse<SessionRecord>(res);
+}
+
+export async function lookupSessions(sessionIds: string[]): Promise<SessionRecord[]> {
+  const res = await apiFetch(`${API_BASE}/sessions/lookup`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ ids: sessionIds }),
+  });
+  const data = await handleResponse<{ sessions: SessionRecord[] }>(res);
+  return data.sessions;
+}
+
 export async function fetchItems(query?: string): Promise<Item[]> {
   const url = new URL(`${API_BASE}/elements`, window.location.origin);
   if (query && query.trim()) {
     url.searchParams.set("q", query.trim());
   }
-  const res = await fetch(url.toString());
+  const res = await apiFetch(url.toString());
   const data = await handleResponse<unknown>(res);
   if (!Array.isArray(data)) {
     throw new Error("Items response was not an array");
@@ -91,14 +148,14 @@ export async function fetchItems(query?: string): Promise<Item[]> {
 }
 
 export async function fetchBoardSnapshot(): Promise<SharedRoomSnapshot> {
-  const res = await fetch(`${API_BASE}/board`);
+  const res = await apiFetch(`${API_BASE}/board`);
   return handleResponse<SharedRoomSnapshot>(res);
 }
 
 export async function createBoardItem(
   item: SharedBoardCreateItemInput
 ): Promise<SharedBoardItem> {
-  const res = await fetch(`${API_BASE}/board/items`, {
+  const res = await apiFetch(`${API_BASE}/board/items`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -115,7 +172,7 @@ export async function duplicateBoardItem(
     position?: { x: number; y: number };
   }
 ): Promise<SharedBoardItem> {
-  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}/duplicate`, {
+  const res = await apiFetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}/duplicate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -137,7 +194,7 @@ export async function updateBoardItem(
     actionConstraintNormalizedName?: string | null;
   }
 ): Promise<SharedBoardItem> {
-  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
+  const res = await apiFetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -150,7 +207,7 @@ export async function updateBoardItem(
 export async function moveBoardItems(
   items: Array<{ nodeId: string; position: { x: number; y: number } }>
 ): Promise<{ ok: boolean; items: SharedBoardItem[] }> {
-  const res = await fetch(`${API_BASE}/board/items/move`, {
+  const res = await apiFetch(`${API_BASE}/board/items/move`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -161,14 +218,14 @@ export async function moveBoardItems(
 }
 
 export async function deleteBoardItem(nodeId: string): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
+  const res = await apiFetch(`${API_BASE}/board/items/${encodeURIComponent(nodeId)}`, {
     method: "DELETE",
   });
   return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function deleteBoardItems(nodeIds: string[]): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/board/items/delete`, {
+  const res = await apiFetch(`${API_BASE}/board/items/delete`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -182,7 +239,7 @@ export async function attachBoardActionModifier(payload: {
   sourceNodeId: string;
   targetNodeId: string;
 }): Promise<{ ok: boolean; item: SharedBoardItem | null }> {
-  const res = await fetch(`${API_BASE}/board/attach-action`, {
+  const res = await apiFetch(`${API_BASE}/board/attach-action`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -196,7 +253,7 @@ export async function attachBoardCategoryModifier(payload: {
   sourceNodeId: string;
   targetNodeId: string;
 }): Promise<{ ok: boolean; item: SharedBoardItem | null }> {
-  const res = await fetch(`${API_BASE}/board/attach-category`, {
+  const res = await apiFetch(`${API_BASE}/board/attach-category`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -213,7 +270,7 @@ export async function combineBoardItems(
   created: SharedBoardItem[];
   deletedNodeIds: string[];
 }> {
-  const res = await fetch(`${API_BASE}/board/combine`, {
+  const res = await apiFetch(`${API_BASE}/board/combine`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -228,40 +285,40 @@ export async function combineBoardItems(
 }
 
 export async function clearBoardItems(): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/board/clear`, {
+  const res = await apiFetch(`${API_BASE}/board/clear`, {
     method: "POST",
   });
   return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function undoBoard(): Promise<SharedRoomSnapshot> {
-  const res = await fetch(`${API_BASE}/board/undo`, {
+  const res = await apiFetch(`${API_BASE}/board/undo`, {
     method: "POST",
   });
   return handleResponse<SharedRoomSnapshot>(res);
 }
 
 export async function fetchUnlockStatuses(): Promise<FeatureUnlockStatus[]> {
-  const res = await fetch(`${API_BASE}/elements/unlocks`);
+  const res = await apiFetch(`${API_BASE}/elements/unlocks`);
   return handleResponse<FeatureUnlockStatus[]>(res);
 }
 
 export async function markUnlockIntroSeen(key: FeatureUnlockStatus["key"]): Promise<{
   ok: boolean;
 }> {
-  const res = await fetch(`${API_BASE}/elements/unlocks/${key}/mark-seen`, {
+  const res = await apiFetch(`${API_BASE}/elements/unlocks/${key}/mark-seen`, {
     method: "POST",
   });
   return handleResponse<{ ok: boolean }>(res);
 }
 
 export async function fetchRecentRecipes(): Promise<RecentRecipe[]> {
-  const res = await fetch(`${API_BASE}/elements/recent-recipes`);
+  const res = await apiFetch(`${API_BASE}/elements/recent-recipes`);
   return handleResponse<RecentRecipe[]>(res);
 }
 
 export async function resetLibrary(): Promise<{ ok: boolean }> {
-  const res = await fetch(`${API_BASE}/elements/reset-library`, {
+  const res = await apiFetch(`${API_BASE}/elements/reset-library`, {
     method: "POST",
   });
   return handleResponse<{ ok: boolean }>(res);
@@ -270,7 +327,7 @@ export async function resetLibrary(): Promise<{ ok: boolean }> {
 export async function fetchCacheStats(): Promise<{
   recipeCount: number;
 }> {
-  const res = await fetch(`${API_BASE}/elements/cache-stats`);
+  const res = await apiFetch(`${API_BASE}/elements/cache-stats`);
   return handleResponse<{
     recipeCount: number;
   }>(res);
@@ -287,7 +344,7 @@ export async function fetchCacheRecipes(options?: {
   if (options?.limit != null) {
     url.searchParams.set("limit", String(options.limit));
   }
-  const res = await fetch(url.toString());
+  const res = await apiFetch(url.toString());
   return handleResponse<PaginatedCacheRecipes>(res);
 }
 
@@ -298,12 +355,12 @@ export async function fetchSemanticClusters(options?: {
   if (options?.maxClusters != null) {
     url.searchParams.set("maxClusters", String(options.maxClusters));
   }
-  const res = await fetch(url.toString());
+  const res = await apiFetch(url.toString());
   return handleResponse<SemanticClustersResponse>(res);
 }
 
 export async function generateCacheRecipes(): Promise<GenerateCacheRecipesResult> {
-  const res = await fetch(`${API_BASE}/recipes/generate-cache`, {
+  const res = await apiFetch(`${API_BASE}/recipes/generate-cache`, {
     method: "POST",
   });
   return handleResponse<GenerateCacheRecipesResult>(res);
@@ -313,7 +370,7 @@ export async function resetCache(): Promise<{
   ok: boolean;
   clearedRecipeCount: number;
 }> {
-  const res = await fetch(`${API_BASE}/elements/reset-cache`, {
+  const res = await apiFetch(`${API_BASE}/elements/reset-cache`, {
     method: "POST",
   });
   return handleResponse<{
@@ -332,7 +389,7 @@ export async function combineElements(
     model?: AiModel;
   }
 ): Promise<Recipe> {
-  const res = await fetch(`${API_BASE}/recipes/combine`, {
+  const res = await apiFetch(`${API_BASE}/recipes/combine`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -363,7 +420,7 @@ export async function fetchQuestTargetReference(
 
   const url = new URL(`${API_BASE}/quests/reference`, window.location.origin);
   url.searchParams.set("q", target.trim());
-  const res = await fetch(url.toString());
+  const res = await apiFetch(url.toString());
   if (!res.ok) {
     if (res.status === 404) {
       questReferenceCache.set(normalizedTarget, null);
@@ -381,7 +438,7 @@ export async function generateQuestDraft(params: {
   topic: string;
   excludeTargets?: string[];
 }): Promise<QuestGenerationDraft> {
-  const res = await fetch(`${API_BASE}/quests/generate`, {
+  const res = await apiFetch(`${API_BASE}/quests/generate`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -399,7 +456,7 @@ export async function acceptGeneratedQuestSet(params: {
   topic: string;
   targets: QuestGenerationDraft["targets"];
 }): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
-  const res = await fetch(`${API_BASE}/quests/generate/accept`, {
+  const res = await apiFetch(`${API_BASE}/quests/generate/accept`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -411,7 +468,7 @@ export async function acceptGeneratedQuestSet(params: {
 }
 
 export async function fetchQuests(): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
-  const res = await fetch(`${API_BASE}/quests`);
+  const res = await apiFetch(`${API_BASE}/quests`);
   const data = await handleResponse<QuestListResponse>(res);
   return { quests: data.quests ?? [], stats: data.stats };
 }
@@ -420,7 +477,7 @@ export async function updateQuestStatus(params: {
   name: string;
   status: "available" | "tracked" | "abandoned";
 }): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
-  const res = await fetch(`${API_BASE}/quests/status`, {
+  const res = await apiFetch(`${API_BASE}/quests/status`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -436,7 +493,7 @@ export async function importLegacyQuestState(params: {
   trackedNames?: string[];
   abandonedNames?: string[];
 }): Promise<{ quests: QuestRecord[]; stats: PlayerQuestStats }> {
-  const res = await fetch(`${API_BASE}/quests/import-legacy`, {
+  const res = await apiFetch(`${API_BASE}/quests/import-legacy`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -452,7 +509,7 @@ export async function fetchItemReference(elementId: number): Promise<ItemReferen
     return itemReferenceCache.get(elementId) ?? null;
   }
 
-  const res = await fetch(`${API_BASE}/elements/${elementId}/reference`);
+  const res = await apiFetch(`${API_BASE}/elements/${elementId}/reference`);
   if (!res.ok) {
     if (res.status === 404) {
       itemReferenceCache.set(elementId, null);
@@ -474,7 +531,7 @@ export async function fetchLatestRecipeContext(
     return latestRecipeCache.get(cacheKey) ?? null;
   }
 
-  const res = await fetch(`${API_BASE}/elements/${elementId}/latest-recipe`);
+  const res = await apiFetch(`${API_BASE}/elements/${elementId}/latest-recipe`);
   if (!res.ok) {
     if (res.status === 404) {
       latestRecipeCache.set(cacheKey, null);
@@ -489,7 +546,7 @@ export async function fetchLatestRecipeContext(
 }
 
 export async function fetchPromptCatalog(): Promise<PromptCatalogResponse> {
-  const res = await fetch(`${API_BASE}/prompts`);
+  const res = await apiFetch(`${API_BASE}/prompts`);
   return handleResponse<PromptCatalogResponse>(res);
 }
 
@@ -519,7 +576,7 @@ export async function testPrompt(params: {
     body.pairs = params.pairs;
   }
 
-  const res = await fetch(`${API_BASE}/prompts/test`, {
+  const res = await apiFetch(`${API_BASE}/prompts/test`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

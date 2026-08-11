@@ -44,6 +44,7 @@ export function useLiveBoardSubscriptions({
   applyNewlyCompletedQuests,
   showQuestSetCelebration,
   questStatsTotalPoints,
+  enabled = true,
 }: {
   applyWorkspaceSnapshot: (snapshot: SharedRoomSnapshot) => WorkspaceItem[];
   stripWorkspaceArrivalHighlights: (entries: WorkspaceItem[]) => WorkspaceItem[];
@@ -73,9 +74,15 @@ export function useLiveBoardSubscriptions({
   ) => void;
   showQuestSetCelebration: (completedSet: QuestSetCompletion, totalPoints: number) => void;
   questStatsTotalPoints: number;
+  enabled?: boolean;
 }) {
   useEffect(() => {
     let cancelled = false;
+    if (!enabled) {
+      return () => {
+        cancelled = true;
+      };
+    }
 
     void (async () => {
       try {
@@ -217,5 +224,6 @@ export function useLiveBoardSubscriptions({
     setWorkspaceItems,
     showQuestSetCelebration,
     stripWorkspaceArrivalHighlights,
+    enabled,
   ]);
 }

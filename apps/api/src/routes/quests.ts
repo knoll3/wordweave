@@ -19,7 +19,7 @@ import {
 } from "../questState";
 import { getOrCreateReferenceByName } from "../referenceLookup";
 import { emitQuestSync } from "../liveBoardEvents";
-import { DEFAULT_ROOM_ID } from "../boardState";
+import { ensureSession, getRequestSessionId } from "../sessions";
 
 const router = express.Router();
 function createQuestSetId() {
@@ -39,13 +39,18 @@ function formatQuestSetTitle(topic: string) {
     .join(" ");
 }
 
-function loadDiscoveredNormalizedNames(db: Awaited<ReturnType<typeof getDb>>) {
+function loadDiscoveredNormalizedNames(
+  db: Awaited<ReturnType<typeof getDb>>,
+  sessionId: string
+) {
   const discoveredSet = new Set<string>();
   const discoveredStmt = db.prepare(`
     SELECT e.normalized_name
-    FROM discoveries d
+    FROM session_discoveries d
     JOIN elements e ON e.id = d.element_id
+    WHERE d.session_id = ?
   `);
+  discoveredStmt.bind([sessionId]);
   while (discoveredStmt.step()) {
     const row = discoveredStmt.getAsObject() as Record<string, unknown>;
     discoveredSet.add(normalizeQuestName(String(row.normalized_name ?? "")));
@@ -121,10 +126,18 @@ const importLegacyQuestsRequestSchema = z.object({
   abandonedNames: z.array(z.string().min(1).max(128)).optional(),
 });
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
     const db = await getDb();
-    return res.json({ quests: listQuests(db), stats: getPlayerQuestStats(db) });
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    return res.json({
+      quests: listQuests(db, sessionId),
+      stats: getPlayerQuestStats(db, sessionId),
+    });
   } catch (err) {
     console.error("[api][quests] failed to load quests", err);
     return res.status(500).json({
@@ -141,15 +154,23 @@ router.post("/import-legacy", async (req, res) => {
 
   try {
     const db = await getDb();
-    importLegacyQuests(db, parsed.data);
-    await syncQuestCompletions(db, {
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    importLegacyQuests(db, { ...parsed.data, sessionId });
+    await syncQuestCompletions(db, sessionId, {
       targetNames: parsed.data.quests.map((quest) => quest.name),
       log: false,
     });
     persistDatabase(db);
-    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    const response = {
+      quests: listQuests(db, sessionId),
+      stats: getPlayerQuestStats(db, sessionId),
+    };
     emitQuestSync({
-      roomId: DEFAULT_ROOM_ID,
+      roomId: sessionId,
       quests: response.quests,
       stats: response.stats,
     });
@@ -197,7 +218,12 @@ router.post("/generate", async (req, res) => {
 
   try {
     const db = await getDb();
-    const existingQuests = listQuests(db, { includeAbandoned: true });
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    const existingQuests = listQuests(db, sessionId, { includeAbandoned: true });
     const existingQuestNames = new Set(
       existingQuests.map((quest) => normalizeQuestName(quest.name))
     );
@@ -213,7 +239,7 @@ router.post("/generate", async (req, res) => {
       sessionExcludedTargets.map((target) => normalizeQuestName(target))
     );
 
-    const discoveredSet = loadDiscoveredNormalizedNames(db);
+    const discoveredSet = loadDiscoveredNormalizedNames(db, sessionId);
     const preferEasyTargets = discoveredSet.size < EASY_QUEST_LIBRARY_THRESHOLD;
 
     const seen = new Set<string>(sessionExcludedSet);
@@ -227,6 +253,7 @@ router.post("/generate", async (req, res) => {
     });
     const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
       db,
+      sessionId,
       generated.targets.map((target) => target.name)
     );
     const acceptedTargets: Array<{ name: string; icon: string }> = [];
@@ -302,17 +329,23 @@ router.post("/generate/accept", async (req, res) => {
 
   try {
     const db = await getDb();
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
     const setId = createQuestSetId();
     const setTitle = formatQuestSetTitle(parsed.data.topic);
-    const existingQuests = listQuests(db, { includeAbandoned: true });
+    const existingQuests = listQuests(db, sessionId, { includeAbandoned: true });
     const existingQuestNames = new Set(
       existingQuests.map((quest) => normalizeQuestName(quest.name))
     );
 
-    const discoveredSet = loadDiscoveredNormalizedNames(db);
+    const discoveredSet = loadDiscoveredNormalizedNames(db, sessionId);
 
     const semanticallyDiscoveredTargets = await findGeneratedQuestTargetsTooCloseToDiscoveries(
       db,
+      sessionId,
       parsed.data.targets.map((target) => target.name)
     );
 
@@ -363,6 +396,7 @@ router.post("/generate/accept", async (req, res) => {
 
     createQuestSet(db, {
       id: setId,
+      sessionId,
       title: setTitle,
       topic: parsed.data.topic,
       totalQuestCount: acceptedTargets.length,
@@ -371,12 +405,13 @@ router.post("/generate/accept", async (req, res) => {
     for (const target of acceptedTargets) {
       insertQuest(db, {
         ...target,
+        sessionId,
         setId,
         setTitle,
       });
     }
 
-    await syncQuestCompletions(db, {
+    await syncQuestCompletions(db, sessionId, {
       targetNames: acceptedTargets.map((target) => target.name),
     });
 
@@ -388,9 +423,12 @@ router.post("/generate/accept", async (req, res) => {
       acceptedTargetNames: acceptedTargets.map((target) => target.name),
       setId,
     });
-    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    const response = {
+      quests: listQuests(db, sessionId),
+      stats: getPlayerQuestStats(db, sessionId),
+    };
     emitQuestSync({
-      roomId: DEFAULT_ROOM_ID,
+      roomId: sessionId,
       quests: response.quests,
       stats: response.stats,
     });
@@ -413,11 +451,19 @@ router.post("/status", async (req, res) => {
 
   try {
     const db = await getDb();
-    updateQuestStatus(db, parsed.data);
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    updateQuestStatus(db, { ...parsed.data, sessionId });
     persistDatabase(db);
-    const response = { quests: listQuests(db), stats: getPlayerQuestStats(db) };
+    const response = {
+      quests: listQuests(db, sessionId),
+      stats: getPlayerQuestStats(db, sessionId),
+    };
     emitQuestSync({
-      roomId: DEFAULT_ROOM_ID,
+      roomId: sessionId,
       quests: response.quests,
       stats: response.stats,
     });

@@ -265,7 +265,11 @@ export function clearBoardItems(db: Database, roomId: string = DEFAULT_ROOM_ID) 
   stmt.free();
 }
 
-export function loadBoardItemsByIds(db: Database, nodeIds: string[]) {
+export function loadBoardItemsByIds(
+  db: Database,
+  nodeIds: string[],
+  roomId: string = DEFAULT_ROOM_ID
+) {
   if (nodeIds.length === 0) {
     return [];
   }
@@ -285,10 +289,10 @@ export function loadBoardItemsByIds(db: Database, nodeIds: string[]) {
       action_constraint_normalized_name,
       revision
     FROM room_board_items
-    WHERE id IN (${nodeIds.map(() => "?").join(", ")})
+    WHERE room_id = ? AND id IN (${nodeIds.map(() => "?").join(", ")})
     `
   );
-  stmt.bind(nodeIds);
+  stmt.bind([roomId, ...nodeIds]);
   const rows: SharedBoardItem[] = [];
   while (stmt.step()) {
     rows.push(mapBoardItemRow(stmt.getAsObject() as BoardItemRow));

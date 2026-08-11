@@ -131,7 +131,7 @@ function chooseChildClusterCount(itemCount: number) {
   );
 }
 
-function loadDiscoveredElements(db: Database) {
+function loadDiscoveredElements(db: Database, sessionId: string) {
   const stmt = db.prepare(
     `
     SELECT
@@ -140,11 +140,13 @@ function loadDiscoveredElements(db: Database) {
       e.normalized_name,
       e.icon,
       d.discovered_at
-    FROM discoveries d
+    FROM session_discoveries d
     JOIN elements e ON e.id = d.element_id
+    WHERE d.session_id = ?
     ORDER BY d.discovered_at ASC, e.id ASC
     `
   );
+  stmt.bind([sessionId]);
 
   const rows: Array<{
     id: number;
@@ -502,9 +504,9 @@ function buildChildClusters(params: {
 
 export async function buildSemanticClusters(
   db: Database,
-  options?: { maxClusters?: number }
+  options?: { maxClusters?: number; sessionId?: string }
 ): Promise<SemanticClustersResponse> {
-  const discoveredRows = loadDiscoveredElements(db);
+  const discoveredRows = loadDiscoveredElements(db, options?.sessionId ?? "default-room");
   const maxClusters = Math.max(1, Math.min(options?.maxClusters ?? DEFAULT_MAX_CLUSTERS, 10));
   const itemIds = discoveredRows.map((row) => Number(row.id));
 

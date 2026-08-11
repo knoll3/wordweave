@@ -18,6 +18,7 @@ import {
 import { getLatestRecipeContext } from "../latestRecipeLookup";
 import { getOrCreateElementReference } from "../referenceLookup";
 import { buildSemanticClusters } from "../semanticClusters";
+import { ensureSession, getRequestSessionId } from "../sessions";
 
 const router = express.Router();
 
@@ -26,7 +27,12 @@ router.get("/", async (req, res) => {
 
   try {
     const db = await getDb();
-    const items = await searchDiscoveredElements(db, q);
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    const items = await searchDiscoveredElements(db, q, sessionId);
     persistDatabase(db);
     return res.json(items);
   } catch (err) {
@@ -43,7 +49,12 @@ router.get("/clusters", async (req, res) => {
 
   try {
     const db = await getDb();
-    const clusters = await buildSemanticClusters(db, { maxClusters });
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    const clusters = await buildSemanticClusters(db, { maxClusters, sessionId });
     persistDatabase(db);
     return res.json(clusters);
   } catch (err) {
@@ -94,12 +105,17 @@ router.get("/:id/latest-recipe", async (req, res) => {
   }
 });
 
-router.get("/unlocks", async (_req, res) => {
+router.get("/unlocks", async (req, res) => {
   try {
     const db = await getDb();
-    await syncFeatureUnlocks(db);
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    await syncFeatureUnlocks(db, sessionId);
     persistDatabase(db);
-    return res.json(getFeatureUnlockStatuses(db));
+    return res.json(getFeatureUnlockStatuses(db, sessionId));
   } catch (err) {
     console.error("Error in GET /elements/unlocks", err);
     return res.status(500).json({ error: "Failed to load unlocks" });
@@ -114,7 +130,12 @@ router.post("/unlocks/:key/mark-seen", async (req, res) => {
 
   try {
     const db = await getDb();
-    markFeatureUnlockIntroSeen(db, key);
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
+    markFeatureUnlockIntroSeen(db, sessionId, key);
     persistDatabase(db);
     return res.json({ ok: true });
   } catch (err) {
@@ -274,22 +295,29 @@ router.get("/cache-recipes", async (req, res) => {
   }
 });
 
-router.post("/reset-library", async (_req, res) => {
+router.post("/reset-library", async (req, res) => {
   try {
     const db = await getDb();
+    const sessionId = getRequestSessionId(req);
+    if (!sessionId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, sessionId);
 
     db.run("BEGIN");
     try {
-      db.run("DELETE FROM discoveries");
-      clearFeatureUnlocks(db);
+      const deleteStmt = db.prepare("DELETE FROM session_discoveries WHERE session_id = ?");
+      deleteStmt.run([sessionId]);
+      deleteStmt.free();
+      clearFeatureUnlocks(db, sessionId);
       const seedStmt = db.prepare(
         `
-        INSERT OR IGNORE INTO discoveries (element_id)
+        INSERT OR IGNORE INTO session_discoveries (session_id, element_id)
         SELECT id FROM elements WHERE normalized_name = ?
         `
       );
       for (const normalizedName of BASE_ELEMENT_NORMALIZED_NAMES) {
-        seedStmt.run([normalizedName]);
+        seedStmt.run([sessionId, normalizedName]);
       }
       seedStmt.free();
       db.run("COMMIT");

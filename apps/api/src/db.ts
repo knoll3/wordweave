@@ -175,6 +175,28 @@ function createSchema(db: Database): void {
       FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS sessions (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL DEFAULT 'Untitled session',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE TABLE IF NOT EXISTS session_discoveries (
+      session_id TEXT NOT NULL,
+      element_id INTEGER NOT NULL,
+      discovered_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (session_id, element_id),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE,
+      FOREIGN KEY (element_id) REFERENCES elements(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value_text TEXT NULL,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+
     CREATE TABLE IF NOT EXISTS rooms (
       id TEXT PRIMARY KEY,
       invite_code TEXT NULL,
@@ -217,17 +239,21 @@ function createSchema(db: Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS player_unlocks (
-      feature_key TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      feature_key TEXT NOT NULL,
       unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       intro_shown_at DATETIME NULL,
       source_item_name TEXT NULL,
-      source_matched_word TEXT NULL
+      source_matched_word TEXT NULL,
+      PRIMARY KEY (session_id, feature_key),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS quests (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
       name TEXT NOT NULL,
-      normalized_name TEXT NOT NULL UNIQUE,
+      normalized_name TEXT NOT NULL,
       icon TEXT NOT NULL,
       set_id TEXT NULL,
       set_title TEXT NULL,
@@ -237,18 +263,22 @@ function createSchema(db: Database): void {
       updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       completed_at DATETIME NULL,
       matched_item_name TEXT NULL,
-      completion_method TEXT NULL
+      completion_method TEXT NULL,
+      UNIQUE(session_id, normalized_name),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS quest_sets (
       id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
       title TEXT NOT NULL,
       topic TEXT NOT NULL,
       total_quest_count INTEGER NOT NULL,
       completed_at DATETIME NULL,
       bonus_points_awarded INTEGER NOT NULL DEFAULT 50,
       created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS quest_target_variants (
@@ -262,12 +292,19 @@ function createSchema(db: Database): void {
     );
 
     CREATE TABLE IF NOT EXISTS player_stats (
-      key TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      key TEXT NOT NULL,
       value_integer INTEGER NOT NULL DEFAULT 0,
-      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (session_id, key),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
     );
   `);
 
+  ensureColumn(db, "player_unlocks", "session_id", "TEXT NOT NULL DEFAULT 'default-room'");
+  ensureColumn(db, "quests", "session_id", "TEXT NOT NULL DEFAULT 'default-room'");
+  ensureColumn(db, "quest_sets", "session_id", "TEXT NOT NULL DEFAULT 'default-room'");
+  ensureColumn(db, "player_stats", "session_id", "TEXT NOT NULL DEFAULT 'default-room'");
   ensureColumn(db, "elements", "reference_record_id", "INTEGER NULL");
   ensureColumn(db, "item_references", "image_url", "TEXT NULL");
   ensureColumn(db, "player_unlocks", "source_item_name", "TEXT NULL");
@@ -301,6 +338,22 @@ function createSchema(db: Database): void {
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_room_board_items_room ON room_board_items (room_id, created_at, id)"
   );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_session_discoveries_session ON session_discoveries (session_id, discovered_at, element_id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_quests_session_status ON quests (session_id, status, created_at)"
+  );
+
+  db.run(`
+    INSERT OR IGNORE INTO sessions (id, name, created_at, updated_at)
+    VALUES ('default-room', 'Default session', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+  `);
+  db.run(`
+    INSERT OR IGNORE INTO session_discoveries (session_id, element_id, discovered_at)
+    SELECT 'default-room', element_id, discovered_at
+    FROM discoveries
+  `);
 
   removeUnusedSchema(db);
 }
@@ -339,6 +392,13 @@ function hasColumn(db: Database, tableName: string, columnName: string) {
   }
   stmt.free();
   return exists;
+}
+
+function getTableSql(db: Database, tableName: string) {
+  const stmt = db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?");
+  const row = stmt.getAsObject([tableName]) as Record<string, unknown>;
+  stmt.free();
+  return row.sql == null ? "" : String(row.sql);
 }
 
 function rebuildRecipesWithoutCandidates(db: Database) {
@@ -430,6 +490,11 @@ function removeUnusedSchema(db: Database) {
   db.pragma("foreign_keys = OFF");
   db.run("BEGIN");
   try {
+    rebuildPlayerUnlocksForSessions(db);
+    rebuildPlayerStatsForSessions(db);
+    rebuildQuestsForSessions(db);
+    rebuildQuestTargetVariantsWithoutForeignKey(db);
+    rebuildQuestSetsForSessions(db);
     rebuildCombinationRunsWithoutCandidates(db);
     rebuildRecipesWithoutCandidates(db);
     db.run(`
@@ -462,6 +527,225 @@ function removeUnusedSchema(db: Database) {
   db.run(
     "CREATE INDEX IF NOT EXISTS idx_combination_runs_recipe ON combination_runs (recipe_id, id)"
   );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_session_discoveries_session ON session_discoveries (session_id, discovered_at, element_id)"
+  );
+  db.run(
+    "CREATE INDEX IF NOT EXISTS idx_quests_session_status ON quests (session_id, status, created_at)"
+  );
+}
+
+function rebuildPlayerUnlocksForSessions(db: Database) {
+  const sql = getTableSql(db, "player_unlocks");
+  if (sql.includes("PRIMARY KEY (session_id, feature_key)")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE player_unlocks_new (
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      feature_key TEXT NOT NULL,
+      unlocked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      intro_shown_at DATETIME NULL,
+      source_item_name TEXT NULL,
+      source_matched_word TEXT NULL,
+      PRIMARY KEY (session_id, feature_key),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    INSERT OR IGNORE INTO player_unlocks_new (
+      session_id,
+      feature_key,
+      unlocked_at,
+      intro_shown_at,
+      source_item_name,
+      source_matched_word
+    )
+    SELECT
+      COALESCE(session_id, 'default-room'),
+      feature_key,
+      unlocked_at,
+      intro_shown_at,
+      source_item_name,
+      source_matched_word
+    FROM player_unlocks;
+
+    DROP TABLE player_unlocks;
+    ALTER TABLE player_unlocks_new RENAME TO player_unlocks;
+  `);
+}
+
+function rebuildPlayerStatsForSessions(db: Database) {
+  const sql = getTableSql(db, "player_stats");
+  if (sql.includes("PRIMARY KEY (session_id, key)")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE player_stats_new (
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      key TEXT NOT NULL,
+      value_integer INTEGER NOT NULL DEFAULT 0,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (session_id, key),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    INSERT OR IGNORE INTO player_stats_new (session_id, key, value_integer, updated_at)
+    SELECT COALESCE(session_id, 'default-room'), key, value_integer, updated_at
+    FROM player_stats;
+
+    DROP TABLE player_stats;
+    ALTER TABLE player_stats_new RENAME TO player_stats;
+  `);
+}
+
+function rebuildQuestsForSessions(db: Database) {
+  const sql = getTableSql(db, "quests");
+  if (sql.includes("UNIQUE(session_id, normalized_name)")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE quests_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      name TEXT NOT NULL,
+      normalized_name TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      set_id TEXT NULL,
+      set_title TEXT NULL,
+      points_awarded INTEGER NOT NULL DEFAULT 10,
+      status TEXT NOT NULL DEFAULT 'available' CHECK(status IN ('available', 'tracked', 'completed', 'abandoned')),
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      completed_at DATETIME NULL,
+      matched_item_name TEXT NULL,
+      completion_method TEXT NULL,
+      UNIQUE(session_id, normalized_name),
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    INSERT OR IGNORE INTO quests_new (
+      id,
+      session_id,
+      name,
+      normalized_name,
+      icon,
+      set_id,
+      set_title,
+      points_awarded,
+      status,
+      created_at,
+      updated_at,
+      completed_at,
+      matched_item_name,
+      completion_method
+    )
+    SELECT
+      id,
+      COALESCE(session_id, 'default-room'),
+      name,
+      normalized_name,
+      icon,
+      set_id,
+      set_title,
+      points_awarded,
+      status,
+      created_at,
+      updated_at,
+      completed_at,
+      matched_item_name,
+      completion_method
+    FROM quests;
+
+    DROP TABLE quests;
+    ALTER TABLE quests_new RENAME TO quests;
+  `);
+}
+
+function rebuildQuestSetsForSessions(db: Database) {
+  const sql = getTableSql(db, "quest_sets");
+  if (sql.includes("session_id TEXT")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE quest_sets_new (
+      id TEXT PRIMARY KEY,
+      session_id TEXT NOT NULL DEFAULT 'default-room',
+      title TEXT NOT NULL,
+      topic TEXT NOT NULL,
+      total_quest_count INTEGER NOT NULL,
+      completed_at DATETIME NULL,
+      bonus_points_awarded INTEGER NOT NULL DEFAULT 50,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (session_id) REFERENCES sessions(id) ON DELETE CASCADE
+    );
+
+    INSERT OR IGNORE INTO quest_sets_new (
+      id,
+      session_id,
+      title,
+      topic,
+      total_quest_count,
+      completed_at,
+      bonus_points_awarded,
+      created_at,
+      updated_at
+    )
+    SELECT
+      id,
+      COALESCE(session_id, 'default-room'),
+      title,
+      topic,
+      total_quest_count,
+      completed_at,
+      bonus_points_awarded,
+      created_at,
+      updated_at
+    FROM quest_sets;
+
+    DROP TABLE quest_sets;
+    ALTER TABLE quest_sets_new RENAME TO quest_sets;
+  `);
+}
+
+function rebuildQuestTargetVariantsWithoutForeignKey(db: Database) {
+  const sql = getTableSql(db, "quest_target_variants");
+  if (!sql.includes("REFERENCES quests")) {
+    return;
+  }
+
+  db.run(`
+    CREATE TABLE quest_target_variants_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      quest_normalized_name TEXT NOT NULL,
+      variant_name TEXT NOT NULL,
+      variant_normalized_name TEXT NOT NULL,
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(quest_normalized_name, variant_normalized_name)
+    );
+
+    INSERT OR IGNORE INTO quest_target_variants_new (
+      id,
+      quest_normalized_name,
+      variant_name,
+      variant_normalized_name,
+      created_at
+    )
+    SELECT
+      id,
+      quest_normalized_name,
+      variant_name,
+      variant_normalized_name,
+      created_at
+    FROM quest_target_variants;
+
+    DROP TABLE quest_target_variants;
+    ALTER TABLE quest_target_variants_new RENAME TO quest_target_variants;
+  `);
 }
 
 function seedBaseElements(db: Database): void {
@@ -526,9 +810,17 @@ export function ensureElement(
   return elementId;
 }
 
-export function discoverElement(db: Database, elementId: number): boolean {
-  const stmt = db.prepare("INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)");
-  stmt.run([elementId]);
+export function discoverElement(
+  db: Database,
+  elementId: number,
+  sessionId?: string | null
+): boolean {
+  const stmt = sessionId
+    ? db.prepare(
+        "INSERT OR IGNORE INTO session_discoveries (session_id, element_id) VALUES (?, ?)"
+      )
+    : db.prepare("INSERT OR IGNORE INTO discoveries (element_id) VALUES (?)");
+  stmt.run(sessionId ? [sessionId, elementId] : [elementId]);
   stmt.free();
   return db.getRowsModified() > 0;
 }

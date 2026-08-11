@@ -2,12 +2,10 @@ import { randomUUID } from "crypto";
 import express from "express";
 import { buildRoomSnapshotWithUndo, canUndoBoard, recordBoardHistory, undoBoardHistory } from "../boardHistory";
 import {
-  DEFAULT_ROOM_ID,
   clearBoardItems,
   deleteBoardItem,
   deleteBoardItems,
   getBoardItemById,
-  getRoomSnapshot,
   insertBoardItem,
   loadBoardItemsByIds,
   updateBoardItemPosition,
@@ -26,13 +24,19 @@ import {
   moveBoardItemsRequestSchema,
   updateBoardItemRequestSchema,
 } from "../validation";
+import { ensureSession, getRequestSessionId } from "../sessions";
 
 const router = express.Router();
 
-router.get("/", async (_req, res) => {
+router.get("/", async (req, res) => {
   try {
     const db = await getDb();
-    return res.json(buildRoomSnapshotWithUndo(db, DEFAULT_ROOM_ID));
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    return res.json(buildRoomSnapshotWithUndo(db, roomId));
   } catch (err) {
     console.error("Error in GET /board", err);
     return res.status(500).json({ error: "Failed to load board state" });
@@ -47,9 +51,14 @@ router.post("/items", async (req, res) => {
 
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
     const item = insertBoardItem(db, {
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       nodeId: parsed.data.nodeId?.trim() || randomUUID(),
       item: {
         ...parsed.data,
@@ -58,9 +67,9 @@ router.post("/items", async (req, res) => {
     });
     persistDatabase(db);
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: [item],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json(item);
   } catch (err) {
@@ -81,13 +90,21 @@ router.post("/items/:id/duplicate", async (req, res) => {
 
   try {
     const db = await getDb();
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
     const existing = getBoardItemById(db, nodeId);
     if (!existing) {
       return res.status(404).json({ error: "Board item not found" });
     }
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    if (String(existing.room_id) !== roomId) {
+      return res.status(404).json({ error: "Board item not found" });
+    }
+    recordBoardHistory(db, roomId);
     const item = insertBoardItem(db, {
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       nodeId: parsed.data.nodeId?.trim() || randomUUID(),
       item: {
         itemId: Number(existing.item_id),
@@ -122,9 +139,9 @@ router.post("/items/:id/duplicate", async (req, res) => {
     });
     persistDatabase(db);
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: [item],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json(item);
   } catch (err) {
@@ -142,7 +159,12 @@ router.patch("/items/:id", async (req, res) => {
 
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
     const updated = updateBoardItemMetadata(db, {
       nodeId,
       itemId: parsed.data.itemId,
@@ -175,9 +197,9 @@ router.patch("/items/:id", async (req, res) => {
     }
 
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: [updated],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json(updated);
   } catch (err) {
@@ -194,7 +216,12 @@ router.post("/items/move", async (req, res) => {
 
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
     const updated = parsed.data.items
       .map((item) =>
         updateBoardItemPosition(db, {
@@ -207,9 +234,9 @@ router.post("/items/move", async (req, res) => {
     persistDatabase(db);
 
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: updated,
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json({ ok: true, items: updated });
   } catch (err) {
@@ -226,13 +253,18 @@ router.delete("/items/:id", async (req, res) => {
 
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
     deleteBoardItem(db, nodeId);
     persistDatabase(db);
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       deletedNodeIds: [nodeId],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json({ ok: true });
   } catch (err) {
@@ -249,13 +281,18 @@ router.post("/items/delete", async (req, res) => {
 
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
     deleteBoardItems(db, parsed.data.nodeIds);
     persistDatabase(db);
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       deletedNodeIds: parsed.data.nodeIds,
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json({ ok: true });
   } catch (err) {
@@ -272,8 +309,13 @@ router.post("/attach-action", async (req, res) => {
 
   try {
     const db = await getDb();
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
     const target = getBoardItemById(db, parsed.data.targetNodeId);
-    if (!target) {
+    if (!target || String(target.room_id) !== roomId) {
       return res.status(404).json({ error: "Target board item not found" });
     }
     const targetElement = getElementById(db, Number(target.item_id));
@@ -281,7 +323,7 @@ router.post("/attach-action", async (req, res) => {
       return res.status(400).json({ error: "Action modifier can only attach to normal items" });
     }
 
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    recordBoardHistory(db, roomId);
     deleteBoardItem(db, parsed.data.sourceNodeId);
     const updated = updateBoardItemMetadata(db, {
       nodeId: parsed.data.targetNodeId,
@@ -291,10 +333,10 @@ router.post("/attach-action", async (req, res) => {
     persistDatabase(db);
 
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: updated ? [updated] : [],
       deletedNodeIds: [parsed.data.sourceNodeId],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json({ ok: true, item: updated });
   } catch (err) {
@@ -311,8 +353,13 @@ router.post("/attach-category", async (req, res) => {
 
   try {
     const db = await getDb();
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
     const target = getBoardItemById(db, parsed.data.targetNodeId);
-    if (!target) {
+    if (!target || String(target.room_id) !== roomId) {
       return res.status(404).json({ error: "Target board item not found" });
     }
     const targetElement = getElementById(db, Number(target.item_id));
@@ -320,7 +367,7 @@ router.post("/attach-category", async (req, res) => {
       return res.status(400).json({ error: "Category modifier can only attach to normal items" });
     }
 
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    recordBoardHistory(db, roomId);
     deleteBoardItem(db, parsed.data.sourceNodeId);
     const updated = updateBoardItemMetadata(db, {
       nodeId: parsed.data.targetNodeId,
@@ -330,10 +377,10 @@ router.post("/attach-category", async (req, res) => {
     persistDatabase(db);
 
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: updated ? [updated] : [],
       deletedNodeIds: [parsed.data.sourceNodeId],
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
     return res.json({ ok: true, item: updated });
   } catch (err) {
@@ -350,11 +397,16 @@ router.post("/combine", async (req, res) => {
 
   try {
     const db = await getDb();
-    const existing = loadBoardItemsByIds(db, parsed.data.consumedNodeIds);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    const existing = loadBoardItemsByIds(db, parsed.data.consumedNodeIds, roomId);
     if (existing.length !== parsed.data.consumedNodeIds.length) {
       return res.status(409).json({ error: "One or more board items are no longer available" });
     }
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
+    recordBoardHistory(db, roomId);
     const created = [];
     const placeholderNodeId = parsed.data.placeholderNodeId?.trim() || null;
     const consumedNodeIds = [...parsed.data.consumedNodeIds];
@@ -363,7 +415,7 @@ router.post("/combine", async (req, res) => {
 
     if (placeholderNodeId) {
       const placeholder = getBoardItemById(db, placeholderNodeId);
-      if (!placeholder) {
+      if (!placeholder || String(placeholder.room_id) !== roomId) {
         return res.status(409).json({ error: "Pending result item is no longer available" });
       }
       const firstProduced = parsed.data.producedItems[0];
@@ -387,7 +439,7 @@ router.post("/combine", async (req, res) => {
       for (const item of parsed.data.producedItems.slice(1)) {
         created.push(
           insertBoardItem(db, {
-            roomId: DEFAULT_ROOM_ID,
+            roomId,
             nodeId: randomUUID(),
             item: {
               ...item,
@@ -400,7 +452,7 @@ router.post("/combine", async (req, res) => {
       for (const item of parsed.data.producedItems) {
         created.push(
           insertBoardItem(db, {
-            roomId: DEFAULT_ROOM_ID,
+            roomId,
             nodeId: randomUUID(),
             item: {
               ...item,
@@ -417,17 +469,17 @@ router.post("/combine", async (req, res) => {
     persistDatabase(db);
 
     emitBoardPatch({
-      roomId: DEFAULT_ROOM_ID,
+      roomId,
       upserts: created,
       deletedNodeIds,
-      canUndo: canUndoBoard(DEFAULT_ROOM_ID),
+      canUndo: canUndoBoard(roomId),
     });
 
     if (parsed.data.questSync) {
-      const quests = listQuests(db);
-      const stats = getPlayerQuestStats(db);
+      const quests = listQuests(db, roomId);
+      const stats = getPlayerQuestStats(db, roomId);
       emitQuestSync({
-        roomId: DEFAULT_ROOM_ID,
+        roomId,
         quests,
         stats,
       });
@@ -436,7 +488,7 @@ router.post("/combine", async (req, res) => {
           ? null
           : parsed.data.questSync.celebrationProducedItemIndex;
       emitQuestCelebration({
-        roomId: DEFAULT_ROOM_ID,
+        roomId,
         newlyCompletedQuestNames: parsed.data.questSync.newlyCompletedQuestNames,
         completedQuestSets: parsed.data.questSync.completedQuestSets,
         totalPoints: parsed.data.questSync.totalPoints,
@@ -458,13 +510,18 @@ router.post("/combine", async (req, res) => {
   }
 });
 
-router.post("/clear", async (_req, res) => {
+router.post("/clear", async (req, res) => {
   try {
     const db = await getDb();
-    recordBoardHistory(db, DEFAULT_ROOM_ID);
-    clearBoardItems(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    recordBoardHistory(db, roomId);
+    clearBoardItems(db, roomId);
     persistDatabase(db);
-    emitRoomSnapshot(buildRoomSnapshotWithUndo(db, DEFAULT_ROOM_ID));
+    emitRoomSnapshot(buildRoomSnapshotWithUndo(db, roomId));
     return res.json({ ok: true });
   } catch (err) {
     console.error("Error in POST /board/clear", err);
@@ -472,10 +529,15 @@ router.post("/clear", async (_req, res) => {
   }
 });
 
-router.post("/undo", async (_req, res) => {
+router.post("/undo", async (req, res) => {
   try {
     const db = await getDb();
-    const snapshot = undoBoardHistory(db, DEFAULT_ROOM_ID);
+    const roomId = getRequestSessionId(req);
+    if (!roomId) {
+      return res.status(400).json({ error: "Missing or invalid session id" });
+    }
+    ensureSession(db, roomId);
+    const snapshot = undoBoardHistory(db, roomId);
     if (!snapshot) {
       return res.status(409).json({ error: "Nothing to undo" });
     }

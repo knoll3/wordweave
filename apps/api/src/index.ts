@@ -9,7 +9,9 @@ import elementsRouter from "./routes/elements";
 import questsRouter from "./routes/quests";
 import promptsRouter from "./routes/prompts";
 import boardRouter from "./routes/board";
+import sessionsRouter from "./routes/sessions";
 import { createLiveBoardSocketServer } from "./liveBoardSocket";
+import { ensureMigratedDefaultRoomSession } from "./sessions";
 
 // Load .env from the monorepo root
 dotenv.config({
@@ -61,6 +63,7 @@ app.use("/api/elements", elementsRouter);
 app.use("/api/quests", questsRouter);
 app.use("/api/prompts", promptsRouter);
 app.use("/api/board", boardRouter);
+app.use("/api/sessions", sessionsRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -72,7 +75,14 @@ const httpServer = http.createServer(app);
 createLiveBoardSocketServer(httpServer);
 
 getDb()
-  .then(() => {
+  .then((db) => {
+    const migratedSession = ensureMigratedDefaultRoomSession(db);
+    if (migratedSession) {
+      console.log("[api][sessions] default-room migrated to uuid session", {
+        sessionId: migratedSession.id,
+        discoveredCount: migratedSession.discoveredCount,
+      });
+    }
     httpServer.listen(port, host, () => {
       console.log(`API server listening on http://${host}:${port}`);
     });

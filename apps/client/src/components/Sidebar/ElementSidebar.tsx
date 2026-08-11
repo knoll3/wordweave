@@ -1,8 +1,10 @@
 import { SquareMinus, SquarePlus } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import type { Item, SemanticCluster } from "../../types";
+import type { SessionRecord } from "../../lib/session";
 import ElementList from "./ElementList";
 import ElementSearch from "./ElementSearch";
+import SessionSwitcher from "../SessionSwitcher";
 import {
   expandAllClusterIds,
   getSortedClusterLeafEntries,
@@ -24,6 +26,8 @@ interface Props {
   onUndoWorkspace?: () => void;
   onSearchFocusChange?: (isFocused: boolean) => void;
   onSearchQueryChange?: (query: string) => void;
+  session?: SessionRecord | null;
+  onSessionUpdated?: (session: SessionRecord) => void;
 }
 
 const RANDOM_SPAWN_COUNT = 4;
@@ -40,6 +44,8 @@ const ElementSidebar: React.FC<Props> = ({
   onUndoWorkspace,
   onSearchFocusChange,
   onSearchQueryChange,
+  session,
+  onSessionUpdated,
 }) => {
   const {
     search,
@@ -196,6 +202,12 @@ const ElementSidebar: React.FC<Props> = ({
     <>
       <header className="sidebar-header">
         <h1 className="app-title">Wordweave</h1>
+        {session && onSessionUpdated ? (
+          <SessionSwitcher
+            currentSession={session}
+            onSessionUpdated={onSessionUpdated}
+          />
+        ) : null}
         <p className="app-subtitle">
           Combine items to discover new concepts.
         </p>

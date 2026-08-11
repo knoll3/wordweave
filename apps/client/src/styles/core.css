@@ -46,6 +46,27 @@ body.page-scrollable {
   overflow-x: hidden;
 }
 
+.app-loading-screen {
+  min-height: 100vh;
+  display: grid;
+  place-content: center;
+  gap: 8px;
+  background: var(--bg);
+  color: var(--text-main);
+  text-align: center;
+}
+
+.app-loading-title {
+  font-size: 1.4rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+}
+
+.app-loading-copy {
+  color: var(--text-soft);
+  font-size: 0.9rem;
+}
+
 .prompts-page {
   min-height: 100vh;
   padding: 32px;
