@@ -10,6 +10,7 @@ import questsRouter from "./routes/quests";
 import promptsRouter from "./routes/prompts";
 import boardRouter from "./routes/board";
 import sessionsRouter from "./routes/sessions";
+import playersRouter from "./routes/players";
 import { createLiveBoardSocketServer } from "./liveBoardSocket";
 import { ensureMigratedDefaultRoomSession } from "./sessions";
 
@@ -70,6 +71,7 @@ app.use("/api/quests", questsRouter);
 app.use("/api/prompts", promptsRouter);
 app.use("/api/board", boardRouter);
 app.use("/api/sessions", sessionsRouter);
+app.use("/api/players", playersRouter);
 
 app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
@@ -104,7 +106,9 @@ getDb()
       });
     }
     httpServer.listen(port, host, () => {
-      console.log(`API server listening on http://${host}:${port}`);
+      const address = httpServer.address();
+      const listeningPort = address && typeof address === "object" ? address.port : port;
+      console.log(`API server listening on http://${host}:${listeningPort}`);
     });
   })
   .catch((err) => {

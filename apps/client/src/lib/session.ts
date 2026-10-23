@@ -11,7 +11,15 @@ export type SessionRecord = {
   createdAt: string;
   updatedAt: string;
   discoveredCount: number;
+  playerId: string;
+  playerName: string;
+  playerEmoji: string;
+  archivedAt: string | null;
+  lastPlayedAt: string | null;
 };
+
+export type PlayerRecord = { id: string; name: string; emoji: string; worldCount: number };
+export const LAST_PLAYER_KEY = "wordweave.last-player";
 
 export type LocalSessionEntry = {
   id: string;

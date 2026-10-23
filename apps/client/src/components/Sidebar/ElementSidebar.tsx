@@ -202,7 +202,7 @@ const ElementSidebar: React.FC<Props> = ({
     <>
       <header className="sidebar-header">
         <h1 className="app-title">Wordweave</h1>
-        {session && onSessionUpdated ? (
+        {session && onSessionUpdated && !isMobileLayout ? (
           <SessionSwitcher
             currentSession={session}
             onSessionUpdated={onSessionUpdated}

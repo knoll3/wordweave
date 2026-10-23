@@ -92,7 +92,7 @@ function apiFetch(input: RequestInfo | URL, init?: RequestInit) {
   });
 }
 
-export async function createSession(payload?: { name?: string }): Promise<SessionRecord> {
+export async function createSession(payload?: { name?: string; playerId?: string }): Promise<SessionRecord> {
   const res = await apiFetch(`${API_BASE}/sessions`, {
     method: "POST",
     headers: {
@@ -110,7 +110,7 @@ export async function fetchSession(sessionId: string): Promise<SessionRecord> {
 
 export async function updateSession(
   sessionId: string,
-  payload: { name: string }
+  payload: { name?: string; playerId?: string; archived?: boolean }
 ): Promise<SessionRecord> {
   const res = await apiFetch(`${API_BASE}/sessions/${encodeURIComponent(sessionId)}`, {
     method: "PATCH",
@@ -584,4 +584,23 @@ export async function testPrompt(params: {
     body: JSON.stringify(body),
   });
   return handleResponse<PromptTestResponse>(res);
+}
+
+export async function fetchPlayers(): Promise<import("./session").PlayerRecord[]> {
+  const res = await apiFetch(`${API_BASE}/players`);
+  return (await handleResponse<{ players: import("./session").PlayerRecord[] }>(res)).players;
+}
+export async function savePlayer(payload: { name: string; emoji: string }, id?: string) {
+  const res = await apiFetch(`${API_BASE}/players${id ? `/${encodeURIComponent(id)}` : ""}`, {
+    method: id ? "PATCH" : "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+  });
+  return handleResponse<import("./session").PlayerRecord | { player: import("./session").PlayerRecord; world: SessionRecord }>(res);
+}
+export async function fetchWorlds(playerId: string, archived = false): Promise<SessionRecord[]> {
+  const res = await apiFetch(`${API_BASE}/sessions?playerId=${encodeURIComponent(playerId)}&archived=${archived}`);
+  return (await handleResponse<{ worlds: SessionRecord[] }>(res)).worlds;
+}
+export async function visitWorld(id: string): Promise<SessionRecord> {
+  const res = await apiFetch(`${API_BASE}/sessions/${encodeURIComponent(id)}/visit`, { method: "POST" });
+  return handleResponse<SessionRecord>(res);
 }

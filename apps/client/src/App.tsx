@@ -7,6 +7,7 @@ import {
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import AppLayout from "./components/AppLayout";
 import AppRightPanel from "./components/AppRightPanel";
+import SessionSwitcher from "./components/SessionSwitcher";
 import type { CatalystAction } from "./components/Graph/CatalystDock";
 import GraphView from "./components/Graph/GraphView";
 import ElementSidebar from "./components/Sidebar/ElementSidebar";
@@ -22,14 +23,12 @@ import {
   normalizeActionTrigger,
 } from "./lib/actionPromptFamilies";
 import {
-  createSession,
-  fetchSession,
+  visitWorld,
   fetchUnlockStatuses,
 } from "./lib/api";
 import {
-  buildSessionPath,
   getSessionIdFromPath,
-  loadLocalSessions,
+  LAST_PLAYER_KEY,
   rememberLocalSession,
   type SessionRecord,
 } from "./lib/session";
@@ -227,30 +226,18 @@ const App: React.FC = () => {
     void (async () => {
       try {
         const pathSessionId = getSessionIdFromPath();
-        const isSessionEntry = window.location.pathname === "/" ||
-          window.location.pathname === "/play" || window.location.pathname === "/play/";
-        if (!pathSessionId && !isSessionEntry) {
+        if (!pathSessionId) {
           if (cancelled) return;
-          setSessionLoadError("Session ID required.");
+          setSessionLoadError("This world link is invalid. Choose a world from the homepage.");
           return;
         }
-        const rememberedSessionId = isSessionEntry
-          ? loadLocalSessions().sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]?.id
-          : null;
-        const sessionId = pathSessionId || rememberedSessionId;
-        // Reuse the request across StrictMode's effect replay so a first visit
-        // creates one session, including in local development.
         if (!initialSessionRequestRef.current) {
-          initialSessionRequestRef.current = sessionId
-            ? fetchSession(sessionId)
-            : createSession();
+          initialSessionRequestRef.current = visitWorld(pathSessionId);
         }
         const loadedSession = await initialSessionRequestRef.current;
         if (cancelled) return;
-        if (isSessionEntry) {
-          window.history.replaceState(null, "", buildSessionPath(loadedSession.id));
-        }
-        rememberLocalSession(loadedSession.id, { createdHere: !sessionId });
+        rememberLocalSession(loadedSession.id);
+        try { window.localStorage.setItem(LAST_PLAYER_KEY, loadedSession.playerId); } catch {}
         setSession(loadedSession);
       } catch (err) {
         if (cancelled) return;
@@ -497,8 +484,9 @@ const App: React.FC = () => {
       <div className="app-loading-screen">
         <div className="app-loading-title">Wordweave</div>
         <div className="app-loading-copy">
-          {sessionLoadError ?? "Starting session..."}
+          {sessionLoadError ?? "Opening world..."}
         </div>
+        {sessionLoadError ? <a href="/">Choose a world</a> : null}
       </div>
     );
   }
@@ -692,6 +680,7 @@ const App: React.FC = () => {
         }
         workspace={
           <div className="graph-wrapper">
+            {isMobileLayout ? <div className="mobile-world-bar"><strong>Wordweave</strong><SessionSwitcher currentSession={session} onSessionUpdated={setSession} /></div> : null}
             {isPortraitTabletLayout ? null : (
               <div className="graph-header">
                 <h2 className="section-title">Crafting workspace</h2>

@@ -1,0 +1,87 @@
+.worlds-page { min-height:100vh; background:radial-gradient(ellipse at 70% 0,rgba(99,102,241,.13),transparent 55%),#070a13; color:var(--text-main); }
+.worlds-page button,.worlds-page input,.worlds-page select { font:inherit; }
+.worlds-page button,.worlds-page a { -webkit-tap-highlight-color:transparent; }
+.worlds-page button { cursor:pointer; }
+.worlds-page button:disabled { opacity:.55; cursor:wait; }
+.worlds-page :focus-visible { outline:2px solid #a5b4fc; outline-offset:4px; }
+.worlds-header { max-width:1200px; margin:auto; padding:26px 40px; display:flex; align-items:center; justify-content:space-between; gap:20px; border-bottom:1px solid rgba(255,255,255,.07); }
+.worlds-header>span { color:#8791a8; font-size:.85rem; }
+.worlds-brand { display:flex; align-items:center; gap:11px; font-size:1.15rem; font-weight:750; color:#f1f2ff; text-decoration:none; }
+.worlds-brand svg { color:#a5b4fc; }
+.worlds-content { max-width:1040px; padding:52px 32px 64px; margin:auto; }
+.worlds-back { border:0; background:none; color:#a4aec4; display:inline-flex; align-items:center; gap:8px; padding:0; margin-bottom:27px; }
+.worlds-heading { margin-bottom:32px; }
+.worlds-eyebrow { color:#a5b4fc!important; font-size:.72rem!important; font-weight:650; letter-spacing:.13em; text-transform:uppercase; }
+.worlds-heading h1 { font-size:clamp(2rem,5vw,3.25rem); line-height:1.14; letter-spacing:-.045em; margin:15px 0; overflow-wrap:anywhere; }
+.worlds-heading h1>span { font-size:.8em; }
+.worlds-heading>p { color:#99a5bd; font-size:1rem; line-height:1.65; max-width:620px; }
+.worlds-section-bar { display:flex; align-items:center; justify-content:space-between; gap:15px; margin:32px 0 18px; flex-wrap:wrap; }
+.worlds-section-bar h2 { font-size:.95rem; font-weight:650; margin:0; }
+.worlds-section-bar>span { color:#808ba2; font-size:.8rem; }
+.players-grid,.worlds-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; }
+.player-card,.world-card { background:linear-gradient(140deg,#141a2b,#0e1320); border:1px solid #252d41; border-radius:18px; padding:25px; text-align:left; color:inherit; min-width:0; }
+.player-card { display:flex; flex-direction:column; align-items:flex-start; gap:10px; position:relative; min-height:205px; transition:transform .15s,border-color .15s; }
+.player-card:hover { transform:translateY(-3px); border-color:#6975c8; }
+.player-avatar { display:grid; place-content:center; background:#202841; width:58px; height:58px; border-radius:17px; font-size:2rem; margin-bottom:7px; }
+.player-card strong { font-size:1.12rem; overflow-wrap:anywhere; }
+.player-card>span:not(.player-avatar) { font-size:.82rem; color:#9aa5ba; }
+.player-card>svg:last-child { position:absolute; right:22px; bottom:25px; color:#8f9ab4; }
+.player-add { border-style:dashed; justify-content:center; background:rgba(99,102,241,.025); }
+.player-add>svg:first-child { color:#a5b4fc; margin-bottom:8px; }
+.worlds-primary,.worlds-secondary { display:inline-flex; align-items:center; justify-content:center; gap:8px; border-radius:9px; padding:10px 15px; font-size:.86rem!important; font-weight:600!important; text-decoration:none; }
+.worlds-primary { border:1px solid #7776ec; background:#6560df; color:white; }
+.worlds-primary:hover { background:#7771eb; }
+.worlds-secondary { border:1px solid #31394c; background:#141b2b; color:#d0d7e7; }
+.worlds-toolbar { display:flex; flex-wrap:wrap; gap:8px; }
+.worlds-tabs { display:flex; gap:4px; padding:4px; background:#101624; border:1px solid #222a3d; border-radius:10px; }
+.worlds-tabs button { padding:8px 14px; border:0; border-radius:6px; background:none; color:#949eb4; font-size:.83rem; }
+.worlds-tabs button[aria-pressed=true] { background:#29304b; color:#f1f2ff; }
+.worlds-continue { display:flex; align-items:center; justify-content:space-between; gap:20px; width:100%; padding:23px 27px; border-radius:15px; border:1px solid #4c4b89; background:linear-gradient(110deg,#25264b,#151a30); color:white; text-align:left; }
+.worlds-continue>span { display:flex; flex-direction:column; gap:7px; }
+.worlds-continue small { color:#bbbaf6; text-transform:uppercase; font-size:.67rem; letter-spacing:.1em; }
+.worlds-continue strong { font-size:1.2rem; overflow-wrap:anywhere; }
+.worlds-continue span>span { font-size:.8rem; color:#a9b2cc; }
+.worlds-continue>svg { flex-shrink:0; color:#b7b5ff; }
+.world-card { display:flex; flex-direction:column; padding:21px; }
+.world-card-top { display:flex; justify-content:space-between; align-items:center; }
+.world-icon { color:#a5b4fc; font-size:1.6rem; background:#252943; padding:4px 12px; border-radius:12px; }
+.worlds-icon-button { background:transparent; border:0; color:#9ba6bc; padding:8px; }
+.world-card h2 { font-size:1.08rem; margin:20px 0 8px; overflow-wrap:anywhere; }
+.world-card>p { font-size:.85rem; color:#b3bed3; margin:0 0 7px; }
+.world-card>small { color:#8590a7; font-size:.73rem; margin-bottom:25px; }
+.world-play { width:100%; margin-top:auto; justify-content:space-between; }
+.world-card-actions { display:flex; flex-wrap:wrap; justify-content:space-between; gap:10px; padding-top:15px; }
+.world-card-actions button { display:flex; align-items:center; gap:6px; font-size:.75rem; border:0; background:transparent; color:#9aa7bf; padding:4px 0; }
+.world-card-actions button:hover { color:#e0e7ff; }
+.worlds-footnote { margin-top:27px; color:#7f8ba3; font-size:.78rem; line-height:1.65; }
+.worlds-empty { padding:55px 22px; border:1px dashed #30384d; border-radius:18px; text-align:center; color:#9ca9c0; }
+.worlds-empty>svg { color:#a5b4fc; }
+.worlds-empty h2 { color:#e5e9f3; font-size:1.15rem; }
+.worlds-empty p { font-size:.87rem; line-height:1.6; }
+.worlds-error { background:#341c2a; border:1px solid #6b3349; border-radius:10px; padding:14px; color:#ffc1cd; font-size:.87rem; }
+.worlds-error button { margin-left:16px; border:0; background:transparent; color:white; text-decoration:underline; }
+.worlds-notice { color:#b8dfcf; padding:12px 16px; border:1px solid #284e43; background:#122923; border-radius:10px; font-size:.85rem; }
+.worlds-modal-backdrop { position:fixed; inset:0; z-index:500; background:rgba(2,5,14,.82); backdrop-filter:blur(8px); display:flex; align-items:center; justify-content:center; padding:24px; overflow-y:auto; }
+.worlds-modal { width:100%; max-width:450px; max-height:calc(100dvh - 48px); overflow-y:auto; background:#141a29; border:1px solid #36415b; border-radius:20px; padding:28px; box-shadow:0 30px 100px #0008; }
+.worlds-modal h2 { font-size:1.35rem; letter-spacing:-.02em; margin:0 0 10px; }
+.worlds-modal p { color:#a3aec4; font-size:.87rem; line-height:1.6; }
+.worlds-modal label { display:flex; flex-direction:column; gap:9px; margin-top:23px; font-size:.82rem; color:#cbd3e4; }
+.worlds-modal input,.worlds-modal select { padding:12px; border:1px solid #3c465f; border-radius:9px; background:#090e1b; color:#f1f4fa; width:100%; }
+.worlds-modal label small { color:#94a1b9; line-height:1.5; }
+.worlds-modal fieldset { border:0; padding:0; margin:23px 0; }
+.worlds-modal legend { font-size:.82rem; margin-bottom:12px; color:#cbd3e4; }
+.worlds-avatars { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; }
+.worlds-avatars button { border:1px solid #303b51; border-radius:10px; background:#1d263a; font-size:1.5rem; padding:7px 0; }
+.worlds-avatars button[aria-pressed=true] { background:#3c3a6d; border-color:#ada7ff; box-shadow:0 0 0 1px #ada7ff; }
+.worlds-modal-actions { display:flex; justify-content:flex-end; gap:10px; margin-top:28px; }
+.session-player-label { display:block; color:#a5b4fc; font-size:.7rem; margin-bottom:3px; }
+.session-home-link { display:block; text-decoration:none; color:#c3cce2; padding:11px 12px; font-size:.8rem; border-top:1px solid #293047; }
+.session-home-link:hover { background:#232b43; }
+@media(max-width:760px) { .players-grid,.worlds-grid { grid-template-columns:repeat(2,minmax(0,1fr)); } .worlds-header { padding:22px 24px; } .worlds-content { padding:36px 24px 48px; } }
+@media(max-width:480px) { .worlds-header { padding:20px; } .worlds-header>span { display:none; } .worlds-content { padding:30px 18px; } .players-grid { gap:10px; } .player-card { min-height:185px; padding:18px; } .player-card>svg:last-child { display:none; } .worlds-grid { grid-template-columns:1fr; } .worlds-toolbar { width:100%; } .worlds-toolbar>.worlds-primary { flex:1; } .worlds-continue { padding:20px; } .worlds-modal { padding:22px; } .worlds-modal-backdrop { padding:14px; } }
+@media(prefers-reduced-motion:reduce) { .player-card { transition:none; } }
+.mobile-world-bar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:6px 10px; flex-shrink:0; background:#080d1a; position:relative; z-index:30; }
+.mobile-world-bar>strong { font-size:.9rem; }
+.mobile-world-bar .session-switcher { margin:0; width:min(240px,65vw); min-width:0; }
+.mobile-world-bar .session-trigger { text-align:left; }
+.mobile-world-bar .session-menu { max-height:65dvh; overflow:auto; }

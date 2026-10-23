@@ -1,6 +1,8 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import WorldsPage from "./pages/WorldsPage";
+import "./styles/worlds.css";
 import ErrorBoundary from "./components/ErrorBoundary";
 import AdminPage from "./pages/AdminPage";
 import CachePage from "./pages/CachePage";
@@ -14,7 +16,9 @@ import "./styles/pages.css";
 
 const pathname = window.location.pathname;
 const Page =
-  pathname === "/admin"
+  ["/", "/play", "/play/"].includes(pathname)
+    ? WorldsPage
+    : pathname === "/admin"
     ? AdminPage
     : pathname === "/cache"
     ? CachePage

@@ -14,7 +14,8 @@
     "build": "npm run build:api && npm run build:client",
     "build:api": "npm --workspace apps/api run build",
     "build:client": "npm --workspace apps/client run build",
-    "test:models": "npm run build:api && node --test scripts/testModelRouting.cjs"
+    "test:models": "npm run build:api && node --test scripts/testModelRouting.cjs",
+    "test:players": "npm run build:api && node --test scripts/testPlayers.cjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

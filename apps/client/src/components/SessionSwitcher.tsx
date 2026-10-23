@@ -1,8 +1,7 @@
-import { Check, ChevronDown, Copy, Pencil, Plus } from "lucide-react";
+import { Check, ChevronDown, Copy, Pencil } from "lucide-react";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  createSession,
-  lookupSessions,
+  fetchWorlds,
   updateSession,
 } from "../lib/api";
 import {
@@ -23,6 +22,8 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
   const [isRenaming, setIsRenaming] = useState(false);
   const [draftName, setDraftName] = useState(currentSession.name);
   const [copied, setCopied] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   const sortedRecentSessions = useMemo(() => {
@@ -59,33 +60,25 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
   }, [isOpen]);
 
   async function refreshRecentSessions() {
-    const ids = loadLocalSessions().map((entry) => entry.id);
-    if (ids.length === 0) {
-      setRecentSessions([currentSession]);
-      return;
-    }
     try {
-      const sessions = await lookupSessions(ids);
+      const sessions = await fetchWorlds(currentSession.playerId);
       setRecentSessions(sessions);
     } catch {
       setRecentSessions([currentSession]);
     }
   }
 
-  async function handleCreateSession() {
-    const session = await createSession();
-    rememberLocalSession(session.id, { createdHere: true });
-    window.location.assign(buildSessionPath(session.id));
-  }
-
   async function handleRenameSubmit(event: React.FormEvent) {
     event.preventDefault();
     const nextName = draftName.trim();
     if (!nextName) return;
-    const updated = await updateSession(currentSession.id, { name: nextName });
-    onSessionUpdated(updated);
-    setIsRenaming(false);
-    await refreshRecentSessions();
+    if (saving) return;
+    setSaving(true); setError(null);
+    try {
+      const updated = await updateSession(currentSession.id, { name: nextName });
+      onSessionUpdated(updated); setIsRenaming(false); await refreshRecentSessions();
+    } catch { setError("Could not rename world. Try again."); }
+    finally { setSaving(false); }
   }
 
   async function handleCopyLink() {
@@ -111,13 +104,13 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
         className="session-trigger"
         onClick={() => setIsOpen((current) => !current)}
         aria-expanded={isOpen}
-        aria-label="Switch session"
+        aria-label="Switch world"
       >
-        <span className="session-trigger-label">{currentSession.name}</span>
+        <span className="session-trigger-label"><span className="session-player-label">{currentSession.playerEmoji} {currentSession.playerName}</span>{currentSession.name}</span>
         <ChevronDown size={14} strokeWidth={2} aria-hidden="true" />
       </button>
       {isOpen ? (
-        <div className="session-menu" role="dialog" aria-label="Session switcher">
+        <div className="session-menu" role="dialog" aria-label="World switcher">
           <div className="session-menu-current">
             {isRenaming ? (
               <form className="session-rename-form" onSubmit={handleRenameSubmit}>
@@ -128,7 +121,7 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
                   maxLength={80}
                   autoFocus
                 />
-                <button type="submit" className="icon-button" aria-label="Save session name">
+                <button type="submit" className="icon-button" aria-label="Save world name" disabled={saving}>
                   <Check size={15} strokeWidth={2} aria-hidden="true" />
                 </button>
               </form>
@@ -155,6 +148,7 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
               </button>
             </div>
           </div>
+          {error ? <p role="alert">{error}</p> : null}
           <div className="session-list">
             {sortedRecentSessions
               .filter((session) => session.id !== currentSession.id)
@@ -173,10 +167,8 @@ export default function SessionSwitcher({ currentSession, onSessionUpdated }: Pr
                 </button>
               ))}
           </div>
-          <button type="button" className="session-new-button" onClick={handleCreateSession}>
-            <Plus size={15} strokeWidth={2} aria-hidden="true" />
-            New session
-          </button>
+          <a className="session-home-link" href={`/?player=${currentSession.playerId}`}>All worlds & settings</a>
+          <a className="session-home-link" href="/?choose=1">Switch player</a>
         </div>
       ) : null}
     </div>

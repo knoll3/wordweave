@@ -4,6 +4,8 @@ import type { Database } from "./db";
 import { BASE_ELEMENT_NORMALIZED_NAMES } from "./db";
 import { DEFAULT_ROOM_ID } from "./boardState";
 
+export const LEGACY_PLAYER_ID = "00000000-0000-4000-8000-000000000001";
+
 export const SESSION_ID_HEADER = "x-wordweave-session-id";
 
 const UUID_PATTERN =
@@ -15,6 +17,11 @@ export type SessionRecord = {
   createdAt: string;
   updatedAt: string;
   discoveredCount: number;
+  playerId: string;
+  playerName: string;
+  playerEmoji: string;
+  archivedAt: string | null;
+  lastPlayedAt: string | null;
 };
 
 export function isValidSessionId(value: string) {
@@ -35,6 +42,11 @@ function mapSessionRow(row: Record<string, unknown>): SessionRecord {
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
     discoveredCount: Number(row.discovered_count ?? 0),
+    playerId: String(row.player_id),
+    playerName: String(row.player_name ?? "Existing games"),
+    playerEmoji: String(row.player_emoji ?? "📦"),
+    archivedAt: row.archived_at == null ? null : String(row.archived_at),
+    lastPlayedAt: row.last_played_at == null ? null : String(row.last_played_at),
   };
 }
 
@@ -44,10 +56,10 @@ export function ensureSession(db: Database, sessionId: string, name?: string) {
   }
 
   const insertSessionStmt = db.prepare(`
-    INSERT OR IGNORE INTO sessions (id, name, created_at, updated_at)
-    VALUES (?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+    INSERT OR IGNORE INTO sessions (id, name, player_id, created_at, updated_at)
+    VALUES (?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
   `);
-  insertSessionStmt.run([sessionId, name?.trim() || "Untitled session"]);
+  insertSessionStmt.run([sessionId, name?.trim() || "New world", LEGACY_PLAYER_ID]);
   insertSessionStmt.free();
 
   const insertRoomStmt = db.prepare(`
@@ -60,9 +72,13 @@ export function ensureSession(db: Database, sessionId: string, name?: string) {
   seedSessionBaseDiscoveries(db, sessionId);
 }
 
-export function createSession(db: Database, name?: string) {
+export function createSession(db: Database, name?: string, playerId = LEGACY_PLAYER_ID) {
+  if (!getPlayer(db, playerId)) throw new Error("Player not found");
   const sessionId = randomUUID();
   ensureSession(db, sessionId, name);
+  const owner = db.prepare("UPDATE sessions SET player_id = ? WHERE id = ?");
+  owner.run([playerId, sessionId]);
+  owner.free();
   const session = getSession(db, sessionId);
   if (!session) {
     throw new Error("Failed to create session");
@@ -71,15 +87,12 @@ export function createSession(db: Database, name?: string) {
 }
 
 export function getSession(db: Database, sessionId: string) {
-  ensureSession(db, sessionId);
   const stmt = db.prepare(`
     SELECT
-      s.id,
-      s.name,
-      s.created_at,
-      s.updated_at,
+      s.*, p.name AS player_name, p.emoji AS player_emoji,
       COUNT(sd.element_id) AS discovered_count
     FROM sessions s
+    LEFT JOIN players p ON p.id = s.player_id
     LEFT JOIN session_discoveries sd ON sd.session_id = s.id
     WHERE s.id = ?
     GROUP BY s.id
@@ -97,15 +110,12 @@ export function listSessionsById(db: Database, sessionIds: string[]) {
     return [];
   }
 
-  uniqueSessionIds.forEach((sessionId) => ensureSession(db, sessionId));
   const stmt = db.prepare(`
     SELECT
-      s.id,
-      s.name,
-      s.created_at,
-      s.updated_at,
+      s.*, p.name AS player_name, p.emoji AS player_emoji,
       COUNT(sd.element_id) AS discovered_count
     FROM sessions s
+    LEFT JOIN players p ON p.id = s.player_id
     LEFT JOIN session_discoveries sd ON sd.session_id = s.id
     WHERE s.id IN (${uniqueSessionIds.map(() => "?").join(", ")})
     GROUP BY s.id
@@ -130,6 +140,81 @@ export function updateSessionName(db: Database, sessionId: string, name: string)
   stmt.run([nextName, sessionId]);
   stmt.free();
   return getSession(db, sessionId);
+}
+
+export type PlayerRecord = { id: string; name: string; emoji: string; worldCount: number };
+
+export function getPlayer(db: Database, id: string) {
+  const stmt = db.prepare("SELECT id, name, emoji FROM players WHERE id = ?");
+  const row = stmt.getAsObject([id]);
+  stmt.free();
+  return row.id == null ? null : { id: String(row.id), name: String(row.name), emoji: String(row.emoji) };
+}
+
+export function listPlayers(db: Database): PlayerRecord[] {
+  const stmt = db.prepare(`SELECT p.id, p.name, p.emoji,
+    COUNT(CASE WHEN s.archived_at IS NULL AND s.id != 'default-room' THEN 1 END) AS world_count
+    FROM players p LEFT JOIN sessions s ON s.player_id = p.id
+    WHERE p.id != ? OR EXISTS (SELECT 1 FROM sessions x WHERE x.player_id = p.id AND x.id != 'default-room')
+    GROUP BY p.id ORDER BY p.created_at, p.name COLLATE NOCASE, p.id`);
+  stmt.bind([LEGACY_PLAYER_ID]);
+  const rows: PlayerRecord[] = [];
+  while (stmt.step()) {
+    const row = stmt.getAsObject();
+    rows.push({ id: String(row.id), name: String(row.name), emoji: String(row.emoji), worldCount: Number(row.world_count) });
+  }
+  stmt.free();
+  return rows;
+}
+
+export function createPlayer(db: Database, name: string, emoji: string) {
+  const id = randomUUID();
+  db.run("SAVEPOINT create_player");
+  try {
+    const stmt = db.prepare("INSERT INTO players (id, name, emoji) VALUES (?, ?, ?)");
+    stmt.run([id, name, emoji]);
+    stmt.free();
+    const world = createSession(db, "My first world", id);
+    db.run("RELEASE create_player");
+    return { player: { id, name, emoji, worldCount: 1 }, world };
+  } catch (error) {
+    db.run("ROLLBACK TO create_player; RELEASE create_player");
+    throw error;
+  }
+}
+
+export function listWorlds(db: Database, playerId: string, archived = false) {
+  const stmt = db.prepare(`SELECT s.*, p.name AS player_name, p.emoji AS player_emoji,
+    (SELECT COUNT(*) FROM session_discoveries sd WHERE sd.session_id = s.id) AS discovered_count
+    FROM sessions s JOIN players p ON p.id = s.player_id
+    WHERE s.player_id = ? AND s.id != 'default-room' AND s.archived_at IS ${archived ? "NOT NULL" : "NULL"}
+    ORDER BY COALESCE(s.last_played_at, s.updated_at) DESC, s.id`);
+  stmt.bind([playerId]);
+  const rows: SessionRecord[] = [];
+  while (stmt.step()) rows.push(mapSessionRow(stmt.getAsObject()));
+  stmt.free();
+  return rows;
+}
+
+export function updateWorld(db: Database, id: string, patch: { name?: string; playerId?: string; archived?: boolean }) {
+  const exists = db.prepare("SELECT id FROM sessions WHERE id = ?");
+  const row = exists.getAsObject([id]); exists.free();
+  if (!row.id) return null;
+  if (patch.playerId && !getPlayer(db, patch.playerId)) throw new Error("Player not found");
+  const stmt = db.prepare(`UPDATE sessions SET name = COALESCE(?, name), player_id = COALESCE(?, player_id),
+    archived_at = CASE WHEN ? IS NULL THEN archived_at WHEN ? = 1 THEN CURRENT_TIMESTAMP ELSE NULL END,
+    updated_at = CURRENT_TIMESTAMP WHERE id = ?`);
+  const archived = patch.archived == null ? null : Number(patch.archived);
+  stmt.run([patch.name ?? null, patch.playerId ?? null, archived, archived, id]); stmt.free();
+  return getSession(db, id);
+}
+
+export function visitWorld(db: Database, id: string) {
+  const session = getSession(db, id);
+  if (!session) return null;
+  const stmt = db.prepare("UPDATE sessions SET last_played_at = CURRENT_TIMESTAMP WHERE id = ?");
+  stmt.run([id]); stmt.free();
+  return getSession(db, id);
 }
 
 export function seedSessionBaseDiscoveries(db: Database, sessionId: string) {

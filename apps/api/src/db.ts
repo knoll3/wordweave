@@ -104,6 +104,14 @@ async function initDatabase(): Promise<Database> {
   db.pragma("foreign_keys = ON");
   db.pragma("busy_timeout = 5000");
 
+  const hasSessions = rawDb.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'sessions'").get();
+  if (hasSessions && !(rawDb.pragma("table_info(sessions)") as Array<{ name: string }>).some((column) => column.name === "player_id")) {
+    const backupDir = path.join(path.dirname(DB_FILE_PATH), "backups");
+    fs.mkdirSync(backupDir, { recursive: true });
+    await rawDb.backup(path.join(backupDir, `before-players-${Date.now()}.db`));
+    console.log("[api][players] Created database backup before player migration");
+  }
+
   createSchema(db);
   seedBaseElements(db);
   ensureDefaultRoom(db);
@@ -356,6 +364,29 @@ function createSchema(db: Database): void {
   `);
 
   removeUnusedSchema(db);
+
+  db.run("SAVEPOINT player_profiles");
+  try {
+    db.run(`CREATE TABLE IF NOT EXISTS players (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      emoji TEXT NOT NULL DEFAULT '🙂',
+      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`);
+    ensureColumn(db, "sessions", "player_id", "TEXT REFERENCES players(id)");
+    ensureColumn(db, "sessions", "archived_at", "DATETIME NULL");
+    ensureColumn(db, "sessions", "last_played_at", "DATETIME NULL");
+    db.run(`
+      INSERT OR IGNORE INTO players (id, name, emoji)
+      VALUES ('00000000-0000-4000-8000-000000000001', 'Existing games', '📦');
+      UPDATE sessions SET player_id = '00000000-0000-4000-8000-000000000001' WHERE player_id IS NULL;
+      CREATE INDEX IF NOT EXISTS idx_sessions_player ON sessions (player_id, archived_at, last_played_at);
+    `);
+    db.run("RELEASE player_profiles");
+  } catch (error) {
+    db.run("ROLLBACK TO player_profiles; RELEASE player_profiles");
+    throw error;
+  }
 }
 
 function ensureColumn(

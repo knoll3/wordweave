@@ -2,9 +2,29 @@
 
 - React + Vite client
 - Pixi-powered crafting graph
-- Express + SQLite (via `sql.js`) API
+- Express + SQLite (via `better-sqlite3`) API
 - OpenAI-powered multi-input crafting using `gpt-5-mini`
 - Local SearXNG search for Web Search catalyst retrieval in development
+
+### Players and worlds
+
+Open the homepage to choose a player. Add a name and avatar to create a profile
+with its first world, then create additional worlds as needed. Each world has
+its own discoveries, quests, and board. Profiles are simple shared profiles,
+not authenticated accounts; anyone with access to the app can select one.
+
+The world chooser supports renaming, moving worlds between players, and
+archiving/restoring without deleting progress. The in-game world menu links
+back to the chooser and lets you switch players. Copy a world link to use the
+same saved board on another device. The last player is remembered locally,
+but opening the homepage always shows a chooser rather than starting play.
+
+Existing sessions move into **Existing games**, keeping their URLs and progress.
+The first upgrade creates a consistent database backup in `apps/api/data/backups`
+(or next to a custom `DATABASE_PATH`) before migrating. Shared recipes and
+embeddings remain global; player progress remains attached to each world.
+
+Run `npm run test:players` for profile/world isolation and migration checks.
 
 ### Tech Stack
 
@@ -139,4 +159,4 @@ You can then use the app at `http://localhost:5173`.
 - Use the **search box** to quickly find elements.
 - The **Recent creations** panel shows a compact list of your latest canonical results.
 
-This prototype is designed for a single local user, optimized for simplicity and fast iteration rather than multi-user scale.
+This prototype supports multiple player profiles and worlds on one server, optimized for simple shared use and fast iteration.
