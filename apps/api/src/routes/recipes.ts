@@ -506,7 +506,7 @@ router.post("/combine", async (req, res) => {
   const ponderificate = parsedBody.data.ponderificate ?? false;
   const categoryConstraint = parsedBody.data.categoryConstraint?.trim() || null;
   const actionConstraint = parsedBody.data.actionConstraint?.trim() || null;
-  const model = parsedBody.data.model ?? DEFAULT_MODEL_NAME;
+  const model = DEFAULT_MODEL_NAME;
   const actionPromptFamily = resolveActionPromptFamily(actionConstraint);
   const usePopCultureSearch = actionPromptFamily?.key === "pop_culture";
 

@@ -170,7 +170,7 @@ router.post("/test", async (req, res) => {
     return res.status(404).json({ error: "Unknown prompt key" });
   }
 
-  const model: OpenAiModel = parsed.data.model ?? DEFAULT_MODEL_NAME;
+  const model: OpenAiModel = DEFAULT_MODEL_NAME;
 
   try {
     if (promptDefinition.kind === "recipe_batch") {
