@@ -2,7 +2,10 @@
 
 Deploy the root `Dockerfile` as a single app service. It builds the Vite client
 and Express API, then serves both from the API's HTTP server. Socket.IO uses
-that same server. `railway.json` configures `/api/health` as the readiness check.
+that same server. `.railway/railway.ts` configures the services, single replicas,
+database volume, and readiness checks using Railway's Infrastructure as Code.
+Use `railway config plan` and `railway config apply` to review and apply infrastructure
+changes. Runtime secrets stay in Railway; the configuration leaves variables unmanaged.
 
 Use one app replica: SQLite and the in-memory live-board coordination currently
 assume a single server. Mount a persistent volume at `/app/apps/api/data` so

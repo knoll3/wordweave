@@ -25,6 +25,12 @@ const allowedOrigins = new Set([
   `http://localhost:${clientPort}`,
   `http://127.0.0.1:${clientPort}`,
 ]);
+if (process.env.RAILWAY_PUBLIC_DOMAIN) {
+  allowedOrigins.add(`https://${process.env.RAILWAY_PUBLIC_DOMAIN}`);
+}
+if (process.env.APP_ORIGIN) {
+  allowedOrigins.add(process.env.APP_ORIGIN);
+}
 
 app.use(
   cors({
