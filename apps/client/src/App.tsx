@@ -22,11 +22,14 @@ import {
   normalizeActionTrigger,
 } from "./lib/actionPromptFamilies";
 import {
+  createSession,
   fetchSession,
   fetchUnlockStatuses,
 } from "./lib/api";
 import {
+  buildSessionPath,
   getSessionIdFromPath,
+  loadLocalSessions,
   rememberLocalSession,
   type SessionRecord,
 } from "./lib/session";
@@ -112,6 +115,7 @@ const App: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [sessionLoadError, setSessionLoadError] = useState<string | null>(null);
+  const initialSessionRequestRef = useRef<Promise<SessionRecord> | null>(null);
   const [featureUnlocks, setFeatureUnlocks] = useState<FeatureUnlockStatus[]>([]);
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [rightPanelMode, setRightPanelMode] = useState<"journal" | "item" | "quest">(
@@ -229,14 +233,30 @@ const App: React.FC = () => {
     void (async () => {
       try {
         const pathSessionId = getSessionIdFromPath();
-        if (!pathSessionId) {
+        const isSessionEntry = window.location.pathname === "/" ||
+          window.location.pathname === "/play" || window.location.pathname === "/play/";
+        if (!pathSessionId && !isSessionEntry) {
           if (cancelled) return;
           setSessionLoadError("Session ID required.");
           return;
         }
-        const loadedSession = await fetchSession(pathSessionId);
+        const rememberedSessionId = isSessionEntry
+          ? loadLocalSessions().sort((a, b) => b.lastSeenAt.localeCompare(a.lastSeenAt))[0]?.id
+          : null;
+        const sessionId = pathSessionId || rememberedSessionId;
+        // Reuse the request across StrictMode's effect replay so a first visit
+        // creates one session, including in local development.
+        if (!initialSessionRequestRef.current) {
+          initialSessionRequestRef.current = sessionId
+            ? fetchSession(sessionId)
+            : createSession();
+        }
+        const loadedSession = await initialSessionRequestRef.current;
         if (cancelled) return;
-        rememberLocalSession(loadedSession.id);
+        if (isSessionEntry) {
+          window.history.replaceState(null, "", buildSessionPath(loadedSession.id));
+        }
+        rememberLocalSession(loadedSession.id, { createdHere: !sessionId });
         setSession(loadedSession);
       } catch (err) {
         if (cancelled) return;
