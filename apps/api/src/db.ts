@@ -82,7 +82,7 @@ export class Database {
   }
 }
 
-const DB_FILE_PATH = path.join(__dirname, "..", "data", "craft.db");
+const DB_FILE_PATH = process.env.DATABASE_PATH || path.join(__dirname, "..", "data", "craft.db");
 export const BASE_ELEMENTS: { name: string; icon: string }[] = [
   { name: "Fire", icon: "🔥" },
   { name: "Water", icon: "💧" },

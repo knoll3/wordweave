@@ -69,7 +69,21 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true });
 });
 
-const port = process.env.API_PORT ? Number(process.env.API_PORT) : 4000;
+// Production serves the built client and API from the same origin.
+if (process.env.NODE_ENV === "production") {
+  const clientDist = path.resolve(__dirname, "..", "..", "client", "dist");
+  app.use(express.static(clientDist));
+  app.get("*", (req, res, next) => {
+    if (req.path === "/api" || req.path.startsWith("/api/") ||
+        req.path === "/socket.io" || req.path.startsWith("/socket.io/")) {
+      next();
+      return;
+    }
+    res.sendFile(path.join(clientDist, "index.html"));
+  });
+}
+
+const port = Number(process.env.PORT || process.env.API_PORT || 4000);
 const host = process.env.API_BIND_HOST || "0.0.0.0";
 const httpServer = http.createServer(app);
 createLiveBoardSocketServer(httpServer);
