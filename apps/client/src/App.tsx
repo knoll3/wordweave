@@ -51,13 +51,7 @@ import {
   CATEGORY_MODIFIER_ITEM_ID
 } from "./types";
 
-const AI_MODELS: AiModel[] = [
-  "gpt-5.4",
-  "gpt-5-mini",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4.1-nano",
-];
+const AI_MODELS: AiModel[] = ["gpt-6-luna"];
 const MODEL_STORAGE_KEY = "wordweave.ai-model";
 const FORCE_UNLOCKS_STORAGE_KEY = "wordweave.force-unlocks";
 const TOAST_DURATION_MS = 3500;
@@ -141,7 +135,7 @@ const App: React.FC = () => {
     modelStorageKey: MODEL_STORAGE_KEY,
     forceUnlocksStorageKey: FORCE_UNLOCKS_STORAGE_KEY,
     supportedModels: AI_MODELS,
-    defaultModel: "gpt-5-mini",
+    defaultModel: "gpt-6-luna",
   });
   const journalDockRef = useRef<HTMLElement | null>(null);
   const hasHydratedSharedSnapshotRef = useRef(false);

@@ -44,7 +44,11 @@ export type GenerationTracePayload = {
   searchResults: WebSearchResult[] | null;
 };
 
+// Legacy IDs remain accepted in request types for older clients; routing below
+// always applies the application's current model policy.
 export type OpenAiModel =
+  | "gpt-6-luna"
+  | "gpt-6.1-sol"
   | "gpt-5.4"
   | "gpt-5-mini"
   | "gpt-5-nano"
@@ -52,36 +56,13 @@ export type OpenAiModel =
   | "gpt-4.1-mini"
   | "gpt-4.1-nano";
 
-const MODEL_NAMES: OpenAiModel[] = [
-  "gpt-5.4",
-  "gpt-5-mini",
-  "gpt-5-nano",
-  "gpt-4.1",
-  "gpt-4.1-mini",
-  "gpt-4.1-nano",
-];
+export const DEFAULT_MODEL_NAME: OpenAiModel = "gpt-6-luna";
+export const QUEST_MODEL_NAME: OpenAiModel = "gpt-6.1-sol";
 
-function resolveDefaultModelName(): OpenAiModel {
-  const configuredModel = process.env.OPENAI_MODEL;
-  if (configuredModel && MODEL_NAMES.includes(configuredModel as OpenAiModel)) {
-    return configuredModel as OpenAiModel;
-  }
-  return "gpt-5-mini";
+function getReasoningEffortForModel(model: OpenAiModel): "none" | "low" {
+  return model === QUEST_MODEL_NAME ? "low" : "none";
 }
 
-type OpenAiReasoningEffort = "none" | "minimal" | "low" | "medium" | "high";
-
-function getReasoningEffortForModel(model: OpenAiModel): OpenAiReasoningEffort | null {
-  if (model === "gpt-5.4") {
-    return "none";
-  }
-  if (model === "gpt-5-mini") {
-    return "minimal";
-  }
-  return null;
-}
-
-export const DEFAULT_MODEL_NAME: OpenAiModel = resolveDefaultModelName();
 export const DEFAULT_EMBEDDING_MODEL_NAME = "text-embedding-3-small";
 
 const CREATIVE_OVERLAY_INSTRUCTIONS = `
@@ -294,7 +275,7 @@ export async function generateResult(
     }
 > {
   const openai = getOpenAI();
-  const model = options?.ponderificate ? "gpt-5-mini" : (options?.model ?? DEFAULT_MODEL_NAME);
+  const model = DEFAULT_MODEL_NAME;
   const { prompt, actionPromptFamily } = renderGenerateResultPrompt(inputs, options);
   const reasoningEffort =
     options?.ponderificate ? "low" : getReasoningEffortForModel(model);
@@ -309,13 +290,11 @@ export async function generateResult(
     creative: options?.creative ?? false,
     ponderificate: options?.ponderificate ?? false,
     webSearchResultCount: options?.webSearchResults?.length ?? 0,
-    temperature: 1,
     prompt,
   });
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 1,
     ...(reasoningEffort ? ({ reasoning_effort: reasoningEffort } as const) : {}),
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
@@ -448,7 +427,7 @@ export async function generateRecipeBatch(params: {
   }) => void;
 }) {
   const openai = getOpenAI();
-  const model = params.model ?? DEFAULT_MODEL_NAME;
+  const model = DEFAULT_MODEL_NAME;
   const prompt = renderRecipeBatchPrompt({ pairs: params.pairs });
 
   console.log("[openai][recipe-batch] sending request", {
@@ -460,7 +439,6 @@ export async function generateRecipeBatch(params: {
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 1,
     ...(getReasoningEffortForModel(model)
       ? ({ reasoning_effort: getReasoningEffortForModel(model) } as const)
       : {}),
@@ -519,7 +497,7 @@ export async function generateQuestTargets(params: {
   preferEasyTargets?: boolean;
 }) {
   const openai = getOpenAI();
-  const model: OpenAiModel = "gpt-5.4";
+  const model = QUEST_MODEL_NAME;
   const reasoningEffort = "low";
   const prompt = params.preferEasyTargets
     ? renderEasyQuestTargetsPrompt(params)
@@ -539,7 +517,6 @@ export async function generateQuestTargets(params: {
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 1,
     reasoning_effort: reasoningEffort,
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
@@ -585,8 +562,8 @@ export async function generateQuestTargetVariants(params: {
   targets: string[];
 }): Promise<QuestTargetVariants> {
   const openai = getOpenAI();
-  const model: OpenAiModel = "gpt-5-mini";
-  const reasoningEffort = "medium";
+  const model = DEFAULT_MODEL_NAME;
+  const reasoningEffort = "none";
   const prompt = QUEST_TARGET_VARIANTS_PROMPT.replace(
     "{{QUEST_TARGETS_ARRAY}}",
     JSON.stringify(params.targets)
@@ -601,7 +578,6 @@ export async function generateQuestTargetVariants(params: {
 
   const response = await openai.chat.completions.create({
     model,
-    temperature: 1,
     reasoning_effort: reasoningEffort,
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
@@ -649,7 +625,7 @@ export async function judgeQuestCompletionCandidate(params: {
   model?: OpenAiModel;
 }) {
   const openai = getOpenAI();
-  const model = params.model ?? "gpt-5-nano";
+  const model = DEFAULT_MODEL_NAME;
   const prompt = `
 You are judging whether a discovered word should satisfy a quest target in a word-combination discovery game.
 
@@ -704,6 +680,7 @@ Return ONLY valid JSON:
 
   const response = await openai.chat.completions.create({
     model,
+    reasoning_effort: getReasoningEffortForModel(model),
     response_format: { type: "json_object" },
     messages: [{ role: "user", content: prompt }],
   });

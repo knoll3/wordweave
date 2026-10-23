@@ -33,7 +33,7 @@ import { findAvailableQuestTargetMatch, syncQuestCompletions } from "../questSta
 import { ensureSession, getRequestSessionId } from "../sessions";
 
 const router = express.Router();
-const CACHE_BATCH_MODEL: OpenAiModel = "gpt-5-mini";
+const CACHE_BATCH_MODEL: OpenAiModel = DEFAULT_MODEL_NAME;
 const CACHE_BATCH_SIZE = 25;
 function buildRecipeInputKey(params: {
   inputKey: string;

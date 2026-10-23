@@ -36,7 +36,7 @@ const PromptsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedPromptKey, setSelectedPromptKey] = useState<string>("");
-  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-5-mini");
+  const [selectedModel, setSelectedModel] = useState<AiModel>("gpt-6-luna");
   const [inputsText, setInputsText] = useState("Fire\nWater");
   const [batchPairsText, setBatchPairsText] = useState("Fire | Water\nBird | Metal");
   const [actionConstraint, setActionConstraint] = useState("");
@@ -62,7 +62,7 @@ const PromptsPage: React.FC = () => {
         setSelectedModel(
           storedModel && next.models.includes(storedModel as AiModel)
             ? (storedModel as AiModel)
-            : "gpt-5-mini"
+            : next.defaultModel
         );
         setSelectedPromptKey(next.prompts[0]?.key ?? "");
         setError(null);

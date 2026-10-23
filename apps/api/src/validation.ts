@@ -7,7 +7,7 @@ export const combineRequestSchema = z.object({
   creative: z.boolean().optional().default(false),
   ponderificate: z.boolean().optional().default(false),
   model: z
-    .enum(["gpt-5.4", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
+    .enum(["gpt-6-luna", "gpt-6.1-sol", "gpt-5.4", "gpt-5-mini", "gpt-4.1", "gpt-4.1-mini", "gpt-4.1-nano"])
     .optional(),
 });
 

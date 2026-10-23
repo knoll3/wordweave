@@ -18,6 +18,8 @@ import { searchGoogleLikeWeb } from "../webSearch";
 const router = express.Router();
 
 const modelSchema = z.enum([
+  "gpt-6-luna",
+  "gpt-6.1-sol",
   "gpt-5.4",
   "gpt-5-mini",
   "gpt-4.1",
@@ -144,7 +146,7 @@ const PROMPT_DEFINITIONS: PromptDefinition[] = [
 router.get("/", (_req, res) => {
   return res.json({
     defaultModel: DEFAULT_MODEL_NAME,
-    models: modelSchema.options,
+    models: [DEFAULT_MODEL_NAME],
     prompts: PROMPT_DEFINITIONS.map((prompt) => ({
       ...prompt,
       defaultActionConstraint:

@@ -8,7 +8,7 @@ dotenv.config({
 
 const QUERY = process.argv.slice(2).join(" ").trim() || "Charles Talking Cat Tiktok";
 const LIMIT = 3;
-const MODEL = "gpt-4.1-mini";
+const MODEL = "gpt-6-luna";
 const PARALLEL_RUN_COUNT = 3;
 
 function getClient() {

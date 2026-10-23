@@ -16,7 +16,14 @@ on API startup. A fresh database starts with the four base elements.
 Connect `knoll3/wordweave`, branch `main`, and enable automatic deployments.
 The app accepts Railway's `PORT`; `NODE_ENV=production` is set in the image.
 Store `OPENAI_API_KEY` securely in the app service's Railway variables, never
-in the repository or client configuration. `OPENAI_MODEL` is optional.
+in the repository or client configuration.
+
+Model routing is defined in `apps/api/src/openaiClient.ts`: `gpt-6-luna` for
+combinations, ranked alternatives, cache generation, and quest spelling variants;
+`gpt-6.1-sol` for quest target generation. Legacy client model preferences and
+`OPENAI_MODEL` do not override this policy. Semantic search, clustering, and unlocks
+continue using `text-embedding-3-small`; existing embeddings do not need rebuilding.
+Run `npm run test:models` to check routing and token-cost estimates without API calls.
 
 Run SearXNG as a separate private service. Use the repository's
 `ops/searxng/settings.yml` as its configuration, enable JSON results, and set the
